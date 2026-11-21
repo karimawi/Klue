@@ -21,6 +21,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
+from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 from torch.utils.data import DataLoader, IterableDataset
 
 from synth import CHARSET, HEIGHT, WIDTH, Generator
@@ -204,6 +205,8 @@ def main():
     p.add_argument("--resume")
     p.add_argument("--pregen", type=int, default=0, help="render this many samples up front instead of on the fly")
     p.add_argument("--threads", type=int, default=0)
+    p.add_argument("--ema", type=float, default=0.999,
+                   help="evaluate and export an exponential moving average of the weights (0 = the last step's)")
     a = p.parse_args()
     if a.threads:
         torch.set_num_threads(a.threads)
@@ -246,6 +249,10 @@ def main():
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=a.lr, total_steps=a.steps, pct_start=0.15)
     ctc = nn.CTCLoss(blank=BLANK, zero_infinity=True)
+    # Accuracy on real captchas moves a few points between checkpoints; an average of the
+    # recent weights is steadier than whichever step happens to be last.
+    ema = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(a.ema), use_buffers=True) if a.ema else None
+    final = ema.module if ema else model
 
     t0, running = time.time(), None
     for step, (x, targets, lengths, _) in enumerate(data, 1):
@@ -258,25 +265,27 @@ def main():
         nn.utils.clip_grad_norm_(model.parameters(), 5.0)
         opt.step()
         sched.step()
+        if ema:
+            ema.update_parameters(model)
         running = loss.item() if running is None else 0.98 * running + 0.02 * loss.item()
         if step % 250 == 0 or step == a.steps:
-            sv, _, _ = evaluate(model, val)
-            rv, rn, preds = evaluate(model, real)
+            sv, _, _ = evaluate(final, val)
+            rv, rn, preds = evaluate(final, real)
             print(f"step {step:5d}  loss {running:.4f}  synth {sv:.3f}  real {rv:.2f} (no-case {rn:.2f}) {preds}  {time.time() - t0:.0f}s", flush=True)
-            torch.save(model.state_dict(), a.out + ".pt")
+            torch.save(final.state_dict(), a.out + ".pt")
         if step >= a.steps:
             break
 
     print("synthetic (fresh seeds):")
-    confidence_report(model, [Generator(a.font, 777000 + i).render() for i in range(2000)])
+    confidence_report(final, [Generator(a.font, 777000 + i).render() for i in range(2000)])
     if real:
         print("real:")
-        confidence_report(model, real)
+        confidence_report(final, real)
 
-    model.eval()
+    final.eval()
     dummy = torch.zeros(1, 3, HEIGHT, WIDTH)
     torch.onnx.export(
-        model, dummy, a.out, input_names=["image"], output_names=["logits"],
+        final, dummy, a.out, input_names=["image"], output_names=["logits"],
         dynamic_axes={"image": {0: "batch"}, "logits": {0: "batch"}}, opset_version=17, dynamo=False,
     )
     print(f"wrote {a.out} ({os.path.getsize(a.out) / 1e6:.2f} MB)")

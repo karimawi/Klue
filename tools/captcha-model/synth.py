@@ -1,9 +1,10 @@
 """Synthetic captchas in the style of WE's GenerateCaptcha (captcha.te.eg).
 
 Measured from real samples: 180x50 JPEG, light grey background with per-pixel colour
-noise, Arial or (less often) Times New Roman, five red characters in Arial (28-34 px, caps 20-25 px tall, baseline y~35) on a
-fixed ~20 px pitch, and one thin blue line struck through the text. Liberation Sans is metrically
-identical to Arial; pass --font to use Arial itself if you have it.
+noise, five red characters in Arial or (about a third of the time) Times New Roman
+(28-34 px, caps 20-25 px tall, baseline y~35) on a fixed ~20 px pitch, drawn over one thin
+blue line. Liberation Sans/Serif are metrically identical to Arial/Times; pass --font to
+use the originals if you have them.
 """
 
 import io
@@ -17,23 +18,29 @@ CHARSET = string.digits + string.ascii_uppercase + string.ascii_lowercase  # 62,
 # Letters whose upper and lower case differ only in size; never resize these on their own.
 SIZE_IS_CASE = set("cosuvwxzCOSUVWXZ")
 WIDTH, HEIGHT = 180, 50
-# (path, weight). WE mostly uses Arial and sometimes Times New Roman (2 of the first 15
-# real samples). Liberation Sans/Serif have exactly their metrics and very similar shapes;
+# Share of captchas whose text is drawn over the strike line rather than under it. WE draws
+# the text on top: where the line crosses a letter, the real images stay red (81% of
+# crossings, 5% blue), which this reproduces (87% / 8%); drawing the line on top gave 34% / 22%.
+# A few line-on-top captchas stay in for robustness.
+LINE_UNDER = 0.85
+# (path, weight). WE mostly uses Arial and sometimes Times New Roman (18 of the first 53
+# real samples, about a third). Liberation Sans/Serif have exactly their metrics and very similar shapes;
 # the others add a little glyph variety so the model doesn't overfit one rasteriser.
-# Serif is over-represented relative to WE so the model learns it well.
 DEFAULT_FONTS = [
     ("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 60),
     ("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 8),
     ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 6),
-    ("/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf", 20),
+    ("/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf", 30),
     ("/usr/share/fonts/truetype/freefont/FreeSerif.ttf", 4),
     ("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf", 2),
 ]
 
 
 class Generator:
-    def __init__(self, fonts=None, seed=None):
+    def __init__(self, fonts=None, seed=None, line_under=LINE_UNDER):
         import os
+
+        self.line_under = line_under
 
         if fonts:
             self.fonts, self.weights = list(fonts), [1] * len(fonts)
@@ -86,7 +93,8 @@ class Generator:
             x = x0 + i * pitch + r.uniform(-1.5, 1.5)
             y = baseline + r.uniform(-3.5, 3.5)
             # Occasionally a character comes out a little smaller or larger (seen on digits),
-            # but never one whose case is only told apart by size.
+            # but never one whose case is only told apart by size. (Letting those vary too,
+            # within ranges measured on real samples, made real accuracy worse: 47/53 vs 51/53.)
             resize = ch not in SIZE_IS_CASE and r.random() < 0.2
             glyph = self.font(font_path, round(size * r.uniform(0.85, 1.08)) * k) if resize else font
             draw.text((x * k, y * k), ch, font=glyph, fill=red, anchor="ls")
@@ -101,13 +109,16 @@ class Generator:
         opacity = r.uniform(0.88, 1.0)
         layer.putalpha(alpha.point(lambda v: int(v * opacity)))
 
-        # Strike-through: one blue line over the text.
+        # Strike-through: one thin blue line across the text (usually under it, see LINE_UNDER).
         line = Image.new("RGBA", layer.size, (0, 0, 0, 0))
         x0, x1 = r.uniform(12, 35), r.uniform(138, 168)
         y0, y1 = r.uniform(14, 34), r.uniform(14, 34)
         blue = (r.randint(80, 130), r.randint(80, 130), r.randint(225, 255), 255)
         ImageDraw.Draw(line).line([(x0 * k, y0 * k), (x1 * k, y1 * k)], fill=blue, width=round(r.uniform(1.6, 2.6) * k))
-        layer = Image.alpha_composite(layer, line)
+        if r.random() < self.line_under:
+            layer = Image.alpha_composite(line, layer)  # text drawn over the line
+        else:
+            layer = Image.alpha_composite(layer, line)  # line drawn over the text
 
         layer = layer.resize((WIDTH, HEIGHT), Image.LANCZOS)
         img = Image.alpha_composite(img.convert("RGBA"), layer).convert("RGB")
