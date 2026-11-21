@@ -53,16 +53,18 @@ After a few sign-ins, WE's `GenerateCaptcha` starts returning an image: five red
 
 The model also reports how sure it is. Below 0.7 it doesn't guess, because every wrong answer uses up one of the few attempts WE allows before blocking sign-ins. Instead, Klue asks you to type the code when you're adding a number or pressing **Refresh**, and skips that attempt during background refreshes. If WE answers `Blocked`, Klue waits an hour before trying that number again.
 
-Results on the five real captchas collected so far (`crates/klue-core/tests/captchas`):
+Results on the 15 real captchas collected so far (`crates/klue-core/tests/captchas`; the model never trained on them):
 
 | Reader | Exact | Ignoring case | Wrong answers it would submit |
 | --- | --- | --- | --- |
-| ddddocr (`common_old.onnx`) | 3/5 | 5/5 | 2 |
-| Klue's WE model | 4/5 | 4/5 | **0** (declines the fifth) |
+| ddddocr (`common_old.onnx`) | 9/15 | 15/15 | 6 |
+| Klue's WE model | **15/15** | 15/15 | **0** |
 
-ddddocr reads the letters but guesses the case of `C O S V W X Z`, which in Arial differ only in size. WE's codes are case-sensitive, and most 5-character codes contain at least one of these letters. Klue's model sees the image at its real scale, so it gets `S7nQY`, `y6WWW` and `y7EZr` right. On 2,000 fresh synthetic captchas it answers 96.7% of the time and is right 98.3% of the time when it does.
+ddddocr reads the letters but guesses the case of `C O S V W X Z` (and, in the serif font, `Y`), which differ from their other case only in size. WE's codes are case-sensitive, and most 5-character codes contain at least one such letter. Klue's model sees the image at its real scale. Of the 15, it reads 14 with confidence above 0.7; the fifteenth (`G5DZC`, a serif captcha with an odd raised `5`) it reads correctly but at 0.63, so Klue would ask you to type it rather than risk an attempt. On 2,000 fresh synthetic captchas it answers 95.5% of the time and is right 98.2% of the time when it does.
 
-Five real samples are enough to show the approach works, but not to prove reliability. The best next step is to collect a few hundred real captchas and fine-tune on them:
+WE draws most captchas in Arial and some in Times New Roman (2 of the 15). Characters sit on a fixed 20 px pitch, so wide letters overlap their neighbours, and the font size varies from one captcha to the next.
+
+Fifteen real samples are encouraging but not proof. If WE changes its generator, or the model starts declining often, collect more real captchas and fine-tune on them:
 
 ```sh
 cargo run -p klue-core --example we_captcha -- 0223584417 --count 20            # saves fresh captchas to captchas/

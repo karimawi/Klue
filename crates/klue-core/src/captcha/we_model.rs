@@ -176,6 +176,6 @@ mod tests {
         }
         assert!(total >= 5);
         assert!(confident_wrong.is_empty(), "confidently wrong on {confident_wrong:?}");
-        assert!(correct * 5 >= total * 4, "only {correct}/{total} read correctly");
+        assert!(correct * 10 >= total * 9, "only {correct}/{total} read correctly");
     }
 }

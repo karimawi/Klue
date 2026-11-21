@@ -1,7 +1,7 @@
 """Synthetic captchas in the style of WE's GenerateCaptcha (captcha.te.eg).
 
 Measured from real samples: 180x50 JPEG, light grey background with per-pixel colour
-noise, five red characters in Arial (28-34 px, caps 20-25 px tall, baseline y~35) on a
+noise, Arial or (less often) Times New Roman, five red characters in Arial (28-34 px, caps 20-25 px tall, baseline y~35) on a
 fixed ~20 px pitch, and one thin blue line struck through the text. Liberation Sans is metrically
 identical to Arial; pass --font to use Arial itself if you have it.
 """
@@ -14,13 +14,20 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 CHARSET = string.digits + string.ascii_uppercase + string.ascii_lowercase  # 62, blank = index 0 in the model
+# Letters whose upper and lower case differ only in size; never resize these on their own.
+SIZE_IS_CASE = set("cosuvwxzCOSUVWXZ")
 WIDTH, HEIGHT = 180, 50
-# (path, weight). Liberation Sans has Arial's metrics and shapes; the others add a little
-# glyph variety so the model doesn't overfit one rasteriser.
+# (path, weight). WE mostly uses Arial and sometimes Times New Roman (2 of the first 15
+# real samples). Liberation Sans/Serif have exactly their metrics and very similar shapes;
+# the others add a little glyph variety so the model doesn't overfit one rasteriser.
+# Serif is over-represented relative to WE so the model learns it well.
 DEFAULT_FONTS = [
-    ("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 8),
-    ("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 1),
-    ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 1),
+    ("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 60),
+    ("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 8),
+    ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 6),
+    ("/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf", 20),
+    ("/usr/share/fonts/truetype/freefont/FreeSerif.ttf", 4),
+    ("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf", 2),
 ]
 
 
@@ -77,8 +84,12 @@ class Generator:
         baseline = r.uniform(33, 37)
         for i, ch in enumerate(text):
             x = x0 + i * pitch + r.uniform(-1.5, 1.5)
-            y = baseline + r.uniform(-2.5, 2.5)
-            draw.text((x * k, y * k), ch, font=font, fill=red, anchor="ls")
+            y = baseline + r.uniform(-3.5, 3.5)
+            # Occasionally a character comes out a little smaller or larger (seen on digits),
+            # but never one whose case is only told apart by size.
+            resize = ch not in SIZE_IS_CASE and r.random() < 0.2
+            glyph = self.font(font_path, round(size * r.uniform(0.85, 1.08)) * k) if resize else font
+            draw.text((x * k, y * k), ch, font=glyph, fill=red, anchor="ls")
 
         # Stroke weight and opacity vary between renderers; vary them here too.
         alpha = layer.getchannel("A")

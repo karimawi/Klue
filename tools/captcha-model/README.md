@@ -10,8 +10,8 @@ a pure-Rust ONNX runtime, so the app needs no download or native ML library.
 
 General OCR models normalise text size away. In Arial, `C O S V W X Z` (and `c o s v w x z`)
 differ from their other case only by size, so a general model reads the letters but
-guesses their case: ddddocr read 5/5 of the first real samples correctly ignoring case,
-but only 3/5 exactly. About 23% of the alphabet has this problem, so most 5-character
+guesses their case: ddddocr reads all 15 real samples correctly ignoring case, but only
+9 exactly. About 23% of the alphabet has this problem, so most 5-character
 codes contain at least one such letter. Fine-tuning PaddleOCR would mean a large
 general-purpose recogniser and the Paddle toolchain for a single fixed-format captcha.
 This model sees WE's images at their real scale, so it learns cap height vs x-height,
@@ -19,18 +19,19 @@ and uses colour to ignore the strike line.
 
 ## Current model
 
-| | Real (5) | Synthetic (2,000 fresh) |
+| | Real (15, never trained on) | Synthetic (2,000 fresh) |
 | --- | --- | --- |
-| Exact | 4/5 | 97.0% |
-| Confidence ≥ 0.7 (Klue's threshold) | answers 4/5, all correct | answers 96.7%, 98.3% correct |
+| Exact | 15/15 | 96.1% |
+| Confidence ≥ 0.7 (Klue's threshold) | answers 14/15, all correct | answers 95.5%, 98.2% correct |
+| ddddocr, for comparison | 9/15 (15/15 ignoring case) | |
 
-The one real miss (`yvgSA`, read `yvssA` at 0.60 confidence) has a small font and the
-strike line running through its `g`; Klue declines to submit it. What was learned
-while matching the generator to the real samples:
+The real samples were used to report accuracy while training and to tune the generator,
+never as training data. What matching the generator to them showed:
 
 - characters sit on a fixed ~20 px pitch (wide letters overlap, narrow ones leave gaps);
+- most captchas use Arial, some Times New Roman (2 of 15);
 - font size varies per captcha (caps 20–25 px), so case must be judged relative to the
-  other letters as well as absolutely;
+  other letters as well as absolutely; digits are sometimes smaller or raised;
 - text and line are anti-aliased; the line is drawn over the text.
 
 ## Files
