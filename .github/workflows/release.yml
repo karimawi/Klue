@@ -77,6 +77,12 @@ jobs:
         with:
           tool: cargo-deb
 
+      # Build every C dependency for the same macOS as the app (Info.plist says 11.0);
+      # by default they target the runner's own macOS version.
+      - name: Target macOS 11
+        if: runner.os == 'macOS'
+        run: echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
+
       # BoringSSL (wreq's TLS) assembles its x86-64 Windows code with NASM, and its
       # bindings are generated with libclang.
       - name: Install NASM

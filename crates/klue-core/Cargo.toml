@@ -6,6 +6,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [features]
 default = ["we-model"]
@@ -31,12 +32,20 @@ tokio.workspace = true
 tracing.workspace = true
 url = "2"
 uuid.workspace = true
-wreq = { version = "6.0.0-rc.31", features = ["cookies", "json", "form", "gzip", "brotli", "deflate", "zstd", "prefix-symbols"] }
+wreq = { version = "6.0.0-rc.31", features = ["cookies", "json", "form", "gzip", "brotli", "deflate", "zstd"] }
 wreq-util = { version = "3.0.0-rc.14", features = ["emulation"] }
 
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"], optional = true }
 ort = { version = "2.0.0-rc.15", default-features = false, optional = true }
 tract-onnx = { version = "0.23.10", default-features = false, optional = true }
+
+# Linux only: the app also links the system OpenSSL there (dioxus-desktop -> native-tls),
+# which defines the same symbols as wreq's BoringSSL, so BoringSSL's get a prefix (see
+# klue-app/build.rs). btls-sys can't prefix the library on macOS or Windows but still
+# prefixes its bindings, so enabling it there breaks linking; those use their own TLS
+# stacks for native-tls and don't need it.
+[target.'cfg(target_os = "linux")'.dependencies]
+wreq = { version = "6.0.0-rc.31", features = ["prefix-symbols"] }
 
 [dev-dependencies]
 sha2 = "0.10"
