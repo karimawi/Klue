@@ -1,0 +1,8 @@
+/target
+# ddddocr model: fetch with `cargo run -p klue-core --example fetch_ocr_model -- assets/models`
+/assets/models/
+*.onnx
+# output of the we_captcha experiment harness
+/captchas/
+/debug/
+.env

@@ -1,0 +1,47 @@
+[package]
+name = "klue-core"
+description = "Carrier clients, storage and alert logic for Klue"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+default = ["ocr"]
+# ddddocr captcha solver. Downloads a prebuilt ONNX Runtime at build time and links it in.
+ocr = ["dep:ort", "dep:image", "ort/std", "ort/download-binaries", "ort/tls-native", "ort/copy-dylibs"]
+# Same solver, but loads the ONNX Runtime shared library at run time
+# (set ORT_DYLIB_PATH or ship onnxruntime.dll / libonnxruntime.so next to the binary).
+ocr-dynamic = ["dep:ort", "dep:image", "ort/std", "ort/load-dynamic"]
+
+[dependencies]
+base64 = "0.22"
+chrono.workspace = true
+directories = "6"
+keyring = "4.2"
+rand = "0.9"
+regex = "1"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url = "2"
+uuid.workspace = true
+wreq = { version = "6.0.0-rc.31", features = ["cookies", "json", "form", "gzip", "brotli", "deflate", "zstd"] }
+wreq-util = { version = "3.0.0-rc.14", features = ["emulation"] }
+
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"], optional = true }
+ort = { version = "2.0.0-rc.15", default-features = false, optional = true }
+
+[dev-dependencies]
+sha2 = "0.10"
+tokio = { workspace = true, features = ["fs"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[[example]]
+name = "we_captcha"
+
+[[example]]
+name = "fetch_ocr_model"

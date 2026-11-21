@@ -1,0 +1,24 @@
+{
+  "header": { "retCode": "0", "retMsg": "Success" },
+  "body": [
+    {
+      "offeringName": "Super 140",
+      "freeUnitBeanDetailList": [
+        {
+          "offeringName": "Home internet",
+          "initialAmount": 140,
+          "currentAmount": 62.4,
+          "effectiveTime": 1762300800000,
+          "expireTime": "1764892800000"
+        },
+        {
+          "offeringName": "Extra 25 GB",
+          "initialAmount": "25",
+          "currentAmount": "18.5",
+          "effectiveTime": 1762300800000,
+          "expireTime": 1764892800000
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+[
+  {
+    "@type": "tariff",
+    "bucket": [
+      {
+        "product": [
+          {
+            "name": "Flex 70"
+          }
+        ],
+        "bucketBalance": [
+          {
+            "@type": "Remaining",
+            "remainingValue": {
+              "amount": "37.249",
+              "units": "EGP"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "@type": "flex",
+    "bucket": [
+      {
+        "product": [
+          {
+            "name": "Flex 70"
+          }
+        ],
+        "bucketBalance": [
+          {
+            "remainingValue": {
+              "amount": 1200,
+              "units": "FLEX"
+            },
+            "validFor": {
+              "startDateTime": "2026-11-01T00:00:00Z",
+              "endDateTime": "2026-12-01T21:59:59Z"
+            }
+          }
+        ],
+        "bucketCounter": [
+          {
+            "value": {
+              "amount": 800,
+              "units": "FLEX"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "@type": "data",
+    "bucket": [
+      {
+        "product": [
+          {
+            "name": "Mobile data"
+          }
+        ],
+        "bucketBalance": [
+          {
+            "remainingValue": {
+              "amount": "6963.2",
+              "units": "MB"
+            },
+            "validFor": {
+              "startDateTime": "2026-11-01T00:00:00Z",
+              "endDateTime": "2026-12-01T21:59:59Z"
+            }
+          }
+        ],
+        "bucketCounter": [
+          {
+            "value": {
+              "amount": "5324.8",
+              "units": "MB"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "@type": "fakka_and_mared",
+    "bucket": [
+      {
+        "product": [
+          {
+            "name": "Fakka 26 LE"
+          }
+        ],
+        "bucketBalance": [
+          {
+            "remainingValue": {
+              "amount": 410,
+              "units": "Units"
+            },
+            "validFor": {
+              "endDateTime": "2026-11-29T21:59:59Z"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

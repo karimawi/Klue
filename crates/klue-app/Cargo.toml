@@ -1,0 +1,35 @@
+[package]
+name = "klue-app"
+description = "Klue: one desktop dashboard for your Egyptian telecom quotas"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "klue"
+path = "src/main.rs"
+
+[features]
+default = ["ocr"]
+ocr = ["klue-core/ocr"]
+ocr-dynamic = ["klue-core/ocr-dynamic"]
+
+[dependencies]
+klue-core.workspace = true
+
+auto-launch = "0.6"
+base64 = "0.22"
+chrono.workspace = true
+dioxus = { version = "0.7.10", default-features = false, features = ["desktop", "launch", "lib", "logger"] }
+notify-rust = "4.19"
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
