@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use klue_core::{
     Carrier, FetchError, LineType, Usage,
     alerts::{self, AlertEvent},
-    captcha::{BoxFuture, CaptchaSolver, SolverChain, default_ocr},
+    captcha::{BoxFuture, CaptchaSolver, SolverChain, default_solver},
     carriers::{self, FetchContext},
     format,
     store::{Account, AppData, Secrets, Settings, Store},
@@ -99,7 +99,7 @@ impl Shared {
             data: Mutex::new(data),
             refreshing: Mutex::new(BTreeSet::new()),
             revision: watch::channel(0).0,
-            ocr: if demo { None } else { default_ocr() },
+            ocr: if demo { None } else { default_solver() },
             prompt: Arc::new(PromptSolver { tx }),
             captcha_rx: Mutex::new(Some(rx)),
             ui_tx,

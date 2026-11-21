@@ -1,5 +1,6 @@
-//! Captcha solving. WE starts asking for a captcha after a few sign-ins; Klue reads it
-//! with ddddocr (feature `ocr`) and can fall back to asking the user.
+//! Captcha solving. WE starts asking for a captcha after a few sign-ins. Klue reads it
+//! with its own model (feature `we-model`, the default), optionally with ddddocr
+//! (feature `ocr`), and falls back to asking the user.
 
 use std::{
     future::Future,
@@ -14,6 +15,10 @@ use base64::Engine;
 mod ddddocr;
 #[cfg(any(feature = "ocr", feature = "ocr-dynamic"))]
 pub use ddddocr::{DdddOcr, Normalization, Options as OcrOptions};
+#[cfg(feature = "we-model")]
+mod we_model;
+#[cfg(feature = "we-model")]
+pub use we_model::WeCaptchaModel;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -85,14 +90,18 @@ pub fn find_model() -> Option<PathBuf> {
     model_search_paths().into_iter().find(|p| p.is_file())
 }
 
-/// The OCR solver, when it's compiled in and its model is present.
-pub fn default_ocr() -> Option<Arc<dyn CaptchaSolver>> {
+/// The best captcha reader compiled in: Klue's WE model, else ddddocr when its model
+/// file is present.
+pub fn default_solver() -> Option<Arc<dyn CaptchaSolver>> {
+    #[cfg(feature = "we-model")]
+    match WeCaptchaModel::load() {
+        Ok(model) => return Some(Arc::new(model)),
+        Err(e) => tracing::warn!("{e}"),
+    }
     #[cfg(any(feature = "ocr", feature = "ocr-dynamic"))]
-    {
-        match DdddOcr::load_default() {
-            Ok(ocr) => return Some(Arc::new(ocr)),
-            Err(e) => tracing::warn!("ddddocr unavailable: {e}"),
-        }
+    match DdddOcr::load_default() {
+        Ok(ocr) => return Some(Arc::new(ocr)),
+        Err(e) => tracing::warn!("ddddocr unavailable: {e}"),
     }
     None
 }

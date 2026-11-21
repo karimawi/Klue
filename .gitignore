@@ -2,7 +2,14 @@
 # ddddocr model: fetch with `cargo run -p klue-core --example fetch_ocr_model -- assets/models`
 /assets/models/
 *.onnx
+# ...except Klue's own WE captcha model, which is embedded in the app
+!/crates/klue-core/assets/we_captcha.onnx
 # output of the we_captcha experiment harness
 /captchas/
 /debug/
 .env
+
+# Python tooling
+__pycache__/
+*.pyc
+/tools/captcha-model/.venv/

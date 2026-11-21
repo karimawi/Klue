@@ -12,7 +12,10 @@ name = "klue"
 path = "src/main.rs"
 
 [features]
-default = ["ocr"]
+default = ["we-model"]
+# Klue's own WE captcha model (embedded, pure Rust).
+we-model = ["klue-core/we-model"]
+# ddddocr as an extra solver (needs ONNX Runtime and its model file).
 ocr = ["klue-core/ocr"]
 ocr-dynamic = ["klue-core/ocr-dynamic"]
 

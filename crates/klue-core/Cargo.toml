@@ -8,7 +8,9 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-default = ["ocr"]
+default = ["we-model"]
+# Klue's own WE captcha model (tools/captcha-model), embedded and run with tract (pure Rust).
+we-model = ["dep:tract-onnx", "dep:image"]
 # ddddocr captcha solver. Downloads a prebuilt ONNX Runtime at build time and links it in.
 ocr = ["dep:ort", "dep:image", "ort/std", "ort/download-binaries", "ort/tls-native", "ort/copy-dylibs"]
 # Same solver, but loads the ONNX Runtime shared library at run time
@@ -34,6 +36,7 @@ wreq-util = { version = "3.0.0-rc.14", features = ["emulation"] }
 
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"], optional = true }
 ort = { version = "2.0.0-rc.15", default-features = false, optional = true }
+tract-onnx = { version = "0.23.10", default-features = false, optional = true }
 
 [dev-dependencies]
 sha2 = "0.10"

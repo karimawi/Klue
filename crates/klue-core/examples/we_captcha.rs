@@ -1,20 +1,24 @@
-//! Experiment harness for WE's captcha and ddddocr.
+//! Experiment harness for WE's captcha and the captcha readers.
 //!
 //! ```text
-//! # Ask WE for captchas for a landline, save them and show ddddocr's reading:
+//! # Ask WE for captchas for a landline, save them and show the model's reading:
 //! cargo run -p klue-core --example we_captcha -- 0223584417 --count 5
 //!
 //! # Also sign in with each reading, to see whether WE accepts it
 //! # (every attempt counts towards WE's limit, so keep --count small):
 //! cargo run -p klue-core --example we_captcha -- 0223584417 --password '...'
 //!
-//! # Run ddddocr on saved images, offline:
+//! # Read saved images, offline:
 //! cargo run -p klue-core --example we_captcha -- --image captchas/a.jpg --image captchas/b.jpg
 //! ```
 //!
+//! With `--password`, every captcha WE accepts is also saved as `<out>/labeled/<code>.jpg`:
+//! a verified dataset for retraining the model (tools/captcha-model).
+//!
 //! Flags: `--out <dir>` (default `captchas/`), `--dump <dir>` (write raw WE responses,
-//! secrets redacted), `--raw` (don't limit OCR output to letters and digits),
-//! `--unit-norm` (ddddocr 1.6 pixel scaling instead of 1.4/1.5).
+//! secrets redacted), `--ddddocr` (read with ddddocr instead of Klue's model; needs the
+//! `ocr` feature), `--raw` (ddddocr: keep its full charset), `--centered` (ddddocr: the
+//! 1.4/1.5 pixel scaling instead of 1.6's).
 
 use std::{path::PathBuf, time::Duration};
 
@@ -28,7 +32,8 @@ struct Args {
     dump: Option<PathBuf>,
     images: Vec<PathBuf>,
     raw: bool,
-    unit_norm: bool,
+    centered: bool,
+    ddddocr: bool,
 }
 
 fn parse_args() -> Args {
@@ -40,7 +45,8 @@ fn parse_args() -> Args {
         dump: std::env::var_os("KLUE_DEBUG_DIR").map(PathBuf::from),
         images: Vec::new(),
         raw: false,
-        unit_norm: false,
+        centered: false,
+        ddddocr: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -51,7 +57,8 @@ fn parse_args() -> Args {
             "--dump" => args.dump = it.next().map(PathBuf::from),
             "--image" => args.images.extend(it.next().map(PathBuf::from)),
             "--raw" => args.raw = true,
-            "--unit-norm" => args.unit_norm = true,
+            "--centered" => args.centered = true,
+            "--ddddocr" => args.ddddocr = true,
             "-h" | "--help" => {
                 println!("{}", include_str!("we_captcha.rs").lines().take_while(|l| l.starts_with("//!")).map(|l| l.trim_start_matches("//!").trim_start_matches(' ')).collect::<Vec<_>>().join("\n"));
                 std::process::exit(0);
@@ -63,14 +70,20 @@ fn parse_args() -> Args {
     args
 }
 
+/// Reads a captcha: the text, and the model's confidence when it reports one.
+type Reader = Box<dyn Fn(&[u8]) -> Result<(String, Option<f32>), String>>;
+
 #[cfg(any(feature = "ocr", feature = "ocr-dynamic"))]
-fn load_ocr(args: &Args) -> Option<klue_core::captcha::DdddOcr> {
+fn load_ddddocr(args: &Args) -> Option<Reader> {
     use klue_core::captcha::{DdddOcr, Normalization, OcrOptions};
     match DdddOcr::load_default() {
-        Ok(ocr) => Some(ocr.with_options(OcrOptions {
-            normalization: if args.unit_norm { Normalization::Unit } else { Normalization::Centered },
-            alnum_only: !args.raw,
-        })),
+        Ok(ocr) => {
+            let ocr = ocr.with_options(OcrOptions {
+                normalization: if args.centered { Normalization::Centered } else { Normalization::Unit },
+                alnum_only: !args.raw,
+            });
+            Some(Box::new(move |b: &[u8]| ocr.classify(b).map(|t| (t, None))))
+        }
         Err(e) => {
             eprintln!("ddddocr unavailable: {e}");
             None
@@ -79,18 +92,22 @@ fn load_ocr(args: &Args) -> Option<klue_core::captcha::DdddOcr> {
 }
 
 #[cfg(not(any(feature = "ocr", feature = "ocr-dynamic")))]
-fn load_ocr(_: &Args) -> Option<NoOcr> {
-    eprintln!("built without the `ocr` feature; images will be saved but not read");
+fn load_ddddocr(_: &Args) -> Option<Reader> {
+    eprintln!("built without the `ocr` feature, so ddddocr isn't available");
     None
 }
 
-#[cfg(not(any(feature = "ocr", feature = "ocr-dynamic")))]
-struct NoOcr;
-#[cfg(not(any(feature = "ocr", feature = "ocr-dynamic")))]
-impl NoOcr {
-    fn classify(&self, _: &[u8]) -> Result<String, String> {
-        Err("no OCR".into())
+fn load_reader(args: &Args) -> Option<Reader> {
+    if args.ddddocr {
+        return load_ddddocr(args);
     }
+    #[cfg(feature = "we-model")]
+    match klue_core::captcha::WeCaptchaModel::load() {
+        Ok(model) => return Some(Box::new(move |b: &[u8]| model.read(b).map(|r| (r.text, Some(r.confidence))))),
+        Err(e) => eprintln!("{e}"),
+    }
+    eprintln!("no captcha reader compiled in; images will be saved but not read");
+    None
 }
 
 fn extension(bytes: &[u8]) -> &'static str {
@@ -105,13 +122,14 @@ fn extension(bytes: &[u8]) -> &'static str {
 #[tokio::main]
 async fn main() {
     let args = parse_args();
-    let ocr = load_ocr(&args);
+    let ocr = load_reader(&args);
 
     if !args.images.is_empty() {
         for path in &args.images {
             match std::fs::read(path) {
-                Ok(bytes) => match ocr.as_ref().map(|o| o.classify(&bytes)) {
-                    Some(Ok(text)) => println!("{}\t{text}", path.display()),
+                Ok(bytes) => match ocr.as_ref().map(|read| read(&bytes)) {
+                    Some(Ok((text, Some(conf)))) => println!("{}\t{text}\t{conf:.2}", path.display()),
+                    Some(Ok((text, None))) => println!("{}\t{text}", path.display()),
                     Some(Err(e)) => println!("{}\terror: {e}", path.display()),
                     None => println!("{}\t(no OCR)", path.display()),
                 },
@@ -154,9 +172,13 @@ async fn main() {
                 asked += 1;
                 let file = args.out.join(format!("we-{}-{i}.{}", chrono::Utc::now().format("%Y%m%dT%H%M%S"), extension(image)));
                 std::fs::write(&file, image).expect("save captcha");
-                let guess = ocr.as_ref().and_then(|o| o.classify(image).ok());
-                println!("#{i}: saved {} - ddddocr reads {:?}", file.display(), guess.as_deref().unwrap_or("-"));
-                guess
+                let reading = ocr.as_ref().and_then(|read| read(image).ok());
+                match &reading {
+                    Some((text, Some(conf))) => println!("#{i}: saved {} - read as {text:?} (confidence {conf:.2})", file.display()),
+                    Some((text, None)) => println!("#{i}: saved {} - read as {text:?}", file.display()),
+                    None => println!("#{i}: saved {} - not read", file.display()),
+                }
+                reading.map(|(text, _)| text)
             }
         };
         if let Some(password) = &args.password {
@@ -164,6 +186,12 @@ async fn main() {
                 Ok(auth) => {
                     accepted += 1;
                     println!("#{i}: signed in (owner name: {:?})", auth.owner_name);
+                    // WE accepted the code, so it's a verified label.
+                    if let (Some(image), Some(code)) = (&challenge.image, guess.as_deref()) {
+                        let dir = args.out.join("labeled");
+                        let _ = std::fs::create_dir_all(&dir);
+                        let _ = std::fs::write(dir.join(format!("{code}.{}", extension(image))), image);
+                    }
                     if i == args.count {
                         match session.read_usage(&auth, &ctx).await {
                             Ok(usage) => println!("{usage:#?}"),

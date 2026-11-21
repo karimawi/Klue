@@ -41,26 +41,30 @@ cargo run -- --demo            # sample numbers from the mockups, nothing saved,
 cargo test -p klue-core --no-default-features
 ```
 
-The default `ocr` feature downloads a prebuilt ONNX Runtime from cdn.pyke.io at build time and links it in. If you can't reach that host, build with `--no-default-features --features ocr-dynamic` and point `ORT_DYLIB_PATH` at an `onnxruntime.dll` or `libonnxruntime.so`. Klue also looks for that library next to the executable.
+## WE captchas
 
-## WE captchas and ddddocr
+After a few sign-ins, WE's `GenerateCaptcha` starts returning an image: five red characters with a blue line struck through them. Klue reads it with its own model, trained only on this captcha (`tools/captcha-model`). It is a small CNN (0.4 M parameters, 1.7 MB), embedded in the app and run with [tract](https://github.com/sonos/tract), a pure-Rust ONNX runtime, so nothing is downloaded and no native ML library is needed.
 
-After a few sign-ins, WE's `GenerateCaptcha` starts returning an image. When that happens, Klue reads the image with a Rust port of [ddddocr](https://github.com/sml2h3/ddddocr). It uses the same `common_old.onnx` model and the same preprocessing as `ddddocr.DdddOcr()` in Python, and keeps only letters and digits. If the OCR answer is rejected, the next manual **Refresh** (or **Try again** when adding a number) asks you to type the code yourself. If WE answers `Blocked`, Klue waits an hour before trying that number again.
+The model also reports how sure it is. Below 0.7 it doesn't guess, because every wrong answer uses up one of the few attempts WE allows before blocking sign-ins. Instead, Klue asks you to type the code when you're adding a number or pressing **Refresh**, and skips that attempt during background refreshes. If WE answers `Blocked`, Klue waits an hour before trying that number again.
 
-1. Download the model. It is about 13 MB, taken from the ddddocr wheel on PyPI and checked against a SHA-256 hash:
-   ```sh
-   cargo run -p klue-core --example fetch_ocr_model            # into Klue's data folder
-   cargo run -p klue-core --example fetch_ocr_model -- assets/models
-   ```
-2. Ask WE for captchas, save them, and see what ddddocr reads:
-   ```sh
-   cargo run -p klue-core --example we_captcha -- 0223584417 --count 5
-   cargo run -p klue-core --example we_captcha -- 0223584417 --password '…'   # also signs in with the reading
-   cargo run -p klue-core --example we_captcha -- --image captchas/a.jpg       # offline, on saved images
-   ```
-   `--unit-norm` switches to ddddocr 1.6's pixel scaling and `--raw` keeps the full charset, for comparison.
+Results on the five real captchas collected so far (`crates/klue-core/tests/captchas`):
 
-On 30 synthetic captchas (letters, digits and a strike-through line), 18 came back exactly right. Nearly every miss was an upper/lower-case slip on letters that look the same in both cases (`O/o`, `S/s`, `W/w`, `Z/z`), so 29 of 30 were right if case is ignored. WE's codes are case-sensitive, so check the real hit rate with `we_captcha --password`.
+| Reader | Exact | Ignoring case | Wrong answers it would submit |
+| --- | --- | --- | --- |
+| ddddocr (`common_old.onnx`) | 3/5 | 5/5 | 2 |
+| Klue's WE model | 4/5 | 4/5 | **0** (declines the fifth) |
+
+ddddocr reads the letters but guesses the case of `C O S V W X Z`, which in Arial differ only in size. WE's codes are case-sensitive, and most 5-character codes contain at least one of these letters. Klue's model sees the image at its real scale, so it gets `S7nQY`, `y6WWW` and `y7EZr` right. On 2,000 fresh synthetic captchas it answers 96.7% of the time and is right 98.3% of the time when it does.
+
+Five real samples are enough to show the approach works, but not to prove reliability. The best next step is to collect a few hundred real captchas and fine-tune on them:
+
+```sh
+cargo run -p klue-core --example we_captcha -- 0223584417 --count 20            # saves fresh captchas to captchas/
+cargo run -p klue-core --example we_captcha -- 0223584417 --password '…'        # also signs in; accepted codes land in captchas/labeled/
+cargo run -p klue-core --example we_captcha -- --image captchas/a.jpg           # read saved images offline
+```
+
+Then follow `tools/captcha-model/README.md` to fine-tune. ddddocr is still available as an optional extra solver: build with `--features ocr` and fetch its model with `cargo run -p klue-core --example fetch_ocr_model`. That feature downloads ONNX Runtime from cdn.pyke.io at build time; `ocr-dynamic` loads it from `ORT_DYLIB_PATH` instead.
 
 ## Debugging the carrier parsers
 
@@ -69,9 +73,10 @@ The field names for the registrant name (WE) and the package name are not docume
 ## Layout
 
 ```
-crates/klue-core   carrier clients (WE, Vodafone), ddddocr, storage, alert rules; no UI
-crates/klue-app    Dioxus desktop app: window, tray, notifications, launch at startup
-design/            UI mockups
+crates/klue-core     carrier clients (WE, Vodafone), captcha readers, storage, alert rules; no UI
+crates/klue-app      Dioxus desktop app: window, tray, notifications, launch at startup
+tools/captcha-model  synthetic WE captcha generator and model training (Python, PyTorch)
+design/              UI mockups
 ```
 
 Data lives in `%APPDATA%\Klue\data\klue.json` on Windows, `~/.local/share/klue/` on Linux, and `~/Library/Application Support/Klue/` on macOS.

@@ -22,9 +22,9 @@ const CHARSET_JSON: &str = include_str!("../../assets/ddddocr_charset_old.json")
 /// How pixel values are scaled before inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Normalization {
-    /// `(x / 255 - 0.5) / 0.5`, as in ddddocr ≤ 1.5 (default).
+    /// `(x / 255 - 0.5) / 0.5`, as in ddddocr ≤ 1.5.
     Centered,
-    /// `x / 255`, as in ddddocr 1.6.
+    /// `x / 255`, as in ddddocr 1.6 (default; reads real WE captchas better).
     Unit,
 }
 
@@ -44,7 +44,7 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Self { normalization: Normalization::Centered, alnum_only: true }
+        Self { normalization: Normalization::Unit, alnum_only: true }
     }
 }
 
