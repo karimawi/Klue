@@ -33,6 +33,18 @@ pub fn describe(account: &Account, event: &AlertEvent, lang: Lang) -> (String, S
     (title, body)
 }
 
+/// macOS shows a notification under whichever app bundle it's sent as, and that's
+/// Finder unless we name one. Name Klue's own bundle when running from Klue.app.
+pub fn init() {
+    #[cfg(target_os = "macos")]
+    {
+        let in_bundle = std::env::current_exe().is_ok_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"));
+        if in_bundle {
+            let _ = notify_rust::set_application("io.github.karimawi.klue");
+        }
+    }
+}
+
 pub fn show(title: String, body: String) {
     std::thread::spawn(move || {
         if let Err(e) = notify_rust::Notification::new().appname("Klue").summary(&title).body(&body).show() {

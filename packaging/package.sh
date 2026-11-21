@@ -36,7 +36,12 @@ macos-*)
     mkdir -p "$stage/dmg"
     cp -R "$app" "$stage/dmg/"
     ln -s /Applications "$stage/dmg/Applications"
-    hdiutil create -volname "Klue" -srcfolder "$stage/dmg" -ov -format UDZO "dist/Klue-$version-$name.dmg"
+    # hdiutil sometimes fails with "Resource busy" on CI machines; try a few times.
+    for attempt in 1 2 3 4; do
+        hdiutil create -volname "Klue" -srcfolder "$stage/dmg" -ov -format UDZO "dist/Klue-$version-$name.dmg" && break
+        [ "$attempt" = 4 ] && exit 1
+        sleep $((attempt * 5))
+    done
     ;;
 
 linux-*)

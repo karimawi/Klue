@@ -1,15 +1,25 @@
 name: Release
 
-# Push a tag like v0.1.0 to build Klue for Windows, macOS and Linux and publish a
-# GitHub release with the packages. If any build fails, the release is left as a
-# draft with that build's log attached.
+# Builds Klue for Windows, macOS and Linux and publishes a GitHub pre-release with the
+# packages. Start it either way:
+#   - push a tag:  git tag v0.1.0 && git push origin v0.1.0
+#   - or Actions → Release → Run workflow (on dev); the tag is then v<version in Cargo.toml>.
+# If any build fails, the release is left as a draft with that build's log attached.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a release (tag v<version in Cargo.toml>). Off = build only.
+        type: boolean
+        default: true
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
 
 env:
   CARGO_TERM_COLOR: never
@@ -40,6 +50,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Work out the version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"; fi
+          echo "KLUE_VERSION=$v" >> "$GITHUB_ENV"
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -61,6 +76,12 @@ jobs:
         with:
           tool: cargo-deb
 
+      # BoringSSL (wreq's TLS) assembles its x86-64 Windows code with NASM, and its
+      # bindings are generated with libclang.
+      - name: Install NASM
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1
+
       - name: Point bindgen at LLVM
         if: runner.os == 'Windows'
         run: echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> "$GITHUB_ENV"
@@ -69,7 +90,7 @@ jobs:
         run: cargo build --release --locked -p klue-app --target ${{ matrix.target }} 2>&1 | tee build.log
 
       - name: Package
-        run: packaging/package.sh "${{ matrix.name }}" "${{ matrix.target }}" "${GITHUB_REF_NAME}" 2>&1 | tee -a build.log
+        run: packaging/package.sh "${{ matrix.name }}" "${{ matrix.target }}" "$KLUE_VERSION" 2>&1 | tee -a build.log
 
       - uses: actions/upload-artifact@v4
         with:
@@ -90,10 +111,16 @@ jobs:
 
   release:
     needs: build
-    if: always() && startsWith(github.ref, 'refs/tags/')
+    if: always() && (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Work out the tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"; else echo "tag=v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"; fi
 
       - uses: actions/download-artifact@v4
         with:
@@ -102,7 +129,9 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          name: Klue ${{ github.ref_name }}
+          tag_name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Klue ${{ steps.tag.outputs.tag }}
           body_path: packaging/RELEASE_NOTES.md
           draft: ${{ needs.build.result != 'success' }}
           prerelease: true

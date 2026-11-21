@@ -76,13 +76,15 @@ Then follow `tools/captcha-model/README.md` to fine-tune. ddddocr is still avail
 
 ## Releasing
 
-Push a version tag and GitHub Actions builds and publishes the release (`.github/workflows/release.yml`):
+Bump `version` in the root `Cargo.toml`, then start `.github/workflows/release.yml` in either of two ways:
 
 ```sh
 git tag v0.1.1 && git push origin v0.1.1
 ```
 
-It builds `klue` on Windows, macOS (arm64 and x64) and Ubuntu 22.04, packages it with `packaging/package.sh` (zip, `.dmg` with `Klue.app`, `.deb` and `.tar.gz`) and attaches the files to a pre-release. If a build fails, the release stays a draft with that build's log attached. Bump `version` in the root `Cargo.toml` first.
+or open **Actions → Release → Run workflow** on `dev` (the tag is then `v` plus the `Cargo.toml` version; untick *Publish* to only build).
+
+It builds `klue` on Windows, macOS (arm64 and x64) and Ubuntu 22.04, packages it with `packaging/package.sh` (zip, `.dmg` with `Klue.app`, `.deb` and `.tar.gz`) and attaches the files to a pre-release. If a build fails, the release stays a draft with that build's log attached.
 
 ## Debugging the carrier parsers
 

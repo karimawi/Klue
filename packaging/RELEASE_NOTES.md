@@ -17,11 +17,12 @@ Klue shows the quota, package and renewal date of your Egyptian telecom lines in
 These builds aren't code-signed yet, so the OS will warn you the first time:
 
 - **Windows:** "Windows protected your PC" → **More info** → **Run anyway**.
-- **macOS:** drag Klue to Applications, then right-click it → **Open** → **Open**. If macOS says the app is damaged, run `xattr -dr com.apple.quarantine /Applications/Klue.app` once.
+- **macOS:** drag Klue to Applications and open it once; when macOS refuses, go to **System Settings → Privacy & Security** and click **Open Anyway** (on macOS 14 and older, right-click Klue → **Open** also works). If macOS says the app is damaged, run `xattr -dr com.apple.quarantine /Applications/Klue.app` once.
 
 Passwords are stored in your system's credential store (Windows Credential Manager, macOS Keychain, Secret Service on Linux), never in Klue's data file.
 
 ## Notes
 
 - After a few sign-ins WE asks for a captcha. Klue reads it with its own model; when it isn't sure, it asks you to type the code instead of guessing.
+- On Windows, notifications currently show up under "Windows PowerShell".
 - Klue is unofficial and not affiliated with any carrier.

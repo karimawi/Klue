@@ -28,6 +28,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let demo = args.iter().any(|a| a == "--demo") || std::env::var_os("KLUE_DEMO").is_some();
     let minimized = args.iter().any(|a| a == "--minimized");
+    notify::init();
 
     let store = if demo { Store::open(std::env::temp_dir().join("klue-demo")) } else { Store::open_default() };
     let store = match store {
