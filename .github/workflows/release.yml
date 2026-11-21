@@ -3,7 +3,8 @@ name: Release
 # Builds Klue for Windows, macOS and Linux and publishes a GitHub pre-release with the
 # packages. Start it either way:
 #   - push a tag:  git tag v0.1.0 && git push origin v0.1.0
-#   - or Actions → Release → Run workflow (on dev); the tag is then v<version in Cargo.toml>.
+#   - or Actions → Release → Run workflow (pick dev); the tag is then v<version in Cargo.toml>.
+#     GitHub shows that button only once this file is on the default branch.
 # If any build fails, the release is left as a draft with that build's log attached.
 on:
   push:

@@ -82,7 +82,7 @@ Bump `version` in the root `Cargo.toml`, then start `.github/workflows/release.y
 git tag v0.1.1 && git push origin v0.1.1
 ```
 
-or open **Actions → Release → Run workflow** on `dev` (the tag is then `v` plus the `Cargo.toml` version; untick *Publish* to only build).
+or use **Actions → Release → Run workflow** and pick `dev` (the tag is then `v` plus the `Cargo.toml` version; untick *Publish* to only build). GitHub only shows that button once the workflow file is on the default branch (`main`).
 
 It builds `klue` on Windows, macOS (arm64 and x64) and Ubuntu 22.04, packages it with `packaging/package.sh` (zip, `.dmg` with `Klue.app`, `.deb` and `.tar.gz`) and attaches the files to a pre-release. If a build fails, the release stays a draft with that build's log attached.
 
