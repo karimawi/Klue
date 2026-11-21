@@ -191,11 +191,10 @@ pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, now: DateT
             let used = j::num(&bucket["bucketCounter"][0]["value"]["amount"]).unwrap_or(0.0);
             let (unit, factor) = unit_of(balance["remainingValue"]["units"].as_str().unwrap_or_default());
             let mut total = remaining + used;
-            if kind_raw == "fakka_and_mared" {
-                if let Some(card_units) = product.as_deref().and_then(fakka_card_units) {
+            if kind_raw == "fakka_and_mared"
+                && let Some(card_units) = product.as_deref().and_then(fakka_card_units) {
                     total = total.max(card_units);
                 }
-            }
             if total <= 0.0 {
                 continue;
             }

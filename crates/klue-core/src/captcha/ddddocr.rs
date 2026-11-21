@@ -178,11 +178,10 @@ impl Inner {
         let mut out = String::new();
         let mut prev = -1_i64;
         for &i in indices {
-            if i != prev && i > 0 && (!alnum_only || self.alnum.get(i as usize).copied().unwrap_or(false)) {
-                if let Some(c) = self.charset.get(i as usize) {
+            if i != prev && i > 0 && (!alnum_only || self.alnum.get(i as usize).copied().unwrap_or(false))
+                && let Some(c) = self.charset.get(i as usize) {
                     out.push_str(c);
                 }
-            }
             prev = i;
         }
         out
