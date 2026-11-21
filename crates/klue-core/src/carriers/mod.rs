@@ -13,9 +13,12 @@ use crate::{Carrier, FetchError, LineType, Usage, captcha::CaptchaSolver};
 /// Everything a client needs besides the credentials.
 #[derive(Default)]
 pub struct FetchContext<'a> {
-    /// Used when WE asks for a captcha. Without one, such sign-ins fail with
-    /// [`FetchError::CaptchaUnsolved`].
+    /// Reads WE's captchas. It may decline one it isn't sure of; WE is then asked for
+    /// another (see [`we::CAPTCHA_REROLLS`]).
     pub solver: Option<&'a dyn CaptchaSolver>,
+    /// A person, asked only when `solver` declined every captcha. Without either, such
+    /// sign-ins fail with [`FetchError::CaptchaUnsolved`].
+    pub ask: Option<&'a dyn CaptchaSolver>,
     /// When set, raw carrier responses (with secrets redacted) are written here so
     /// parsers can be checked against real data. Enabled with `KLUE_DEBUG_DIR`.
     pub debug_dir: Option<PathBuf>,

@@ -354,9 +354,16 @@ pub fn error_text(e: &FetchError, carrier: Carrier, lang: Lang) -> String {
         }
         FetchError::CaptchaUnsolved => {
             if ar {
-                format!("طلبت {name} رمز تحقق (كابتشا) ولم يتم قبول الإجابة. اضغط تحديث لكتابته بنفسك.")
+                format!("طلبت {name} رمز تحقق (كابتشا) ولم يتمكن Klue من قراءته. اضغط تحديث للمحاولة مرة أخرى، وإن تعذّر ذلك فسيطلب منك كتابته.")
             } else {
-                format!("{name} asked for a captcha and the answer wasn’t accepted. Press Refresh to type it yourself.")
+                format!("{name} asked for a captcha and Klue couldn’t read it. Press Refresh to try again; if it still can’t, it will ask you to type it.")
+            }
+        }
+        FetchError::CaptchaRejected => {
+            if ar {
+                format!("لم تقبل {name} رمز التحقق الذي قرأه Klue. سيحاول مرة أخرى برمز جديد عند التحديث التالي.")
+            } else {
+                format!("{name} didn’t accept the captcha code Klue read. It will try again with a new captcha at the next refresh.")
             }
         }
         FetchError::CaptchaBlocked(until) => {
@@ -397,6 +404,7 @@ pub fn error_title(e: &FetchError, lang: Lang) -> &'static str {
     match e {
         FetchError::BadCredentials => strings(lang).err_title,
         FetchError::CaptchaUnsolved | FetchError::CaptchaBlocked(_) => if ar { "مطلوب رمز تحقق" } else { "Captcha needed" },
+        FetchError::CaptchaRejected => if ar { "لم يُقبل رمز التحقق" } else { "Captcha not accepted" },
         FetchError::InvalidNumber(_) => if ar { "رقم غير صحيح" } else { "Check the number" },
         FetchError::Network(_) => if ar { "لا يوجد اتصال" } else { "No connection" },
         _ => if ar { "تعذّر التحقق" } else { "Couldn’t verify" },

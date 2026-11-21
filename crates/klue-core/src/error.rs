@@ -8,9 +8,12 @@ pub enum FetchError {
     /// The carrier rejected the number/password pair.
     #[error("the carrier rejected this number and password")]
     BadCredentials,
-    /// The carrier asked for a captcha and no solver produced an accepted answer.
-    #[error("the carrier asked for a captcha that couldn't be solved")]
+    /// The carrier asked for a captcha and no solver could read any of the ones it handed out.
+    #[error("the carrier asked for a captcha that couldn't be read")]
     CaptchaUnsolved,
+    /// The carrier didn't accept the captcha code that was sent.
+    #[error("the carrier didn't accept the captcha code")]
+    CaptchaRejected,
     /// Too many sign-ins: the carrier refuses to hand out captchas until this time.
     #[error("the carrier is blocking sign-ins until {0}")]
     CaptchaBlocked(DateTime<Utc>),

@@ -23,6 +23,6 @@ Passwords are stored in your system's credential store (Windows Credential Manag
 
 ## Notes
 
-- After a few sign-ins WE asks for a captcha. Klue reads it with its own model; when it isn't sure, it asks you to type the code instead of guessing.
+- After a few sign-ins WE asks for a captcha. Klue reads it with its own model; when it isn't sure, it asks WE for a new captcha instead of guessing, and only asks you to type one if it can't read any of them.
 - On Windows, notifications currently show up under "Windows PowerShell".
 - Klue is unofficial and not affiliated with any carrier.

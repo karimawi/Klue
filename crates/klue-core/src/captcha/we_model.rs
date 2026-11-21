@@ -17,10 +17,12 @@ const MODEL: &[u8] = include_bytes!("../../assets/we_captcha.onnx");
 const CHARSET: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const WIDTH: u32 = 180;
 const HEIGHT: u32 = 50;
-/// Below this confidence the solver declines to answer: a wrong answer costs one of the
-/// few attempts WE allows before blocking sign-ins, so asking the user (or skipping this
-/// background refresh) is better than guessing.
-pub const MIN_CONFIDENCE: f32 = 0.7;
+/// Below this confidence the solver declines to answer. A wrong answer costs one of the
+/// few sign-in attempts WE allows before blocking, while a fresh captcha costs nothing,
+/// so Klue asks WE for another one instead of guessing. At 0.95 the model answers ~85%
+/// of captchas (so ~1.2 per sign-in) and is wrong on ~0.2% of its answers (synthetic
+/// test set; 0.7 would be ~95% and ~1.6%).
+pub const MIN_CONFIDENCE: f32 = 0.95;
 
 /// A reading and how sure the model is of it.
 #[derive(Debug, Clone, PartialEq)]

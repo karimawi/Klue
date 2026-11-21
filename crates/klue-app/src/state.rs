@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use klue_core::{
     Carrier, FetchError, LineType, Usage,
     alerts::{self, AlertEvent},
-    captcha::{BoxFuture, CaptchaSolver, SolverChain, default_solver},
+    captcha::{BoxFuture, CaptchaSolver, default_solver},
     carriers::{self, FetchContext},
     format,
     store::{Account, AppData, Secrets, Settings, Store},
@@ -157,31 +157,18 @@ impl Shared {
         let _ = self.ui_tx.send(request);
     }
 
-    fn solver(&self, interactive: bool, manual_first: bool) -> SolverChain {
-        let mut chain: Vec<Arc<dyn CaptchaSolver>> = Vec::new();
-        if !manual_first {
-            chain.extend(self.ocr.clone());
+    /// Captchas go to the model; when it isn't sure of one, WE is asked for another. Only if
+    /// it declines all of them, and someone is at the screen (`interactive`), are they asked.
+    fn context(&self, interactive: bool) -> FetchContext<'_> {
+        FetchContext {
+            solver: self.ocr.as_deref(),
+            ask: if interactive { Some(&*self.prompt) } else { None },
+            debug_dir: self.debug_dir.clone(),
         }
-        if interactive {
-            chain.push(self.prompt.clone());
-        }
-        SolverChain(chain)
     }
 
-    fn context<'a>(&self, solver: &'a SolverChain) -> FetchContext<'a> {
-        FetchContext { solver: Some(solver), debug_dir: self.debug_dir.clone() }
-    }
-
-    /// Sign in with new credentials (the add-number flow). `manual_captcha` skips OCR,
-    /// for retrying after WE rejected OCR's answer.
-    pub async fn verify(
-        &self,
-        carrier: Carrier,
-        line: LineType,
-        number: &str,
-        password: &str,
-        manual_captcha: bool,
-    ) -> Result<Usage, FetchError> {
+    /// Sign in with new credentials (the add-number flow).
+    pub async fn verify(&self, carrier: Carrier, line: LineType, number: &str, password: &str) -> Result<Usage, FetchError> {
         let number = format::normalize(number, line)?;
         if self.data.lock().expect("data lock").accounts.iter().any(|a| a.carrier == carrier && a.number == number) {
             return Err(FetchError::Carrier(crate::i18n::strings(self.settings().lang).already_added.into()));
@@ -189,8 +176,7 @@ impl Shared {
         if self.demo {
             return demo::verify(carrier, &number, password).await;
         }
-        let solver = self.solver(true, manual_captcha);
-        carriers::fetch(carrier, line, &number, password, &self.context(&solver)).await
+        carriers::fetch(carrier, line, &number, password, &self.context(true)).await
     }
 
     /// Save a verified number. Returns the new account's id.
@@ -258,9 +244,7 @@ impl Shared {
             match self.secrets.get(id) {
                 None => Err(FetchError::Carrier(crate::i18n::strings(self.settings().lang).no_password.into())),
                 Some(password) => {
-                    let manual_first = interactive && matches!(account.last_error, Some(FetchError::CaptchaUnsolved));
-                    let solver = self.solver(interactive, manual_first);
-                    carriers::fetch(account.carrier, account.line, &account.number, &password, &self.context(&solver)).await
+                    carriers::fetch(account.carrier, account.line, &account.number, &password, &self.context(interactive)).await
                 }
             }
         };

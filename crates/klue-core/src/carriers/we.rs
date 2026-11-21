@@ -4,6 +4,8 @@
 //! 1. seed cookies from the portal and call `querySysParams`, like the website does;
 //! 2. `GenerateCaptcha` returns a token, and an image when WE wants proof of a human
 //!    (after a few sign-ins). `status: "Blocked"` means it stopped handing out tokens;
+//!    Each call replaces the previous captcha, so when the solver isn't sure of an image
+//!    Klue asks for another one rather than guess;
 //! 3. `userAuthenticate` with the token (and the solved code, if any);
 //! 4. `queryBalance`, `getSubscribedOfferings` and `queryFreeUnit` with the CSRF token.
 //!
@@ -30,6 +32,12 @@ const PORTAL: &str = "https://my.te.eg/";
 const SITE: &str = "https://my.te.eg";
 const API: &str = "https://api-my.te.eg/echannel/service/besapp/base/rest/busiservice";
 const CAPTCHA_URL: &str = "https://captcha.te.eg/api/Captcha/GenerateCaptcha";
+
+/// How many more captchas to ask WE for when the solver isn't sure of one. Fetching a
+/// captcha doesn't count as a sign-in attempt; sending a wrong code does.
+pub const CAPTCHA_REROLLS: usize = 8;
+/// Pause before each reroll, so they don't arrive as a burst.
+const REROLL_PAUSE: Duration = Duration::from_millis(600);
 
 /// How long WE keeps refusing captcha tokens after answering "Blocked"
 /// (about an hour).
@@ -224,18 +232,47 @@ impl WeSession {
 pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Result<Usage, FetchError> {
     let session = WeSession::new(number)?;
     session.warm_up().await;
-    let challenge = session.captcha(ctx).await?;
-    let code = match &challenge.image {
-        None => None,
-        Some(image) => {
-            let solver = ctx.solver.ok_or(FetchError::CaptchaUnsolved)?;
-            let code = solver.solve(image).await.map(|c| clean_code(&c)).filter(|c| !c.is_empty());
-            tracing::info!(solver = solver.name(), solved = code.is_some(), "WE captcha solve");
-            Some(code.ok_or(FetchError::CaptchaUnsolved)?)
-        }
+    let first = session.captcha(ctx).await?;
+    let s = &session;
+    let reroll = move || async move {
+        tokio::time::sleep(REROLL_PAUSE).await;
+        s.captcha(ctx).await
     };
+    let (challenge, code) = solve_captcha(first, reroll, ctx).await?;
     let auth = session.sign_in(password, &challenge, code.as_deref(), ctx).await?;
     session.read_usage(&auth, ctx).await
+}
+
+/// Get a code for WE's captcha. The solver sees up to 1 + [`CAPTCHA_REROLLS`] captchas and
+/// answers the first one it's sure of; a person is asked only if it declines them all.
+/// Returns the challenge to sign in with (the latest one: WE only honours that).
+async fn solve_captcha<F, Fut>(
+    mut challenge: CaptchaChallenge,
+    mut reroll: F,
+    ctx: &FetchContext<'_>,
+) -> Result<(CaptchaChallenge, Option<String>), FetchError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<CaptchaChallenge, FetchError>>,
+{
+    let answer = |code: Option<String>| code.map(|c| clean_code(&c)).filter(|c| !c.is_empty());
+    if let Some(solver) = ctx.solver {
+        for attempt in 0..=CAPTCHA_REROLLS {
+            if attempt > 0 {
+                challenge = reroll().await?;
+            }
+            let Some(image) = challenge.image.as_deref() else { return Ok((challenge, None)) };
+            if let Some(code) = answer(solver.solve(image).await) {
+                tracing::info!(solver = solver.name(), rerolls = attempt, "WE captcha read");
+                return Ok((challenge, Some(code)));
+            }
+        }
+        tracing::info!(captchas = CAPTCHA_REROLLS + 1, "WE captcha: the solver declined every one");
+    }
+    let Some(image) = challenge.image.as_deref() else { return Ok((challenge, None)) };
+    let ask = ctx.ask.ok_or(FetchError::CaptchaUnsolved)?;
+    let code = answer(ask.solve(image).await).ok_or(FetchError::CaptchaUnsolved)?;
+    Ok((challenge, Some(code)))
 }
 
 fn cors_headers() -> HeaderMap {
@@ -283,7 +320,7 @@ fn classify_auth_failure(v: &Value, sent_code: bool) -> FetchError {
     let m = msg.to_lowercase();
     let mentions = |words: &[&str]| words.iter().any(|w| m.contains(w));
     if mentions(&["captcha", "verification code", "verify code", "image code", "imgcode", "check code"]) {
-        return if sent_code { FetchError::CaptchaUnsolved } else { FetchError::Carrier(msg) };
+        return if sent_code { FetchError::CaptchaRejected } else { FetchError::Carrier(msg) };
     }
     if mentions(&["password", "incorrect", "invalid", "wrong", "not exist", "does not match"]) {
         return FetchError::BadCredentials;
@@ -409,9 +446,97 @@ mod tests {
         let bad = json!({"header": {"retCode": "1001", "retMsg": "The password is incorrect."}});
         assert_eq!(classify_auth_failure(&bad, false), FetchError::BadCredentials);
         let cap = json!({"header": {"retCode": "1002", "retMsg": "Verification code error"}});
-        assert_eq!(classify_auth_failure(&cap, true), FetchError::CaptchaUnsolved);
+        assert_eq!(classify_auth_failure(&cap, true), FetchError::CaptchaRejected);
         let other = json!({"header": {"retCode": "9", "retMsg": "System busy"}});
         assert_eq!(classify_auth_failure(&other, false), FetchError::Carrier("System busy".into()));
+    }
+
+    /// Reads only the captcha whose image is `[sure_of]`.
+    struct Picky {
+        sure_of: u8,
+        seen: std::sync::Mutex<Vec<u8>>,
+    }
+
+    impl crate::captcha::CaptchaSolver for Picky {
+        fn name(&self) -> &str {
+            "picky"
+        }
+        fn solve<'a>(&'a self, image: &'a [u8]) -> crate::captcha::BoxFuture<'a, Option<String>> {
+            self.seen.lock().unwrap().push(image[0]);
+            Box::pin(async move { (image[0] == self.sure_of).then(|| format!("code{}", image[0])) })
+        }
+    }
+
+    fn picky(sure_of: u8) -> Picky {
+        Picky { sure_of, seen: Default::default() }
+    }
+
+    fn challenge(n: u8, image: bool) -> CaptchaChallenge {
+        CaptchaChallenge { token: format!("t{n}"), image: image.then(|| vec![n]), status: None }
+    }
+
+    /// Run `solve_captcha` where WE hands out captchas 0, 1, 2, … (`image: false` from `plain_from` on).
+    fn run(solver: Option<&Picky>, ask: Option<&Picky>, plain_from: u8) -> (Result<(CaptchaChallenge, Option<String>), FetchError>, u8) {
+        let ctx = FetchContext {
+            solver: solver.map(|s| s as &dyn crate::captcha::CaptchaSolver),
+            ask: ask.map(|s| s as &dyn crate::captcha::CaptchaSolver),
+            debug_dir: None,
+        };
+        let mut next = 0u8;
+        let reroll = || {
+            next += 1;
+            let n = next;
+            async move { Ok(challenge(n, n < plain_from)) }
+        };
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let result = rt.block_on(solve_captcha(challenge(0, 0 < plain_from), reroll, &ctx));
+        (result, next)
+    }
+
+    #[test]
+    fn answers_the_first_captcha_it_is_sure_of() {
+        let model = picky(0);
+        let (result, rerolls) = run(Some(&model), None, u8::MAX);
+        let (c, code) = result.unwrap();
+        assert_eq!((c.token.as_str(), code.as_deref(), rerolls), ("t0", Some("code0"), 0));
+    }
+
+    #[test]
+    fn rerolls_until_the_solver_is_sure() {
+        let model = picky(3);
+        let (result, rerolls) = run(Some(&model), None, u8::MAX);
+        let (c, code) = result.unwrap();
+        // Signs in with the captcha it read, the latest one.
+        assert_eq!((c.token.as_str(), code.as_deref(), rerolls), ("t3", Some("code3"), 3));
+        assert_eq!(*model.seen.lock().unwrap(), vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn asks_a_person_only_after_every_reroll() {
+        let (model, person) = (picky(99), picky(CAPTCHA_REROLLS as u8));
+        let (result, rerolls) = run(Some(&model), Some(&person), u8::MAX);
+        let (c, code) = result.unwrap();
+        assert_eq!(rerolls as usize, CAPTCHA_REROLLS);
+        assert_eq!(model.seen.lock().unwrap().len(), CAPTCHA_REROLLS + 1);
+        assert_eq!((c.token, code), (format!("t{CAPTCHA_REROLLS}"), Some(format!("code{CAPTCHA_REROLLS}"))));
+    }
+
+    #[test]
+    fn gives_up_without_a_person() {
+        let model = picky(99);
+        assert_eq!(run(Some(&model), None, u8::MAX).0.unwrap_err(), FetchError::CaptchaUnsolved);
+        assert_eq!(run(None, None, u8::MAX).0.unwrap_err(), FetchError::CaptchaUnsolved);
+    }
+
+    #[test]
+    fn signs_in_without_a_code_when_no_captcha_is_shown() {
+        let model = picky(99);
+        // WE didn't want a code at all.
+        let (c, code) = run(Some(&model), None, 0).0.unwrap();
+        assert_eq!((c.token.as_str(), code), ("t0", None));
+        // Or stopped wanting one after a reroll.
+        let (c, code) = run(Some(&model), None, 2).0.unwrap();
+        assert_eq!((c.token.as_str(), code), ("t2", None));
     }
 
     #[test]

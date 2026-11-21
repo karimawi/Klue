@@ -19,11 +19,16 @@ and uses colour to ignore the strike line.
 
 ## Current model
 
-| | Real (53, never trained on) | Synthetic (2,000 fresh) |
+| | Real (53, never trained on) | Synthetic (3,000 fresh) |
 | --- | --- | --- |
-| Exact | 52/53 | 96.8% |
-| Confidence ≥ 0.7 (Klue's threshold) | answers 50/53, all correct | answers 96.5%, 98.2% correct |
+| Exact | 52/53 | 97.1% |
+| Confidence ≥ 0.95 (Klue's threshold) | answers 46/53, all correct | answers 85.2%, 99.8% correct |
 | ddddocr, for comparison | 28/53 (50/53 ignoring case) | |
+
+Below the threshold Klue doesn't answer but asks WE for a new captcha (`GenerateCaptcha`
+replaces the previous one, and fetching one isn't a sign-in attempt), so the threshold
+trades a few extra requests (~1.2 captchas per sign-in) for fewer wrong codes: at 0.7 the
+model would answer 95.5% of synthetic captchas but be wrong on 1.6% of its answers.
 
 The real samples were used to report accuracy while training, to tune the generator and to
 pick between training runs, never as training data; expect new samples to score a little

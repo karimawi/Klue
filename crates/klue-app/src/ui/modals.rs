@@ -84,7 +84,6 @@ fn AddNumber() -> Element {
     let mut show_password = use_signal(|| false);
     let mut nickname = use_signal(String::new);
     let mut phase = use_signal(|| Phase::Form);
-    let mut manual_captcha = use_signal(|| false);
 
     let verify = use_callback({
         let shared = shared.clone();
@@ -92,21 +91,15 @@ fn AddNumber() -> Element {
             if matches!(*phase.peek(), Phase::Verifying) {
                 return;
             }
-            let (shared, c, l, n, p, manual) =
-                (shared.clone(), *carrier.peek(), *line.peek(), number.peek().clone(), password.peek().clone(), *manual_captcha.peek());
+            let (shared, c, l, n, p) = (shared.clone(), *carrier.peek(), *line.peek(), number.peek().clone(), password.peek().clone());
             if n.trim().is_empty() || p.is_empty() {
                 return;
             }
             phase.set(Phase::Verifying);
             spawn(async move {
-                match shared.verify(c, l, &n, &p, manual).await {
+                match shared.verify(c, l, &n, &p).await {
                     Ok(usage) => phase.set(Phase::Verified(Box::new(usage))),
-                    Err(e) => {
-                        if e == FetchError::CaptchaUnsolved {
-                            manual_captcha.set(true);
-                        }
-                        phase.set(Phase::Error(e));
-                    }
+                    Err(e) => phase.set(Phase::Error(e)),
                 }
             });
         }
@@ -181,7 +174,6 @@ fn AddNumber() -> Element {
                                 carrier.set(option);
                                 line.set(option.default_line());
                                 phase.set(Phase::Form);
-                                manual_captcha.set(false);
                             },
                             Tile { carrier: option, size: "24px", logo_size: crate::assets::logo(option).small }
                             "{i18n::carrier_name(option, lang)}"

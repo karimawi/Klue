@@ -51,7 +51,7 @@ cargo test -p klue-core --no-default-features
 
 After a few sign-ins, WE's `GenerateCaptcha` starts returning an image: five red characters with a blue line struck through them. Klue reads it with its own model, trained only on this captcha (`tools/captcha-model`). It is a small CNN (0.4 M parameters, 1.7 MB), embedded in the app and run with [tract](https://github.com/sonos/tract), a pure-Rust ONNX runtime, so nothing is downloaded and no native ML library is needed.
 
-The model also reports how sure it is. Below 0.7 it doesn't guess, because every wrong answer uses up one of the few attempts WE allows before blocking sign-ins. Instead, Klue asks you to type the code when you're adding a number or pressing **Refresh**, and skips that attempt during background refreshes. If WE answers `Blocked`, Klue waits an hour before trying that number again.
+The model also reports how sure it is, and below 0.95 it doesn't guess. A wrong code uses up one of the few sign-in attempts WE allows before blocking, but a new captcha costs nothing: each call to `GenerateCaptcha` replaces the previous one. So Klue asks WE for another captcha, up to 8 more times; on average a sign-in needs about 1.2. Only if the model can't read any of them does Klue ask you to type one, when you're adding a number or pressing **Refresh** (a background refresh just tries again later). If WE answers `Blocked`, Klue waits an hour before trying that number again.
 
 Results on the 53 real captchas collected so far (`crates/klue-core/tests/captchas`; the model never trained on them):
 
@@ -60,7 +60,7 @@ Results on the 53 real captchas collected so far (`crates/klue-core/tests/captch
 | ddddocr (`common_old.onnx`) | 28/53 | 50/53 | 25 |
 | Klue's WE model | **52/53** | 52/53 | **0** |
 
-ddddocr reads the letters but guesses the case of `C O S V W X Z` (and, in the serif font, `Y`), which differ from their other case only in size. WE's codes are case-sensitive, and most 5-character codes contain at least one such letter. Klue's model sees the image at its real scale. Of the 53, it answers 50 with confidence above 0.7, all correctly. For the other three Klue would ask you to type the code; one of them it would have got wrong (`8HCs5`, read as `8HCsS`: in Times New Roman that `5` looks a lot like an `S`). On 2,000 fresh synthetic captchas it answers 96.5% of the time and is right 98.2% of the time when it does.
+ddddocr reads the letters but guesses the case of `C O S V W X Z` (and, in the serif font, `Y`), which differ from their other case only in size. WE's codes are case-sensitive, and most 5-character codes contain at least one such letter. Klue's model sees the image at its real scale. Of the 53, it is sure enough to answer 46, all correctly; for the other 7 Klue would fetch a new captcha. One of those 7 it would have got wrong (`8HCs5`, read as `8HCsS`: in Times New Roman that `5` looks a lot like an `S`). On 3,000 fresh synthetic captchas it answers 85% of the time and is right 99.8% of the time when it does.
 
 WE draws most captchas in Arial and about a third in Times New Roman (18 of the 53). Characters sit on a fixed 20 px pitch, so wide letters overlap their neighbours, the font size varies from one captcha to the next, and the text is drawn over the strike line.
 

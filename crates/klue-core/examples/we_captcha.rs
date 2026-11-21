@@ -143,7 +143,7 @@ async fn main() {
         eprintln!("usage: we_captcha <landline number> [--count N] [--password PW] | --image FILE");
         std::process::exit(2);
     };
-    let ctx = FetchContext { solver: None, debug_dir: args.dump.clone() };
+    let ctx = FetchContext { debug_dir: args.dump.clone(), ..Default::default() };
     std::fs::create_dir_all(&args.out).expect("create output directory");
 
     let (mut asked, mut accepted) = (0, 0);
