@@ -27,6 +27,12 @@ A desktop app that puts the quota, package and renewal date of all your Egyptian
 | ![Arabic](docs/screenshots/arabic-rtl.png) | ![Add a number](docs/screenshots/add-number-verified.png) |
 | ![Alerts](docs/screenshots/alerts.png) | ![Coming soon](docs/screenshots/coming-soon.png) |
 
+## Download
+
+Builds for Windows, macOS (Apple Silicon and Intel) and Linux (`.deb` and `.tar.gz`) are on the [Releases](https://github.com/karimawi/Klue/releases) page. They aren't code-signed yet; the release notes explain how to open them the first time.
+
+Klue draws its own title bar on every platform. On Windows and Linux the window is frameless; on macOS it keeps the native window shape and edges, with the system title bar made transparent and its buttons hidden.
+
 ## Building
 
 You need Rust 1.92 or newer plus a few native tools. `wreq` builds BoringSSL so that requests carry Chrome's TLS fingerprint.
@@ -66,6 +72,16 @@ cargo run -p klue-core --example we_captcha -- --image captchas/a.jpg           
 
 Then follow `tools/captcha-model/README.md` to fine-tune. ddddocr is still available as an optional extra solver: build with `--features ocr` and fetch its model with `cargo run -p klue-core --example fetch_ocr_model`. That feature downloads ONNX Runtime from cdn.pyke.io at build time; `ocr-dynamic` loads it from `ORT_DYLIB_PATH` instead.
 
+## Releasing
+
+Push a version tag and GitHub Actions builds and publishes the release (`.github/workflows/release.yml`):
+
+```sh
+git tag v0.1.1 && git push origin v0.1.1
+```
+
+It builds `klue` on Windows, macOS (arm64 and x64) and Ubuntu 22.04, packages it with `packaging/package.sh` (zip, `.dmg` with `Klue.app`, `.deb` and `.tar.gz`) and attaches the files to a pre-release. If a build fails, the release stays a draft with that build's log attached. Bump `version` in the root `Cargo.toml` first.
+
 ## Debugging the carrier parsers
 
 The field names for the registrant name (WE) and the package name are not documented; the parsers try the likely names in order. To see what your account actually returns, run with `KLUE_DEBUG_DIR=debug`. Every carrier response is then written under `debug/`, with passwords, tokens and captcha images redacted. The parsers have fixtures in `crates/klue-core/tests/fixtures/`.
@@ -76,6 +92,7 @@ The field names for the registrant name (WE) and the package name are not docume
 crates/klue-core     carrier clients (WE, Vodafone), captcha readers, storage, alert rules; no UI
 crates/klue-app      Dioxus desktop app: window, tray, notifications, launch at startup
 tools/captcha-model  synthetic WE captcha generator and model training (Python, PyTorch)
+packaging/           release packaging (macOS bundle, Linux desktop entry, release notes)
 design/              UI mockups
 ```
 

@@ -55,7 +55,7 @@ pub fn use_systray(shared: Arc<Shared>) {
         let sep = PredefinedMenuItem::separator();
         let _ = menu.append_items(&[&items[0], &items[1], &sep, &items[2], &sep, &items[3]]);
         let mut builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_menu_on_left_click(false).with_tooltip("Klue");
-        if let Ok(icon) = Icon::from_rgba(assets::app_icon(32), 32, 32) {
+        if let Ok(icon) = dioxus::desktop::icon_from_memory::<Icon>(include_bytes!("../icons/klue-64.png")) {
             builder = builder.with_icon(icon);
         }
         match builder.build() {

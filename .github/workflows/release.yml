@@ -1,0 +1,110 @@
+name: Release
+
+# Push a tag like v0.1.0 to build Klue for Windows, macOS and Linux and publish a
+# GitHub release with the packages. If any build fails, the release is left as a
+# draft with that build's log attached.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - name: macos-x64
+            os: macos-latest
+            target: x86_64-apple-darwin
+          - name: linux-x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev \
+            libdbus-1-dev libssl-dev cmake clang pkg-config
+
+      - name: Install cargo-deb
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+
+      - name: Point bindgen at LLVM
+        if: runner.os == 'Windows'
+        run: echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: cargo build --release --locked -p klue-app --target ${{ matrix.target }} 2>&1 | tee build.log
+
+      - name: Package
+        run: packaging/package.sh "${{ matrix.name }}" "${{ matrix.target }}" "${GITHUB_REF_NAME}" 2>&1 | tee -a build.log
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/Klue-*
+
+      - name: Keep the log of a failed build
+        if: failure()
+        run: |
+          mkdir -p dist
+          tail -c 200000 build.log > "dist/build-log-${{ matrix.name }}.txt" || echo "no build log" > "dist/build-log-${{ matrix.name }}.txt"
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: log-${{ matrix.name }}
+          path: dist/build-log-*.txt
+
+  release:
+    needs: build
+    if: always() && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Klue ${{ github.ref_name }}
+          body_path: packaging/RELEASE_NOTES.md
+          draft: ${{ needs.build.result != 'success' }}
+          prerelease: true
+          files: dist/*
+          fail_on_unmatched_files: false

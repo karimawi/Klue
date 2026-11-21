@@ -33,3 +33,19 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+# `cargo deb -p klue-app` (Linux release packages).
+[package.metadata.deb]
+name = "klue"
+section = "net"
+priority = "optional"
+extended-description = "Quota, package and renewal info for your WE and Vodafone Egypt lines in one window, with low-quota and renewal notifications."
+depends = "$auto, libwebkit2gtk-4.1-0, libayatana-appindicator3-1"
+assets = [
+    ["target/release/klue", "usr/bin/", "755"],
+    ["../../packaging/linux/klue.desktop", "usr/share/applications/", "644"],
+    ["icons/klue-256.png", "usr/share/icons/hicolor/256x256/apps/klue.png", "644"],
+]

@@ -68,26 +68,6 @@ pub fn logo(carrier: Carrier) -> &'static Logo {
     }
 }
 
-/// The brand mark (a rounded accent square, as in the title bar) as RGBA pixels,
-/// for the window and tray icons.
-pub fn app_icon(size: u32) -> Vec<u8> {
-    let (r, g, b) = (0xec_u8, 0x30_u8, 0x13_u8);
-    let radius = size as f32 * 0.3;
-    let mut px = Vec::with_capacity((size * size * 4) as usize);
-    for y in 0..size {
-        for x in 0..size {
-            // Distance outside the rounded rectangle, for a 1 px anti-aliased edge.
-            let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
-            let cx = fx.clamp(radius, size as f32 - radius);
-            let cy = fy.clamp(radius, size as f32 - radius);
-            let d = ((fx - cx).powi(2) + (fy - cy).powi(2)).sqrt() - radius;
-            let alpha = (0.5 - d).clamp(0.0, 1.0);
-            px.extend_from_slice(&[r, g, b, (alpha * 255.0) as u8]);
-        }
-    }
-    px
-}
-
 /// Inline SVG icons from the mockup (Lucide shapes).
 pub mod icons {
     pub const REFRESH: &str = r#"<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>"#;

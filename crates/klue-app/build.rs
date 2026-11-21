@@ -1,3 +1,5 @@
+//! Windows: embeds the app icon in klue.exe.
+//!
 //! Linux link fix. dioxus-desktop links the system OpenSSL (tungstenite → native-tls),
 //! while wreq links BoringSSL as static `libssl.a`/`libcrypto.a` with prefixed symbols
 //! (wreq's `prefix-symbols` feature). Both ask the linker for `-lssl`, and BoringSSL's
@@ -9,6 +11,8 @@ use std::{path::PathBuf, process::Command};
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    #[cfg(windows)]
+    windows_resources();
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {
         return;
     }
@@ -29,4 +33,15 @@ fn main() {
         }
     }
     println!("cargo:warning=system OpenSSL not found; install libssl-dev if linking fails");
+}
+
+/// Icon and version info for klue.exe (Explorer, taskbar, Alt+Tab).
+#[cfg(windows)]
+fn windows_resources() {
+    println!("cargo:rerun-if-changed=icons/klue.ico");
+    let mut res = winresource::WindowsResource::new();
+    res.set_icon("icons/klue.ico").set("ProductName", "Klue").set("FileDescription", "Klue");
+    if let Err(e) = res.compile() {
+        println!("cargo:warning=couldn't embed the Windows icon: {e}");
+    }
 }

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Klue
+Comment=Quota, package and renewal info for your Egyptian telecom lines
+Exec=klue
+Icon=klue
+Terminal=false
+Categories=Network;Utility;
+StartupWMClass=klue
