@@ -81,13 +81,27 @@ pub fn tidy_name(raw: &str) -> Option<String> {
     )
 }
 
-/// Amount without its unit: one decimal for GB, whole numbers otherwise.
+/// Amount without its unit, in the unit the carrier stated: one decimal for GB, two for
+/// money, whole numbers otherwise (MB, minutes, units), with thousands separators.
 pub fn amount(v: f64, unit: Unit) -> String {
     match unit {
-        Unit::Gb => format!("{:.1}", (v * 10.0).round() / 10.0),
-        Unit::Egp => format!("{v:.2}"),
+        Unit::Gb => grouped(v, 1),
+        Unit::Egp => grouped(v, 2),
         _ => thousands(v.round() as i64),
     }
+}
+
+/// Money as shown in the app: "1,685.96".
+pub fn money(v: f64) -> String {
+    grouped(v, 2)
+}
+
+fn grouped(v: f64, decimals: usize) -> String {
+    let fixed = format!("{:.*}", decimals, v.abs());
+    let (int, frac) = fixed.split_once('.').unwrap_or((&fixed, ""));
+    let int: i64 = int.parse().unwrap_or(0);
+    let sign = if v < 0.0 && fixed.chars().any(|c| c.is_ascii_digit() && c != '0') { "-" } else { "" };
+    if frac.is_empty() { format!("{sign}{}", thousands(int)) } else { format!("{sign}{}.{frac}", thousands(int)) }
 }
 
 /// Like [`amount`] but drops a trailing `.0` (used for totals: "of 140 GB").
@@ -111,6 +125,18 @@ fn thousands(n: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formats_amounts_in_their_unit() {
+        assert_eq!(amount(992.0, Unit::Mb), "992");
+        assert_eq!(amount(4748.0, Unit::Mb), "4,748");
+        assert_eq!(amount(305.66, Unit::Gb), "305.7");
+        assert_eq!(amount(1234.5, Unit::Gb), "1,234.5");
+        assert_eq!(money(1685.963), "1,685.96");
+        assert_eq!(money(0.0), "0.00");
+        assert_eq!(money(-12.5), "-12.50");
+        assert_eq!(amount_short(140.0, Unit::Gb), "140");
+    }
 
     #[test]
     fn normalizes_numbers() {

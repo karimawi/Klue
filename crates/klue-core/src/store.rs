@@ -239,11 +239,13 @@ impl Account {
         self.alerts.bundles.get(&bundle.key).copied().unwrap_or_else(|| BundleAlert::default_for(bundle, is_main))
     }
 
+    /// The main quota, as the user chose it (or the default).
+    pub fn main_bundle(&self) -> Option<&Bundle> {
+        self.usage.as_ref().and_then(|u| u.main_for(self.main_bundle.as_deref()))
+    }
+
     pub fn main_alert_triggered(&self) -> bool {
-        self.usage
-            .as_ref()
-            .and_then(|u| u.main())
-            .is_some_and(|b| self.alert_for(b, true).is_triggered(b))
+        self.main_bundle().is_some_and(|b| self.alert_for(b, true).is_triggered(b))
     }
 
     /// Record a successful refresh.

@@ -43,8 +43,9 @@ pub fn due(account: &Account, now: DateTime<Utc>) -> Vec<AlertEvent> {
     let Some(usage) = &account.usage else { return Vec::new() };
     let mut events = Vec::new();
 
-    for (i, bundle) in usage.bundles.iter().enumerate() {
-        let alert = account.alert_for(bundle, i == 0);
+    let main_key = account.main_bundle().map(|b| b.key.clone());
+    for bundle in &usage.bundles {
+        let alert = account.alert_for(bundle, main_key.as_deref() == Some(bundle.key.as_str()));
         if alert.is_triggered(bundle) {
             events.push(AlertEvent::QuotaLow {
                 account_id: account.id.clone(),
