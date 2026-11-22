@@ -1,0 +1,67 @@
+{
+  "header": { "retCode": "0", "validateResults": [] },
+  "body": [
+    {
+      "actualRemain": 403.8,
+      "effectiveTime": 1793598180000,
+      "expireTime": 1796162400000,
+      "freeUnitBeanDetailList": [
+        {
+          "currentAmount": 143.8,
+          "effectiveTime": 1793598180000,
+          "expireTime": 1796162400000,
+          "expireTimeCz": 1796155200000,
+          "initialAmount": 400.0,
+          "isGroup": false,
+          "itemCode": "C_TED_Topup_Fixed_Data",
+          "measureUnit": "1109",
+          "offeringName": "Giga Tank - 400 GB",
+          "originType": "WE TOPUP ",
+          "remainingDaysForRenewal": 9,
+          "serviceNumber": "FBB200000000"
+        },
+        {
+          "currentAmount": 250.0,
+          "effectiveTime": 1794574620000,
+          "expireTime": 1797112800000,
+          "expireTimeCz": 1797105600000,
+          "initialAmount": 250.0,
+          "isGroup": false,
+          "itemCode": "C_TED_Primary_Fixed_Data",
+          "measureUnit": "1109",
+          "offeringName": "Super 3 speed (250 GB)",
+          "originType": "Main Quota",
+          "remainingDaysForRenewal": 20,
+          "serviceNumber": "FBB200000000"
+        },
+        {
+          "currentAmount": 10.0,
+          "effectiveTime": 1795247400000,
+          "expireTime": 1797839400000,
+          "expireTimeCz": 1797832200000,
+          "initialAmount": 10.0,
+          "isGroup": false,
+          "itemCode": "C_TED_Topup_Fixed_Data",
+          "measureUnit": "1109",
+          "offeringName": "",
+          "originType": "WE TOPUP ",
+          "remainingDaysForRenewal": 29,
+          "serviceNumber": "FBB200000000"
+        }
+      ],
+      "freeUnitType": "ADSL_USAGE_PREPAID",
+      "freeUnitTypeId": "C_TED_Primary_Fixed_Data",
+      "freeUnitTypeName": "Home Internet",
+      "groupOrder": "6",
+      "iconImage": "home",
+      "measureUnit": "1109",
+      "offerName": "Giga Tank - 400 GB",
+      "originUnit": "1106",
+      "remain": 403.8,
+      "tabId": "7",
+      "tabName": "Home Internet",
+      "total": 660.0,
+      "used": 256.2
+    }
+  ]
+}

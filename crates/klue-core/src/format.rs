@@ -56,29 +56,27 @@ pub fn pretty_number(number: &str) -> String {
 }
 
 /// Clean up a registrant name from a carrier: collapse whitespace and turn SHOUTING
-/// Latin names into Title Case. Returns `None` for values that aren't names.
+/// Latin words into Title Case, whether the whole name shouts ("MOSTAFA HASSAN") or one
+/// word does ("Samia NAGUIB"). Returns `None` for values that aren't names.
 pub fn tidy_name(raw: &str) -> Option<String> {
     let collapsed = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     if !collapsed.chars().any(char::is_alphabetic) || collapsed.contains('@') {
         return None;
     }
-    let shouting = collapsed.is_ascii() && !collapsed.chars().any(|c| c.is_ascii_lowercase());
-    if !shouting {
-        return Some(collapsed);
-    }
-    Some(
-        collapsed
-            .split(' ')
-            .map(|w| {
-                let mut cs = w.chars();
-                match cs.next() {
-                    Some(f) => f.to_ascii_uppercase().to_string() + &cs.as_str().to_ascii_lowercase(),
-                    None => String::new(),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" "),
-    )
+    let shouting = |w: &str| {
+        w.is_ascii() && w.chars().filter(char::is_ascii_alphabetic).count() >= 2 && !w.chars().any(|c| c.is_ascii_lowercase())
+    };
+    // "EL-SAYED" → "El-Sayed": a capital after each hyphen or apostrophe too.
+    let title = |w: &str| {
+        let mut out = String::with_capacity(w.len());
+        let mut start = true;
+        for c in w.chars() {
+            out.push(if start { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() });
+            start = matches!(c, '-' | '\'');
+        }
+        out
+    };
+    Some(collapsed.split(' ').map(|w| if shouting(w) { title(w) } else { w.to_string() }).collect::<Vec<_>>().join(" "))
 }
 
 /// Amount without its unit, in the unit the carrier stated: one decimal for GB, two for
@@ -161,6 +159,10 @@ mod tests {
         assert_eq!(tidy_name("  MOSTAFA   HASSAN ALI ").as_deref(), Some("Mostafa Hassan Ali"));
         assert_eq!(tidy_name("مصطفى حسن").as_deref(), Some("مصطفى حسن"));
         assert_eq!(tidy_name("0223584417"), None);
+        // One shouting word in an otherwise cased name, hyphens and initials.
+        assert_eq!(tidy_name("Samia Fahmy NAGUIB").as_deref(), Some("Samia Fahmy Naguib"));
+        assert_eq!(tidy_name("MOSTAFA A EL-SAYED").as_deref(), Some("Mostafa A El-Sayed"));
+        assert_eq!(tidy_name("Samir Al-Masri").as_deref(), Some("Samir Al-Masri"));
     }
 
     #[test]

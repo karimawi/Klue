@@ -1,0 +1,104 @@
+[
+  {
+    "@type": "Tariff",
+    "bucket": [
+      {
+        "bucketBalance": [
+          { "@type": "Remaining", "remainingValue": { "amount": 0.0, "units": "LE" } },
+          { "@type": "Recharge", "remainingValue": { "amount": 0.0, "units": "LE" } }
+        ],
+        "bucketCounter": [{ "@type": "Used", "value": { "amount": 0.0 } }]
+      }
+    ],
+    "id": "631",
+    "relatedParty": { "@referredType": "False", "@type": "N/A" }
+  },
+  {
+    "@type": "FAKKA_AND_MARED",
+    "bucket": [
+      {
+        "bucketBalance": [{ "@type": "Remaining", "remainingValue": { "amount": 120.0, "units": "Unit" } }],
+        "bucketCounter": [{ "@type": "Used", "level": "local", "value": { "amount": 305.0, "units": "Unit" } }],
+        "product": [{ "@baseType": "Active", "id": "7264", "name": "Fakka 19 LE" }],
+        "usageType": "FAKKA_UNIT"
+      }
+    ]
+  },
+  {
+    "@type": "FLEX",
+    "bucket": [
+      {
+        "Status": "frozen",
+        "bucketBalance": [
+          {
+            "@type": "Remaining",
+            "remainingValue": { "amount": 4200.0, "units": "Flex" },
+            "validFor": { "endDateTime": "2026-12-17T00:00:00.000+0000" }
+          }
+        ],
+        "bucketCounter": [{ "@type": "Used", "level": "Local", "value": { "amount": 800.0, "units": "Flex" } }],
+        "product": [
+          {
+            "@baseType": "Active",
+            "characteristics": [{ "characteristicName": "Status", "characteristicValue": "Frozen" }],
+            "id": "2020000842",
+            "name": "AFB Freeze Quota"
+          }
+        ],
+        "usageType": "flex"
+      }
+    ]
+  },
+  {
+    "@type": "OTHERS",
+    "bucket": [
+      {
+        "Status": "frozen",
+        "bucketBalance": [{ "@type": "Remaining", "remainingValue": { "amount": 0.0, "units": "DataFlexes" } }],
+        "bucketCounter": [{ "@type": "Used", "level": "Local", "value": { "amount": 700.0, "units": "DataFlexes" } }],
+        "product": [
+          {
+            "@baseType": "Active",
+            "characteristics": [{ "characteristicName": "Status", "characteristicValue": "Frozen" }],
+            "id": "Grace_Flex",
+            "name": "Grace_Flex"
+          }
+        ],
+        "usageType": "dataflexes"
+      },
+      {
+        "bucketBalance": [{ "@type": "Remaining", "remainingValue": { "amount": 95000.0, "units": "PT" } }],
+        "bucketCounter": [{ "@type": "Used", "level": "Local", "value": { "amount": 1000000.0, "units": "PT" } }],
+        "product": [
+          { "@baseType": "Active", "id": "Shared Pool", "name": "ACP/RX" },
+          { "@baseType": "Active", "id": "Rest of Salefny", "name": "Rest of Salefny" },
+          { "@baseType": "Active", "id": "Stamp Tax", "name": "Stamp Tax" }
+        ],
+        "usageType": "monetary"
+      },
+      {
+        "bucketBalance": [{ "@type": "Remaining", "remainingValue": { "amount": -10450.0, "units": "PT" } }],
+        "bucketCounter": [{ "@type": "Used", "value": { "amount": 10450.0, "units": "PT" } }],
+        "product": [{ "id": "Negative Balance" }],
+        "usageType": "negativebalance"
+      },
+      {
+        "Status": "frozen",
+        "bucketBalance": [{ "@type": "Remaining", "remainingValue": { "amount": 0.0, "units": "VoiceFlexes" } }],
+        "bucketCounter": [{ "@type": "Used", "level": "Local", "value": { "amount": 100.0, "units": "VoiceFlexes" } }],
+        "product": [
+          {
+            "@baseType": "Active",
+            "characteristics": [{ "characteristicName": "Status", "characteristicValue": "Frozen" }],
+            "id": "Grace_Flex",
+            "name": "Grace_Flex"
+          }
+        ],
+        "usageType": "voiceflexes"
+      }
+    ]
+  },
+  { "@type": "DSL", "bucket": [] },
+  { "@type": "Home Wireless", "bucket": [] },
+  { "@type": "Home Compound", "bucket": [] }
+]

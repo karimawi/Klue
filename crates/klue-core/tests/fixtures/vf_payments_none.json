@@ -1,0 +1,5 @@
+{
+  "code": "1001",
+  "message": "There is no payfort transactions for this customer for the last 90 days",
+  "reason": "No Data Found"
+}

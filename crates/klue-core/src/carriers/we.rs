@@ -12,6 +12,11 @@
 //!
 //! All requests go out with Chrome's TLS fingerprint (`curl_cffi`'s `chrome131` in the
 //! Python original), since WE's edge rejects obvious non-browser clients.
+//!
+//! WE's own web app now calls the same API paths on `my.te.eg` and signs every request
+//! (`whiteReqBodySign`/`whiteReqHeaderSign` before sign-in, `reqBodySign`/`reqHeaderSign`
+//! after, from obfuscated JS). `api-my.te.eg` still accepts unsigned requests (checked
+//! against live accounts on 2026-11-22), so Klue keeps using it.
 
 use std::time::Duration;
 
@@ -225,15 +230,13 @@ impl WeSession {
         if !ret_ok(&offers) {
             return Err(carrier_error(&offers, "offerings"));
         }
-        let offering = &offers["body"]["offeringList"][0];
-        let main_offer_id = j::text(&offering["mainOfferingId"]).ok_or_else(|| missing("offeringList[0].mainOfferingId"))?;
-        let package_name = j::find_text(offering, &["mainOfferingName", "offeringName", "mainOfferingDesc", "offeringDesc"]);
+        let package = main_offering(&offers).ok_or_else(|| missing("offeringList[].mainOfferingId"))?;
 
         let resp = self
             .client
             .post(format!("{API}/cz/cbs/bb/queryFreeUnit"))
             .headers(headers.clone())
-            .json(&json!({ "subscriberId": auth.subscriber_id, "mainOfferId": main_offer_id }))
+            .json(&json!({ "subscriberId": auth.subscriber_id, "mainOfferId": package.id }))
             .send()
             .await?;
         let units = http::json_body(resp, "WE quota").await?;
@@ -241,7 +244,7 @@ impl WeSession {
         if !ret_ok(&units) {
             return Err(carrier_error(&units, "quota"));
         }
-        let mut usage = build_usage(&units, package_name, balance_egp, auth.owner_name.clone())?;
+        let mut usage = build_usage(&units, Some(&package), balance_egp, auth.owner_name.clone())?;
 
         // Extras. Neither is essential, so failures only leave them out.
         let (plan, since) = self.line_product(auth, &headers, ctx).await.unwrap_or_default();
@@ -453,41 +456,101 @@ fn owner_name(body: &Value, number: &str) -> Option<String> {
         .find_map(|n| tidy_name(&n))
 }
 
-/// Parse `queryFreeUnit` into bundles. The main quota is the first one with data left;
-/// the add-on takes over once the main quota runs out.
+/// The subscribed package, from `getSubscribedOfferings`. The list also holds add-ons
+/// (top-ups, router rental, gifts) and the line's primary offering, in no fixed order;
+/// the package is the entry flagged `main` (each entry names it in `mainOfferingId`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct MainOffering {
+    /// What `queryFreeUnit` wants as `mainOfferId`.
+    pub id: String,
+    pub name: Option<String>,
+    pub subscribed_at: Option<chrono::DateTime<Utc>>,
+    pub renews_at: Option<chrono::DateTime<Utc>>,
+}
+
+pub(crate) fn main_offering(v: &Value) -> Option<MainOffering> {
+    let list = v["body"]["offeringList"].as_array()?;
+    let flagged = list.iter().find(|o| j::truthy(&o["main"]));
+    let id = flagged
+        .and_then(|o| j::text(&o["mainOfferingId"]).or_else(|| j::text(&o["offerId"])))
+        .or_else(|| list.iter().find_map(|o| j::text(&o["mainOfferingId"])))?;
+    let main = flagged.or_else(|| list.iter().find(|o| j::text(&o["offerId"]).as_deref() == Some(id.as_str())));
+    Some(MainOffering {
+        name: main.and_then(|o| shallow_text(o, &["offerEnName", "offeringName", "offerArName"])),
+        subscribed_at: main.and_then(|o| j::epoch_ms(&o["subscriptionDate"])),
+        renews_at: main.and_then(|o| j::epoch_ms(&o["renewalDate"])),
+        id,
+    })
+}
+
+fn free_unit_details(v: &Value) -> impl Iterator<Item = (&Value, &Value)> {
+    v["body"].as_array().into_iter().flatten().flat_map(|group| {
+        group["freeUnitBeanDetailList"].as_array().into_iter().flatten().map(move |detail| (group, detail))
+    })
+}
+
+/// The package's own quota: WE marks it `originType: "Main Quota"` (item
+/// `C_TED_Primary_Fixed_Data`); top-ups say `"WE TOPUP"` (item `C_TED_Topup_Fixed_Data`).
+fn is_main_quota(detail: &Value) -> bool {
+    match shallow_text(detail, &["originType"]) {
+        Some(origin) => origin.eq_ignore_ascii_case("main quota"),
+        None => shallow_text(detail, &["itemCode"]).is_some_and(|c| c.contains("_Primary_")),
+    }
+}
+
+/// Parse `queryFreeUnit` into bundles, largest with something left first. The package's
+/// own quota is [`BundleKind::Data`], top-ups and gifts are add-ons; when WE doesn't say
+/// which is which, the first bundle counts as the package's.
 pub(crate) fn parse_free_units(v: &Value) -> Vec<Bundle> {
     let mut out: Vec<Bundle> = Vec::new();
-    for group in v["body"].as_array().into_iter().flatten() {
-        let group_name = shallow_text(group, &["offeringName", "freeUnitTypeName", "freeUnitName", "freeUnitType"]);
-        for detail in group["freeUnitBeanDetailList"].as_array().into_iter().flatten() {
-            let (Some(total), Some(remaining)) = (j::num(&detail["initialAmount"]), j::num(&detail["currentAmount"])) else {
-                continue;
-            };
-            let unit_label = shallow_text(detail, &["measureUnitName", "measureUnit", "unitName"])
-                .or_else(|| shallow_text(group, &["measureUnit"]))
-                .unwrap_or_default();
-            let (unit, factor) = unit_of(&unit_label);
-            let name = shallow_text(detail, &["offeringName", "freeUnitTypeName", "freeUnitName"])
-                .or_else(|| group_name.clone())
-                .unwrap_or_else(|| if out.is_empty() { "Home internet".into() } else { "Add-on".into() });
-            out.push(Bundle {
-                key: String::new(),
-                kind: BundleKind::Addon,
-                name,
-                unit,
-                total: total * factor,
-                remaining: remaining * factor,
-                starts_at: j::epoch_ms(&detail["effectiveTime"]),
-                expires_at: j::epoch_ms(&detail["expireTime"]),
-            });
-        }
+    for (group, detail) in free_unit_details(v) {
+        let (Some(total), Some(remaining)) = (j::num(&detail["initialAmount"]), j::num(&detail["currentAmount"])) else {
+            continue;
+        };
+        let unit_label = shallow_text(detail, &["measureUnitName", "measureUnit", "unitName"])
+            .or_else(|| shallow_text(group, &["measureUnit"]))
+            .unwrap_or_default();
+        let (unit, factor) = unit_of(&unit_label);
+        // Top-ups can come without a name; their origin ("WE TOPUP") says more than the
+        // group's label ("Home Internet"), which is also the package quota's.
+        let name = shallow_text(detail, &["offeringName", "freeUnitTypeName", "freeUnitName"])
+            .or_else(|| shallow_text(detail, &["originType"]).filter(|_| !is_main_quota(detail)).map(|o| tidy_label(&o)))
+            .or_else(|| shallow_text(group, &["offeringName", "freeUnitTypeName", "freeUnitName", "freeUnitType"]))
+            .unwrap_or_else(|| if out.is_empty() { "Home internet".into() } else { "Add-on".into() });
+        out.push(Bundle {
+            key: String::new(),
+            kind: if is_main_quota(detail) { BundleKind::Data } else { BundleKind::Addon },
+            name,
+            unit,
+            total: total * factor,
+            remaining: remaining * factor,
+            starts_at: j::epoch_ms(&detail["effectiveTime"]),
+            expires_at: j::epoch_ms(&detail["expireTime"]),
+        });
     }
     order_bundles(&mut out);
-    if let Some(main) = out.first_mut() {
+    if !out.iter().any(|b| b.kind == BundleKind::Data)
+        && let Some(main) = out.first_mut()
+    {
         main.kind = BundleKind::Data;
     }
     assign_keys(&mut out);
     out
+}
+
+/// "WE TOPUP " → "WE Topup": shouting words of three letters or more in title case.
+fn tidy_label(raw: &str) -> String {
+    raw.split_whitespace()
+        .map(|w| {
+            if w.chars().count() > 2 && w.chars().any(char::is_alphabetic) && !w.chars().any(char::is_lowercase) {
+                let mut cs = w.chars();
+                cs.next().map(|f| f.to_string() + &cs.as_str().to_lowercase()).unwrap_or_default()
+            } else {
+                w.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// WE's measure units, as names or Huawei CBS codes (1109 GB, 1106 MB, 1108 KB).
@@ -505,20 +568,27 @@ fn shallow_text(v: &Value, keys: &[&str]) -> Option<String> {
     keys.iter().find_map(|k| j::text(&v[*k]))
 }
 
+/// Package name and cycle dates come from the package's own quota, not from a bigger
+/// top-up that may lead the list; without one, from the subscribed offering.
 pub(crate) fn build_usage(
     units: &Value,
-    package_name: Option<String>,
+    package: Option<&MainOffering>,
     balance_egp: Option<f64>,
     owner_name: Option<String>,
 ) -> Result<Usage, FetchError> {
     let bundles = parse_free_units(units);
-    let main = bundles.first().ok_or_else(|| FetchError::Unexpected("WE returned no quota for this line".into()))?;
+    let first = bundles.first().ok_or_else(|| FetchError::Unexpected("WE returned no quota for this line".into()))?;
+    let quota = free_unit_details(units)
+        .any(|(_, d)| is_main_quota(d))
+        .then(|| bundles.iter().find(|b| b.kind == BundleKind::Data))
+        .flatten();
+    let offering = package.cloned().unwrap_or_default();
     Ok(Usage {
         owner_name,
-        package_name: package_name.or_else(|| Some(main.name.clone())),
+        package_name: quota.map(|q| q.name.clone()).or(offering.name).or_else(|| Some(first.name.clone())),
         balance_egp,
-        subscribed_at: main.starts_at,
-        renews_at: main.expires_at,
+        subscribed_at: quota.and_then(|q| q.starts_at).or(offering.subscribed_at).or(first.starts_at),
+        renews_at: quota.and_then(|q| q.expires_at).or(offering.renews_at).or(first.expires_at),
         bundles,
         fetched_at: Utc::now(),
         info: LineInfo::default(),
@@ -537,7 +607,9 @@ mod tests {
 
     #[test]
     fn parses_free_units() {
-        let usage = build_usage(&fixture("we_free_units.json"), Some("Super 140".into()), Some(12.5), None).unwrap();
+        // An older shape that doesn't say which bucket is the package's: the first is.
+        let package = MainOffering { id: "1".into(), name: Some("Super 140".into()), ..Default::default() };
+        let usage = build_usage(&fixture("we_free_units.json"), Some(&package), Some(12.5), None).unwrap();
         assert_eq!(usage.bundles.len(), 2);
         let main = usage.main().unwrap();
         assert_eq!(main.kind, BundleKind::Data);
@@ -547,6 +619,58 @@ mod tests {
         assert_eq!(usage.renews_at.unwrap().timestamp(), 1_764_892_800);
         assert_eq!(usage.subscribed_at.unwrap().timestamp(), 1_762_300_800);
         assert_eq!(usage.package_name.as_deref(), Some("Super 140"));
+    }
+
+    #[test]
+    fn finds_the_main_offering_anywhere_in_the_list() {
+        // The list starts with a top-up here; the package is the entry flagged `main`.
+        let offers = fixture("we_offerings.json");
+        let p = main_offering(&offers).unwrap();
+        assert_eq!((p.id.as_str(), p.name.as_deref()), ("820058", Some("Super speed 3- (250GB)")));
+        assert_eq!(p.renews_at.unwrap().to_rfc3339(), "2026-12-12T22:00:00+00:00");
+        assert_eq!(p.subscribed_at.unwrap().to_rfc3339(), "2026-11-12T22:00:00+00:00");
+
+        // Without the flag, the entry whose id every entry names as `mainOfferingId`.
+        let mut unflagged = offers.clone();
+        for o in unflagged["body"]["offeringList"].as_array_mut().unwrap() {
+            o.as_object_mut().unwrap().remove("main");
+        }
+        assert_eq!(main_offering(&unflagged).unwrap(), p);
+        assert!(main_offering(&json!({"header": {"retCode": "0"}, "body": {"offeringList": []}})).is_none());
+    }
+
+    #[test]
+    fn package_and_dates_come_from_the_main_quota_not_a_bigger_topup() {
+        let package = main_offering(&fixture("we_offerings.json"));
+        let usage = build_usage(&fixture("we_free_units_topups.json"), package.as_ref(), None, None).unwrap();
+        let rows: Vec<_> = usage.bundles.iter().map(|b| (b.name.as_str(), b.kind, b.key.as_str())).collect();
+        // Largest with something left first (the 400 GB top-up); the package's own quota is
+        // the Data one, and the unnamed top-up is named after its origin, not "Home Internet".
+        assert_eq!(
+            rows,
+            [
+                ("Giga Tank - 400 GB", BundleKind::Addon, "giga-tank-400-gb"),
+                ("Super 3 speed (250 GB)", BundleKind::Data, "super-3-speed-250-gb"),
+                ("WE Topup", BundleKind::Addon, "we-topup"),
+            ]
+        );
+        assert_eq!(usage.package_name.as_deref(), Some("Super 3 speed (250 GB)"));
+        assert_eq!(usage.renews_at.unwrap().to_rfc3339(), "2026-12-12T22:00:00+00:00");
+        assert_eq!(usage.subscribed_at.unwrap().to_rfc3339(), "2026-11-13T12:57:00+00:00");
+
+        // No main quota left in the list: name and dates from the subscribed offering.
+        let mut topups_only = fixture("we_free_units_topups.json");
+        topups_only["body"][0]["freeUnitBeanDetailList"].as_array_mut().unwrap().remove(1);
+        let usage = build_usage(&topups_only, package.as_ref(), None, None).unwrap();
+        assert_eq!(usage.package_name.as_deref(), Some("Super speed 3- (250GB)"));
+        assert_eq!(usage.renews_at.unwrap().to_rfc3339(), "2026-12-12T22:00:00+00:00");
+        assert_eq!(usage.bundles[0].kind, BundleKind::Data);
+    }
+
+    #[test]
+    fn tidies_origin_labels() {
+        assert_eq!(tidy_label("WE TOPUP "), "WE Topup");
+        assert_eq!(tidy_label("Main Quota"), "Main Quota");
     }
 
     #[test]

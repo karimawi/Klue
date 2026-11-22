@@ -77,7 +77,11 @@ pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Resu
     let access_token = j::text(&token["access_token"])
         .ok_or_else(|| FetchError::Unexpected("Vodafone didn't return an access token".into()))?;
 
-    let mut profile = token_claims(&access_token).map(|c| profile_from_claims(&c)).unwrap_or_default();
+    let claims = token_claims(&access_token);
+    if let Some(claims) = &claims {
+        ctx.dump("vf-claims", claims);
+    }
+    let mut profile = claims.as_ref().map(profile_from_claims).unwrap_or_default();
     if profile.name.is_none() {
         profile.name = userinfo_name(&client, &access_token).await;
     }
@@ -93,13 +97,14 @@ pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Resu
     .await?;
     let report = http::json_body(resp, "Vodafone usage").await?;
     ctx.dump("vf-usage", &report);
-    let mut usage = parse_usage(&report, profile.name.clone(), Utc::now())?;
-
-    // 4. Extras. Neither is essential, so failures only leave them out.
+    // The rate plan's name (best effort) also names a Flex line's package.
     let plan = match &profile.plan_code {
         Some(code) => plan_name(&client, code, ctx).await,
         None => None,
     };
+    let mut usage = parse_usage(&report, profile.name.clone(), plan.as_deref(), Utc::now())?;
+
+    // 4. Extras. Not essential, so failures only leave them out.
     usage.info = LineInfo {
         plan: plan.or_else(|| profile.tariff.clone()),
         payment: profile.payment,
@@ -107,7 +112,8 @@ pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Resu
         number: profile.msisdn.clone(),
         since: None,
     };
-    usage.payments = payment_history(&client, &access_token, &msisdn, ctx).await;
+    let payer = profile.user_id.as_deref().unwrap_or(&msisdn);
+    usage.payments = payment_history(&client, &access_token, payer, ctx).await;
     Ok(usage)
 }
 
@@ -125,16 +131,17 @@ fn dxl_get(client: &wreq::Client, url: &str, access_token: &str, msisdn: &str) -
         .header(REFERER, REDIRECT_URI)
 }
 
-/// The query values the web app sends to `paymentmng/payment`. The captured traffic has
-/// only their types, so these are a best guess until confirmed; if Vodafone rejects them
-/// the history is simply left out.
-const PAYMENTS_TYPE: &str = "PaymentHistory";
+/// `@type` and `useCase` of the web app's "Recharge & bills history" request
+/// (`getPaymentHistory` in its recharge module), which sends `api_id: WEB` alongside.
+const PAYMENTS_TYPE: &str = "creditCardHistory";
 
-async fn payment_history(client: &wreq::Client, access_token: &str, msisdn: &str, ctx: &FetchContext<'_>) -> Option<Vec<Payment>> {
-    let url = format!("{BASE}/services/dxl/paymentmng/payment?@type={PAYMENTS_TYPE}&payer.id={msisdn}");
-    let resp = dxl_get(client, &url, access_token, msisdn)
+/// Card top-ups. `payer` is the line as the web app names it: the token's
+/// `userInfo.userId`, else its `msisdn` (see [`Profile::user_id`]).
+async fn payment_history(client: &wreq::Client, access_token: &str, payer: &str, ctx: &FetchContext<'_>) -> Option<Vec<Payment>> {
+    let url = format!("{BASE}/services/dxl/paymentmng/payment?payer.id={payer}&@type={PAYMENTS_TYPE}");
+    let resp = dxl_get(client, &url, access_token, payer)
         .header("useCase", PAYMENTS_TYPE)
-        .header("api_id", PAYMENTS_TYPE)
+        .header("api_id", "WEB")
         .send()
         .await
         .ok()?;
@@ -154,8 +161,12 @@ async fn payment_history(client: &wreq::Client, access_token: &str, msisdn: &str
     }
 }
 
-/// `paymentmng/payment`: a list of payments, amounts in piastres.
+/// `paymentmng/payment`: a list of payments, amounts in piastres. Without any in its
+/// 90-day window Vodafone answers with an error object instead: `reason: "No Data Found"`.
 pub(crate) fn parse_payments(v: &Value) -> Option<Vec<Payment>> {
+    if j::text(&v["reason"]).is_some_and(|r| r.eq_ignore_ascii_case("no data found")) {
+        return Some(Vec::new());
+    }
     let mut out: Vec<Payment> = v
         .as_array()?
         .iter()
@@ -242,6 +253,8 @@ fn token_claims(token: &str) -> Option<Value> {
 pub(crate) struct Profile {
     pub name: Option<String>,
     pub msisdn: Option<String>,
+    /// The line as the web app addresses it in DXL calls (`userId`, else `msisdn`).
+    pub user_id: Option<String>,
     pub payment: Option<PaymentKind>,
     pub status: Option<String>,
     /// Rate plan code (`serviceClassCode`), for [`plan_name`].
@@ -257,6 +270,10 @@ pub(crate) fn profile_from_claims(claims: &Value) -> Profile {
     Profile {
         name: tidy_name(&full).or_else(|| name_from_claims(claims)),
         msisdn: j::text(&info["msisdn"]),
+        user_id: [&info["userId"], &info["msisdn"]]
+            .into_iter()
+            .filter_map(j::text)
+            .find(|id| id.chars().all(|c| c.is_ascii_digit())),
         payment: match kind.as_str() {
             "prepaid" => Some(PaymentKind::Prepaid),
             "postpaid" => Some(PaymentKind::Postpaid),
@@ -295,7 +312,10 @@ fn name_from_claims(claims: &Value) -> Option<String> {
 /// Fakka/Mared cards don't report their size: EGP → (units, days).
 const FAKKA_CARDS: [(&str, f64, u32); 4] = [("26", 750.0, 10), ("19.5", 550.0, 7), ("16.5", 425.0, 6), ("13", 300.0, 2)];
 
-pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, now: DateTime<Utc>) -> Result<Usage, FetchError> {
+/// `plan` is the rate plan's display name ([`plan_name`]); a Flex line's package is its
+/// plan ("Flex 100"), since its flex bucket can be named otherwise ("AFB Freeze Quota"
+/// while a borrowed bundle is frozen).
+pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, plan: Option<&str>, now: DateTime<Utc>) -> Result<Usage, FetchError> {
     let items = report
         .as_array()
         .ok_or_else(|| FetchError::Unexpected("Vodafone's usage report isn't a list".into()))?;
@@ -323,6 +343,9 @@ pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, now: DateT
                 continue;
             }
             let Some(remaining) = j::num(&balance["remainingValue"]["amount"]) else { continue };
+            if remaining <= 0.0 && is_grace_counter(bucket) {
+                continue;
+            }
             let used = j::num(&bucket["bucketCounter"][0]["value"]["amount"]).unwrap_or(0.0);
             let (unit, factor) = unit_of(units);
             let mut total = remaining + used;
@@ -360,8 +383,10 @@ pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, now: DateT
     assign_keys(&mut bundles);
 
     let main = bundles.first().ok_or_else(|| FetchError::Unexpected("Vodafone returned no bundles for this line".into()))?;
+    let flex = bundles.iter().find(|b| b.kind == BundleKind::Flex);
     let package_name = tariff_name
-        .or_else(|| bundles.iter().find(|b| b.kind == BundleKind::Flex).map(|b| b.name.clone()))
+        .or_else(|| plan.filter(|_| flex.is_some()).map(str::to_string))
+        .or_else(|| flex.map(|b| b.name.clone()))
         .or_else(|| Some(main.name.clone()));
     let renews_at = main
         .expires_at
@@ -387,6 +412,18 @@ fn is_internal_counter(kind_raw: &str, usage_type: &str, units: &str) -> bool {
     matches!(usage_type, "monetary" | "money")
         || (kind_raw == "others" && usage_type == "units")
         || matches!(units.as_str(), "PT" | "PTS" | "PIASTER" | "PIASTERS" | "PIASTRES" | "MONEY")
+}
+
+/// `Grace_Flex` buckets (units `DataFlexes` / `VoiceFlexes`) count the flexes used on
+/// credit while a Flex bundle is borrowed or frozen; that bundle carries the quota itself.
+fn is_grace_counter(bucket: &Value) -> bool {
+    bucket["product"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|p| [j::text(&p["id"]), j::text(&p["name"])])
+        .flatten()
+        .any(|s| s.eq_ignore_ascii_case("grace_flex"))
 }
 
 /// A bucket's display name. A bucket can list several products (a bundle plus its
@@ -440,7 +477,8 @@ fn unit_of(units: &str) -> (Unit, f64) {
         "MIN" | "MINS" | "MINUTE" | "MINUTES" => (Unit::Minutes, 1.0),
         "SEC" | "SECS" | "SECONDS" => (Unit::Minutes, 1.0 / 60.0),
         "SMS" | "MESSAGE" | "MESSAGES" => (Unit::Sms, 1.0),
-        "FLEX" | "FLEXES" => (Unit::Flex, 1.0),
+        // "Flex", and Flex 5.0's split pools "DataFlexes" / "VoiceFlexes"
+        u if u.contains("FLEX") => (Unit::Flex, 1.0),
         "EGP" | "LE" | "L.E" => (Unit::Egp, 1.0),
         _ => (Unit::Units, 1.0),
     }
@@ -458,7 +496,7 @@ mod tests {
 
     #[test]
     fn parses_usage_report() {
-        let usage = parse_usage(&fixture("vf_usage.json"), Some("Mostafa".into()), Utc::now()).unwrap();
+        let usage = parse_usage(&fixture("vf_usage.json"), Some("Mostafa".into()), None, Utc::now()).unwrap();
         assert_eq!(usage.balance_egp, Some(37.25));
         assert_eq!(usage.package_name.as_deref(), Some("Flex 70"));
         let main = usage.main().unwrap();
@@ -475,8 +513,10 @@ mod tests {
 
     #[test]
     fn keeps_units_and_drops_internal_counters() {
-        let usage = parse_usage(&fixture("vf_usage_others.json"), None, Utc::now()).unwrap();
+        let usage = parse_usage(&fixture("vf_usage_others.json"), None, Some("Worry Free 14 PT"), Utc::now()).unwrap();
         assert_eq!(usage.balance_egp, Some(12.5));
+        // Not a Flex line: the package is the subscribed bundle, not the tariff.
+        assert_eq!(usage.package_name.as_deref(), Some("New Plus Bundle 98 LE - 4750Mega"));
         let main = usage.main().unwrap();
         assert_eq!(main.name, "New Plus Bundle 98 LE - 4750Mega");
         assert_eq!((main.unit, main.remaining, main.total), (Unit::Mb, 992.0, 4748.0));
@@ -485,6 +525,38 @@ mod tests {
         // ACP/RX (a monetary pool in piastres), the refund cap and the flag counter are gone.
         assert_eq!(names, ["New Plus Bundle 98 LE - 4750Mega", "MI Minutes Conversion Optin"]);
         assert_eq!(usage.bundles[1].unit, Unit::Mb);
+    }
+
+    #[test]
+    fn frozen_flex_line() {
+        // A borrowed Flex bundle, frozen until settled: Vodafone names its bucket "AFB Freeze
+        // Quota", counts the flexes used on credit in Grace_Flex buckets and the debt in a
+        // "Negative Balance" bucket in piastres.
+        let report = fixture("vf_usage_flex_frozen.json");
+        let usage = parse_usage(&report, None, Some("Flex 100"), Utc::now()).unwrap();
+        assert_eq!(usage.package_name.as_deref(), Some("Flex 100"));
+        assert_eq!(usage.balance_egp, Some(0.0));
+        let rows: Vec<_> = usage.bundles.iter().map(|b| (b.name.as_str(), b.unit, b.remaining, b.total)).collect();
+        assert_eq!(rows, [("AFB Freeze Quota", Unit::Flex, 4200.0, 5000.0), ("Fakka 19 LE", Unit::Units, 120.0, 425.0)]);
+        assert_eq!(usage.main().unwrap().kind, BundleKind::Flex);
+        assert_eq!(usage.renews_at.unwrap().to_rfc3339(), "2026-12-17T00:00:00+00:00");
+
+        // Without the plan's name, the flex bucket's.
+        let usage = parse_usage(&report, None, None, Utc::now()).unwrap();
+        assert_eq!(usage.package_name.as_deref(), Some("AFB Freeze Quota"));
+
+        // Grace flexes still to use would be shown, in flexes.
+        let mut grace = report.clone();
+        grace[3]["bucket"][0]["bucketBalance"][0]["remainingValue"]["amount"] = json!(50);
+        let usage = parse_usage(&grace, None, None, Utc::now()).unwrap();
+        let g = usage.bundles.iter().find(|b| b.name == "Grace Flex").unwrap();
+        assert_eq!((g.unit, g.remaining, g.total), (Unit::Flex, 50.0, 750.0));
+    }
+
+    #[test]
+    fn no_payments_is_an_empty_history() {
+        assert_eq!(parse_payments(&fixture("vf_payments_none.json")), Some(vec![]));
+        assert_eq!(parse_payments(&json!([])), Some(vec![]));
     }
 
     #[test]
@@ -517,6 +589,13 @@ mod tests {
         let p = profile_from_claims(&claims);
         assert_eq!(p.name.as_deref(), Some("سارة أحمد"));
         assert_eq!(p.msisdn.as_deref(), Some("01000000000"));
+        // No userId in the token: the web app then addresses the line by its msisdn.
+        assert_eq!(p.user_id.as_deref(), Some("01000000000"));
+        let mut with_id = claims.clone();
+        with_id["userInfo"]["userId"] = json!("1000000000");
+        assert_eq!(profile_from_claims(&with_id).user_id.as_deref(), Some("1000000000"));
+        with_id["userInfo"]["userId"] = json!("someone@example.com");
+        assert_eq!(profile_from_claims(&with_id).user_id.as_deref(), Some("01000000000"));
         assert_eq!(p.payment, Some(PaymentKind::Prepaid));
         assert_eq!(p.status.as_deref(), Some("Active"));
         assert_eq!(p.plan_code.as_deref(), Some("723"));

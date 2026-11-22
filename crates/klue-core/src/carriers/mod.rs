@@ -37,13 +37,17 @@ impl FetchContext<'_> {
     }
 }
 
-/// Blank out anything secret-looking before a response is written to disk.
+/// Blank out anything secret-looking before a response is written to disk: any key
+/// containing one of `SECRET` (WE's sign-in alone returns `token`, `uToken` and `utoken`),
+/// and personal identifiers Klue never reads (SIM serial, ID number, e-mail, birthday).
 fn redact(v: &mut Value) {
-    const SECRET: [&str; 8] = ["password", "token", "csrftoken", "access_token", "refresh_token", "id_token", "captcha", "imgcode"];
+    const SECRET: [&str; 6] = ["password", "pwd", "token", "secret", "captcha", "imgcode"];
+    const PERSONAL: [&str; 6] = ["sim", "idnumber", "iccid", "imsi", "email", "birthday"];
     match v {
         Value::Object(map) => {
             for (k, val) in map.iter_mut() {
-                if SECRET.iter().any(|s| k.eq_ignore_ascii_case(s)) {
+                let key = k.to_ascii_lowercase();
+                if SECRET.iter().any(|s| key.contains(s)) || PERSONAL.contains(&key.as_str()) {
                     *val = Value::String("<redacted>".into());
                 } else {
                     redact(val);
@@ -80,9 +84,11 @@ mod tests {
 
     #[test]
     fn redacts_secrets() {
-        let mut v = json!({"body": {"token": "abc", "subscriber": {"name": "x"}}, "list": [{"password": "p"}]});
+        let mut v = json!({"body": {"token": "abc", "uToken": "u", "subscriber": {"name": "x", "SIM": "89"}}, "list": [{"password": "p"}]});
         redact(&mut v);
         assert_eq!(v["body"]["token"], "<redacted>");
+        assert_eq!(v["body"]["uToken"], "<redacted>");
+        assert_eq!(v["body"]["subscriber"]["SIM"], "<redacted>");
         assert_eq!(v["list"][0]["password"], "<redacted>");
         assert_eq!(v["body"]["subscriber"]["name"], "x");
     }
