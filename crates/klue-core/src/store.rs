@@ -1,5 +1,9 @@
 //! Local persistence: one JSON file for settings and accounts, and the OS credential
 //! store (Windows Credential Manager, macOS Keychain, Secret Service) for passwords.
+//!
+//! Credentials are stored under service `Klue` with the account's carrier and number as
+//! the user name (`we:0223584417`), and the vault also keeps a small list of the accounts
+//! (`Klue` / `accounts`), so any Klue version, or a fresh data file, finds them again.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -187,6 +191,9 @@ pub struct Account {
     #[serde(default)]
     pub fired: Vec<String>,
     pub created_at: DateTime<Utc>,
+    /// Key of the bundle the user chose as this line's main quota.
+    #[serde(default)]
+    pub main_bundle: Option<String>,
 }
 
 impl Account {
@@ -205,7 +212,13 @@ impl Account {
             blocked_until: None,
             fired: Vec::new(),
             created_at: Utc::now(),
+            main_bundle: None,
         }
+    }
+
+    /// The vault user name for this account's password: carrier and number.
+    pub fn credential_user(&self) -> String {
+        format!("{}:{}", self.carrier.id(), self.number)
     }
 
     /// Nickname, else registered owner, else the number.
@@ -360,31 +373,51 @@ pub struct Secrets {
     memory: Mutex<HashMap<String, String>>,
 }
 
+/// What the vault remembers about an account besides its password.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VaultAccount {
+    pub carrier: Carrier,
+    pub line: LineType,
+    pub number: String,
+    #[serde(default)]
+    pub nickname: Option<String>,
+}
+
+const INDEX_USER: &str = "accounts";
+
 impl Secrets {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn get(&self, account_id: &str) -> Option<String> {
-        if let Some(p) = self.memory.lock().ok().and_then(|m| m.get(account_id).cloned()) {
+    pub fn get(&self, account: &Account) -> Option<String> {
+        let user = account.credential_user();
+        if let Some(p) = self.memory.lock().ok().and_then(|m| m.get(&user).cloned()) {
             return Some(p);
         }
-        let entry = keyring::Entry::new(KEYRING_SERVICE, account_id).ok()?;
-        match entry.get_password() {
+        match read_entry(&user) {
             Ok(p) => Some(p),
             Err(e) => {
-                tracing::warn!("no stored password for {account_id}: {e}");
+                // Klue 0.1 keyed passwords by the account's random id; move them over.
+                if let Ok(p) = read_entry(&account.id) {
+                    if write_entry(&user, &p).is_ok() {
+                        let _ = keyring::Entry::new(KEYRING_SERVICE, &account.id).and_then(|e| e.delete_credential());
+                    }
+                    return Some(p);
+                }
+                tracing::warn!("no stored password for {user}: {e}");
                 None
             }
         }
     }
 
     /// Store a password. Returns `false` when it could only be kept in memory.
-    pub fn set(&self, account_id: &str, password: &str) -> bool {
+    pub fn set(&self, account: &Account, password: &str) -> bool {
+        let user = account.credential_user();
         if let Ok(mut m) = self.memory.lock() {
-            m.insert(account_id.to_string(), password.to_string());
+            m.insert(user.clone(), password.to_string());
         }
-        match keyring::Entry::new(KEYRING_SERVICE, account_id).and_then(|e| e.set_password(password)) {
+        match write_entry(&user, password) {
             Ok(()) => true,
             Err(e) => {
                 tracing::warn!("credential store unavailable, keeping the password in memory only: {e}");
@@ -393,13 +426,59 @@ impl Secrets {
         }
     }
 
-    pub fn delete(&self, account_id: &str) {
+    pub fn delete(&self, account: &Account) {
+        let user = account.credential_user();
         if let Ok(mut m) = self.memory.lock() {
-            m.remove(account_id);
+            m.remove(&user);
         }
-        if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, account_id) {
-            let _ = entry.delete_credential();
+        for name in [user.as_str(), account.id.as_str()] {
+            if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, name) {
+                let _ = entry.delete_credential();
+            }
         }
+    }
+
+    /// Record the account list in the vault (no passwords; those are separate entries).
+    pub fn save_index(&self, accounts: &[Account]) {
+        let list: Vec<VaultAccount> = accounts
+            .iter()
+            .map(|a| VaultAccount { carrier: a.carrier, line: a.line, number: a.number.clone(), nickname: a.nickname.clone() })
+            .collect();
+        if let Ok(json) = serde_json::to_string(&list)
+            && let Err(e) = write_entry(INDEX_USER, &json)
+        {
+            tracing::debug!("couldn't save the account list to the credential store: {e}");
+        }
+    }
+
+    pub fn load_index(&self) -> Vec<VaultAccount> {
+        read_entry(INDEX_USER).ok().and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default()
+    }
+}
+
+fn read_entry(user: &str) -> keyring::Result<String> {
+    keyring::Entry::new(KEYRING_SERVICE, user)?.get_password()
+}
+
+fn write_entry(user: &str, secret: &str) -> keyring::Result<()> {
+    keyring::Entry::new(KEYRING_SERVICE, user)?.set_password(secret)
+}
+
+impl AppData {
+    /// Add accounts the vault knows about but the data file doesn't (a new data file, or
+    /// one written by another Klue version). Returns how many were added.
+    pub fn restore(&mut self, from_vault: Vec<VaultAccount>) -> usize {
+        let mut added = 0;
+        for v in from_vault {
+            if self.accounts.iter().any(|a| a.carrier == v.carrier && a.number == v.number) {
+                continue;
+            }
+            let mut account = Account::new(v.carrier, v.line, v.number);
+            account.nickname = v.nickname;
+            self.accounts.push(account);
+            added += 1;
+        }
+        added
     }
 }
 
@@ -419,6 +498,20 @@ mod tests {
             starts_at: None,
             expires_at: None,
         }
+    }
+
+    #[test]
+    fn restores_accounts_from_the_vault() {
+        let mut data = AppData::default();
+        data.accounts.push(Account::new(Carrier::We, LineType::Landline, "0223584417".into()));
+        let vault = vec![
+            VaultAccount { carrier: Carrier::We, line: LineType::Landline, number: "0223584417".into(), nickname: None },
+            VaultAccount { carrier: Carrier::Vodafone, line: LineType::Mobile, number: "01000000000".into(), nickname: Some("Work".into()) },
+        ];
+        assert_eq!(data.restore(vault), 1);
+        assert_eq!(data.accounts.len(), 2);
+        assert_eq!(data.accounts[1].nickname.as_deref(), Some("Work"));
+        assert_eq!(data.accounts[1].credential_user(), "vf:01000000000");
     }
 
     #[test]

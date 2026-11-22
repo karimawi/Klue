@@ -226,6 +226,7 @@ pub fn unit_name(unit: Unit, lang: Lang) -> &'static str {
     let ar = is_ar(lang);
     match unit {
         Unit::Gb => if ar { "جيجا" } else { "GB" },
+        Unit::Mb => if ar { "ميجا" } else { "MB" },
         Unit::Minutes => if ar { "دقيقة" } else { "min" },
         Unit::Sms => if ar { "رسالة" } else { "SMS" },
         Unit::Flex => if ar { "فليكس" } else { "Flex" },

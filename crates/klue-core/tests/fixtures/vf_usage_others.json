@@ -1,0 +1,71 @@
+[
+  {
+    "@type": "Tariff",
+    "bucket": [
+      {
+        "bucketBalance": [
+          { "@type": "Remaining", "remainingValue": { "amount": 12.5, "units": "LE" } },
+          { "@type": "Recharge", "remainingValue": { "amount": 0, "units": "LE" } }
+        ],
+        "bucketCounter": [{ "@type": "Used", "value": { "amount": 0 } }]
+      }
+    ],
+    "id": "723",
+    "relatedParty": { "@referredType": "False", "@type": "N/A" }
+  },
+  {
+    "@type": "DATA",
+    "bucket": [
+      {
+        "bucketBalance": [
+          {
+            "@type": "Remaining",
+            "remainingValue": { "amount": 992, "units": "MB" },
+            "validFor": { "endDateTime": "2026-12-12T00:00:00.000+0000" }
+          }
+        ],
+        "bucketCounter": [{ "@type": "Used", "level": "Local", "value": { "amount": 3756, "units": "MB" } }],
+        "product": [
+          { "@baseType": "Active", "id": "232000877", "name": "Plus Rollover" },
+          { "@baseType": "Active", "id": "21227", "name": "New Plus Bundle 98 LE- 4750Mega (Flex inactive/Mass)" }
+        ],
+        "usageType": "DATA"
+      }
+    ]
+  },
+  {
+    "@type": "OTHERS",
+    "bucket": [
+      {
+        "bucketBalance": [{ "@type": "Remaining", "remainingValue": { "amount": 315, "units": "MBs" } }],
+        "bucketCounter": [{ "@type": "Used", "level": "Local", "value": { "amount": 160, "units": "MBs" } }],
+        "product": [{ "@baseType": "Active", "id": "2020001597", "name": "MI_Minutes_Conversion_Optin" }],
+        "usageType": "mbs_to_minutes"
+      },
+      {
+        "bucketBalance": [{ "@type": "Remaining", "remainingValue": { "amount": 120484, "units": "PT" } }],
+        "bucketCounter": [{ "@type": "Used", "level": "Local", "value": { "amount": 999965, "units": "PT" } }],
+        "product": [
+          { "@baseType": "Active", "id": "Shared Pool", "name": "ACP/RX" },
+          { "@baseType": "Active", "id": "Stamp Tax", "name": "Stamp Tax" },
+          { "@baseType": "Active", "id": "ACP_Fees", "name": "ACP" }
+        ],
+        "usageType": "monetary"
+      },
+      {
+        "bucketBalance": [{ "@type": "Remaining", "remainingValue": { "amount": 600, "units": "Money" } }],
+        "bucketCounter": [{ "@type": "Used", "level": "Local", "value": { "amount": 0, "units": "Money" } }],
+        "product": [{ "@baseType": "Active", "id": "Refund Capping", "name": "Self Refund Fee Capping" }],
+        "usageType": "money"
+      },
+      {
+        "bucketBalance": [{ "@type": "Remaining", "remainingValue": { "amount": 0, "units": "Units" } }],
+        "bucketCounter": [{ "@type": "Used", "level": "Local", "value": { "amount": 100, "units": "Units" } }],
+        "product": [{ "@baseType": "Active", "id": "68680", "name": "Mared/Trio Flex Flag" }],
+        "usageType": "units"
+      }
+    ]
+  },
+  { "@type": "DSL", "bucket": [] },
+  { "@type": "Home Wireless", "bucket": [] }
+]

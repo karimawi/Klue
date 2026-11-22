@@ -50,10 +50,13 @@ pub enum LineType {
     Landline,
 }
 
+/// The unit a carrier states for a bucket. Amounts are kept in it as reported (Vodafone
+/// counts mobile data in MB, WE home internet in GB), so "992 MB" never turns into "1.0 GB".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Unit {
     Gb,
+    Mb,
     Minutes,
     Sms,
     Flex,
@@ -102,6 +105,64 @@ impl Bundle {
         }
         (self.remaining / self.total * 100.0).clamp(0.0, 100.0)
     }
+
+    /// Size used to rank bundles: data in MB, everything else in its own unit.
+    pub fn size(&self) -> f64 {
+        match self.unit {
+            Unit::Gb => self.total * 1024.0,
+            _ => self.total,
+        }
+    }
+}
+
+/// Default display order: the largest bundle that still has something left first (the
+/// main one), then the rest, largest first.
+pub(crate) fn order_bundles(bundles: &mut [Bundle]) {
+    bundles.sort_by(|a, b| b.size().total_cmp(&a.size()));
+    if let Some(pos) = bundles.iter().position(|b| b.remaining > 0.0) {
+        bundles[..=pos].rotate_right(1);
+    }
+}
+
+/// Prepaid (topped up) or postpaid (billed monthly).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PaymentKind {
+    Prepaid,
+    Postpaid,
+}
+
+/// What the carrier says about the line itself, besides its quotas.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct LineInfo {
+    /// Rate plan / tariff, e.g. "Worry Free 14 PT" or "WE IOE VDSL Primary Prepaid".
+    #[serde(default)]
+    pub plan: Option<String>,
+    #[serde(default)]
+    pub payment: Option<PaymentKind>,
+    /// Line status as the carrier words it, e.g. "Active".
+    #[serde(default)]
+    pub status: Option<String>,
+    /// The number the carrier has on file for this account.
+    #[serde(default)]
+    pub number: Option<String>,
+    #[serde(default)]
+    pub since: Option<DateTime<Utc>>,
+}
+
+/// A top-up or bill payment.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Payment {
+    pub at: DateTime<Utc>,
+    pub amount_egp: f64,
+    /// How it was paid, e.g. "Card •••• 0485" or "Cash".
+    #[serde(default)]
+    pub method: Option<String>,
+    #[serde(default)]
+    pub reference: Option<String>,
+    /// Balance right after the payment, when the carrier says.
+    #[serde(default)]
+    pub balance_after: Option<f64>,
 }
 
 /// A snapshot of one line's account, as read from the carrier.
@@ -111,20 +172,41 @@ pub struct Usage {
     pub package_name: Option<String>,
     #[serde(default)]
     pub balance_egp: Option<f64>,
-    /// The first bundle is the main quota shown in the dashboard hero.
+    /// In default display order (see [`Usage::ordered`]): the first is the main quota.
     pub bundles: Vec<Bundle>,
     pub subscribed_at: Option<DateTime<Utc>>,
     pub renews_at: Option<DateTime<Utc>>,
     pub fetched_at: DateTime<Utc>,
+    #[serde(default)]
+    pub info: LineInfo,
+    /// Recent payments, newest first. `None` when the carrier's history couldn't be read.
+    #[serde(default)]
+    pub payments: Option<Vec<Payment>>,
 }
 
 impl Usage {
+    /// The main quota by default: the largest bundle with something left.
     pub fn main(&self) -> Option<&Bundle> {
         self.bundles.first()
     }
 
     pub fn extras(&self) -> &[Bundle] {
         self.bundles.get(1..).unwrap_or(&[])
+    }
+
+    /// The main quota, honouring the bundle the user picked (by key) while it exists.
+    pub fn main_for(&self, preferred: Option<&str>) -> Option<&Bundle> {
+        preferred
+            .and_then(|key| self.bundles.iter().find(|b| b.key == key))
+            .or_else(|| self.main())
+    }
+
+    /// All bundles in display order: the main one (see [`Usage::main_for`]) first.
+    pub fn ordered(&self, preferred: Option<&str>) -> Vec<&Bundle> {
+        let main = self.main_for(preferred);
+        main.into_iter()
+            .chain(self.bundles.iter().filter(|b| main.is_none_or(|m| !std::ptr::eq(*b, m))))
+            .collect()
     }
 
     /// Start of the current billing cycle. Falls back to one month before renewal
@@ -175,6 +257,48 @@ mod tests {
     fn slug_is_stable() {
         assert_eq!(slug("Super 140 GB!"), "super-140-gb");
         assert_eq!(slug("  إنترنت "), "");
+    }
+
+    fn bundle(name: &str, unit: Unit, total: f64, remaining: f64) -> Bundle {
+        Bundle { key: slug(name), kind: BundleKind::Other, name: name.into(), unit, total, remaining, starts_at: None, expires_at: None }
+    }
+
+    #[test]
+    fn largest_bundle_with_something_left_comes_first() {
+        let mut v = vec![
+            bundle("minutes", Unit::Minutes, 500.0, 120.0),
+            bundle("used up", Unit::Gb, 140.0, 0.0),
+            bundle("data", Unit::Mb, 4748.0, 992.0),
+            bundle("social", Unit::Gb, 1.0, 0.5),
+        ];
+        order_bundles(&mut v);
+        // 140 GB is the largest but empty, so 4748 MB leads; the rest stay largest first.
+        let names: Vec<_> = v.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(names, ["data", "used up", "social", "minutes"]);
+
+        let mut all_empty = vec![bundle("a", Unit::Gb, 1.0, 0.0), bundle("b", Unit::Gb, 2.0, 0.0)];
+        order_bundles(&mut all_empty);
+        assert_eq!(all_empty[0].name, "b");
+    }
+
+    #[test]
+    fn user_can_pick_the_main_bundle() {
+        let usage = Usage {
+            owner_name: None,
+            package_name: None,
+            balance_egp: None,
+            bundles: vec![bundle("data", Unit::Mb, 4748.0, 992.0), bundle("minutes", Unit::Minutes, 500.0, 120.0)],
+            subscribed_at: None,
+            renews_at: None,
+            fetched_at: Utc::now(),
+            info: LineInfo::default(),
+            payments: None,
+        };
+        assert_eq!(usage.main_for(None).unwrap().name, "data");
+        assert_eq!(usage.main_for(Some("minutes")).unwrap().name, "minutes");
+        assert_eq!(usage.main_for(Some("gone")).unwrap().name, "data");
+        let order: Vec<_> = usage.ordered(Some("minutes")).iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(order, ["minutes", "data"]);
     }
 
     #[test]

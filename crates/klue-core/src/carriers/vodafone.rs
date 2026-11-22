@@ -3,10 +3,12 @@
 //! Flow:
 //! 1. open the OpenID Connect auth page and post the number/password to its login form;
 //! 2. Keycloak redirects to `/ar/KClogin?code=…`; trade the code for an access token;
-//! 3. read `usageConsumptionReport` (aggregated buckets: tariff, flex, data, ...).
+//! 3. read `usageConsumptionReport` (aggregated buckets: tariff, flex, data, ...);
+//! 4. best-effort extras: the rate plan's name and the payment history.
 //!
-//! The registrant name comes from the access token's OpenID claims, falling back to the
-//! standard `userinfo` endpoint.
+//! The access token is a JWT whose `userInfo` claim carries the line's profile (number,
+//! first and last name, prepaid/postpaid, status, rate plan code). Klue only reads it:
+//! it came straight from Vodafone over TLS, so there's no need to check its signature.
 
 use base64::Engine;
 use chrono::{DateTime, Utc};
@@ -17,7 +19,10 @@ use wreq::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, LOCATION, ORIGIN, REFE
 
 use super::FetchContext;
 use crate::{
-    Bundle, BundleKind, FetchError, LineType, Unit, Usage, format::tidy_name, http, json as j, model::assign_keys,
+    Bundle, BundleKind, FetchError, LineType, Unit, Usage,
+    format::tidy_name,
+    http, json as j,
+    model::{LineInfo, Payment, PaymentKind, assign_keys, order_bundles},
 };
 
 const BASE: &str = "https://web.vodafone.com.eg";
@@ -72,28 +77,112 @@ pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Resu
     let access_token = j::text(&token["access_token"])
         .ok_or_else(|| FetchError::Unexpected("Vodafone didn't return an access token".into()))?;
 
-    let owner_name = match owner_from_jwt(&access_token) {
-        Some(name) => Some(name),
-        None => userinfo_name(&client, &access_token).await,
-    };
+    let mut profile = token_claims(&access_token).map(|c| profile_from_claims(&c)).unwrap_or_default();
+    if profile.name.is_none() {
+        profile.name = userinfo_name(&client, &access_token).await;
+    }
 
     // 3. Usage.
-    let resp = client
-        .get(format!(
-            "{BASE}/services/dxl/usage/usageConsumptionReport?bucket.product.publicIdentifier={msisdn}&@type=aggregated"
-        ))
-        .header("msisdn", msisdn.as_str())
-        .bearer_auth(&access_token)
+    let resp = dxl_get(
+        &client,
+        &format!("{BASE}/services/dxl/usage/usageConsumptionReport?bucket.product.publicIdentifier={msisdn}&@type=aggregated"),
+        &access_token,
+        &msisdn,
+    )
+    .send()
+    .await?;
+    let report = http::json_body(resp, "Vodafone usage").await?;
+    ctx.dump("vf-usage", &report);
+    let mut usage = parse_usage(&report, profile.name.clone(), Utc::now())?;
+
+    // 4. Extras. Neither is essential, so failures only leave them out.
+    let plan = match &profile.plan_code {
+        Some(code) => plan_name(&client, code, ctx).await,
+        None => None,
+    };
+    usage.info = LineInfo {
+        plan: plan.or_else(|| profile.tariff.clone()),
+        payment: profile.payment,
+        status: profile.status.clone(),
+        number: profile.msisdn.clone(),
+        since: None,
+    };
+    usage.payments = payment_history(&client, &access_token, &msisdn, ctx).await;
+    Ok(usage)
+}
+
+/// A DXL API request with the headers the web app sends.
+fn dxl_get(client: &wreq::Client, url: &str, access_token: &str, msisdn: &str) -> wreq::RequestBuilder {
+    client
+        .get(url)
+        .header("msisdn", msisdn)
+        .header("clientId", "WebsiteConsumer")
+        .bearer_auth(access_token)
         .header(ACCEPT, "application/json")
         .header(CONTENT_TYPE, "application/json")
         .header(ACCEPT_LANGUAGE, "en-US,en;q=0.9")
         .header(ORIGIN, BASE)
         .header(REFERER, REDIRECT_URI)
+}
+
+/// The query values the web app sends to `paymentmng/payment`. The captured traffic has
+/// only their types, so these are a best guess until confirmed; if Vodafone rejects them
+/// the history is simply left out.
+const PAYMENTS_TYPE: &str = "PaymentHistory";
+
+async fn payment_history(client: &wreq::Client, access_token: &str, msisdn: &str, ctx: &FetchContext<'_>) -> Option<Vec<Payment>> {
+    let url = format!("{BASE}/services/dxl/paymentmng/payment?@type={PAYMENTS_TYPE}&payer.id={msisdn}");
+    let resp = dxl_get(client, &url, access_token, msisdn)
+        .header("useCase", PAYMENTS_TYPE)
+        .header("api_id", PAYMENTS_TYPE)
         .send()
-        .await?;
-    let report = http::json_body(resp, "Vodafone usage").await?;
-    ctx.dump("vf-usage", &report);
-    parse_usage(&report, owner_name, Utc::now())
+        .await
+        .ok()?;
+    match http::json_body(resp, "Vodafone payments").await {
+        Ok(v) => {
+            ctx.dump("vf-payments", &v);
+            let payments = parse_payments(&v);
+            if payments.is_none() {
+                tracing::info!("Vodafone payment history isn't a list; leaving it out");
+            }
+            payments
+        }
+        Err(e) => {
+            tracing::info!("Vodafone payment history unavailable: {e}");
+            None
+        }
+    }
+}
+
+/// `paymentmng/payment`: a list of payments, amounts in piastres.
+pub(crate) fn parse_payments(v: &Value) -> Option<Vec<Payment>> {
+    let mut out: Vec<Payment> = v
+        .as_array()?
+        .iter()
+        .filter_map(|p| {
+            let at = j::iso_datetime(&p["paymentDate"])?;
+            let amount = j::num(&p["amount"]["value"])? / 100.0;
+            let card = j::text(&p["paymentMethod"]["id"])
+                .and_then(|id| {
+                    let last4: String = id.chars().rev().take_while(|c| c.is_ascii_digit()).collect::<Vec<_>>().into_iter().rev().collect();
+                    (last4.len() >= 4).then(|| format!("Card •••• {}", &last4[last4.len() - 4..]))
+                });
+            let kind = j::text(&p["paymentItem"][0]["@type"]).map(|t| humanize(&t));
+            Some(Payment { at, amount_egp: amount, method: card.or(kind), reference: j::text(&p["id"]), balance_after: None })
+        })
+        .collect();
+    out.sort_by_key(|p| std::cmp::Reverse(p.at));
+    Some(out)
+}
+
+/// The rate plan's display name (e.g. "Worry Free 14 PT") from Vodafone's content API,
+/// keyed by the token's `serviceClassCode`.
+async fn plan_name(client: &wreq::Client, code: &str, ctx: &FetchContext<'_>) -> Option<String> {
+    let url = format!("{BASE}/o/VodafoneDDLRecordRest/records/get/en/233987/PlanID/{code}");
+    let resp = client.get(url).header(ACCEPT, "application/json").header(REFERER, BASE).send().await.ok()?;
+    let v = http::json_body(resp, "Vodafone plan").await.ok()?;
+    ctx.dump("vf-plan", &v);
+    j::text(&v["PlanName"]).or_else(|| j::text(&v["eDesc"]["PlanName"])).filter(|n| n != "N/A")
 }
 
 async fn get_following_redirects(client: &wreq::Client, url: &str) -> Result<String, FetchError> {
@@ -140,10 +229,51 @@ fn login_error(html: &str) -> FetchError {
     }
 }
 
-fn owner_from_jwt(token: &str) -> Option<String> {
+/// The JWT's payload (claims). The signature isn't checked: the token came straight from
+/// Vodafone's token endpoint over TLS and Klue only reads it.
+fn token_claims(token: &str) -> Option<Value> {
     let payload = token.split('.').nth(1)?;
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?;
-    name_from_claims(&serde_json::from_slice(&bytes).ok()?)
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// What the access token says about the line.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct Profile {
+    pub name: Option<String>,
+    pub msisdn: Option<String>,
+    pub payment: Option<PaymentKind>,
+    pub status: Option<String>,
+    /// Rate plan code (`serviceClassCode`), for [`plan_name`].
+    pub plan_code: Option<String>,
+    /// Fallback plan label when the plan's display name can't be fetched.
+    pub tariff: Option<String>,
+}
+
+pub(crate) fn profile_from_claims(claims: &Value) -> Profile {
+    let info = &claims["userInfo"];
+    let full = [j::text(&info["firstName"]), j::text(&info["lastName"])].into_iter().flatten().collect::<Vec<_>>().join(" ");
+    let kind = j::text(&info["contractType"]).or_else(|| j::text(&info["customerType"])).unwrap_or_default().to_ascii_lowercase();
+    Profile {
+        name: tidy_name(&full).or_else(|| name_from_claims(claims)),
+        msisdn: j::text(&info["msisdn"]),
+        payment: match kind.as_str() {
+            "prepaid" => Some(PaymentKind::Prepaid),
+            "postpaid" => Some(PaymentKind::Postpaid),
+            _ => None,
+        },
+        status: j::text(&info["contractStatus"]).map(|s| humanize(&s)),
+        plan_code: j::text(&info["serviceClassCode"]),
+        tariff: j::text(&info["serviceClassName"]).map(|s| humanize(&s)),
+    }
+}
+
+/// `SOME_CODE_name` → `Some code name`.
+fn humanize(raw: &str) -> String {
+    let words = raw.replace('_', " ").split_whitespace().collect::<Vec<_>>().join(" ");
+    let lower = if words.chars().any(|c| c.is_ascii_lowercase()) { words } else { words.to_lowercase() };
+    let mut cs = lower.chars();
+    cs.next().map(|f| f.to_uppercase().collect::<String>() + cs.as_str()).unwrap_or_default()
 }
 
 async fn userinfo_name(client: &wreq::Client, access_token: &str) -> Option<String> {
@@ -187,9 +317,14 @@ pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, now: DateT
                 continue;
             }
             let balance = &bucket["bucketBalance"][0];
+            let units = balance["remainingValue"]["units"].as_str().unwrap_or_default();
+            let usage_type = bucket["usageType"].as_str().unwrap_or_default().to_ascii_lowercase();
+            if is_internal_counter(&kind_raw, &usage_type, units) {
+                continue;
+            }
             let Some(remaining) = j::num(&balance["remainingValue"]["amount"]) else { continue };
             let used = j::num(&bucket["bucketCounter"][0]["value"]["amount"]).unwrap_or(0.0);
-            let (unit, factor) = unit_of(balance["remainingValue"]["units"].as_str().unwrap_or_default());
+            let (unit, factor) = unit_of(units);
             let mut total = remaining + used;
             if kind_raw == "fakka_and_mared"
                 && let Some(card_units) = product.as_deref().and_then(fakka_card_units) {
@@ -204,14 +339,14 @@ pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, now: DateT
                 "voice" | "minutes" | "mins" | "onnet" | "offnet" => BundleKind::Minutes,
                 "sms" => BundleKind::Sms,
                 k if k.contains("social") => BundleKind::Social,
-                _ if unit == Unit::Gb => BundleKind::Addon,
+                _ if matches!(unit, Unit::Gb | Unit::Mb) => BundleKind::Addon,
                 _ => BundleKind::Other,
             };
             let valid = if balance["validFor"].is_object() { &balance["validFor"] } else { &bucket["validFor"] };
             bundles.push(Bundle {
                 key: String::new(),
                 kind,
-                name: product.unwrap_or_else(|| default_name(kind, &kind_raw)),
+                name: bucket_name(bucket).unwrap_or_else(|| default_name(kind, &kind_raw)),
                 unit,
                 total: total * factor,
                 remaining: remaining * factor,
@@ -221,18 +356,7 @@ pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, now: DateT
         }
     }
 
-    // Main quota: the biggest data bucket, else flexes, else whatever came first.
-    let main = bundles
-        .iter()
-        .enumerate()
-        .filter(|(_, b)| b.kind == BundleKind::Data)
-        .max_by(|a, b| a.1.total.total_cmp(&b.1.total))
-        .map(|(i, _)| i)
-        .or_else(|| bundles.iter().position(|b| b.kind == BundleKind::Flex));
-    if let Some(i) = main {
-        let b = bundles.remove(i);
-        bundles.insert(0, b);
-    }
+    order_bundles(&mut bundles);
     assign_keys(&mut bundles);
 
     let main = bundles.first().ok_or_else(|| FetchError::Unexpected("Vodafone returned no bundles for this line".into()))?;
@@ -250,7 +374,34 @@ pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, now: DateT
         renews_at,
         bundles,
         fetched_at: now,
+        info: LineInfo::default(),
+        payments: None,
     })
+}
+
+/// Buckets that are internal counters, not quotas: the "monetary" pool counted in
+/// piastres (named "ACP/RX", "Stamp Tax", ...), refund caps in money, and flag counters
+/// such as "Mared/Trio Flex Flag" in the OTHERS group.
+fn is_internal_counter(kind_raw: &str, usage_type: &str, units: &str) -> bool {
+    let units = units.trim().to_ascii_uppercase();
+    matches!(usage_type, "monetary" | "money")
+        || (kind_raw == "others" && usage_type == "units")
+        || matches!(units.as_str(), "PT" | "PTS" | "PIASTER" | "PIASTERS" | "PIASTRES" | "MONEY")
+}
+
+/// A bucket's display name. A bucket can list several products (a bundle plus its
+/// rollover); prefer the bundle, and drop internal suffixes like "(Flex inactive/Mass)".
+fn bucket_name(bucket: &Value) -> Option<String> {
+    let names: Vec<String> = match &bucket["product"] {
+        Value::Array(items) => items.iter().filter_map(|p| j::text(&p["name"])).collect(),
+        other => j::text(&other["name"]).or_else(|| j::text(&bucket["name"])).into_iter().collect(),
+    };
+    let pick = names.iter().find(|n| !n.to_ascii_lowercase().contains("rollover")).or(names.first())?;
+    let without_note = Regex::new(r"\s*\([^)]*\)\s*$").map(|re| re.replace(pick, "").into_owned()).unwrap_or_else(|_| pick.clone());
+    let spaced = Regex::new(r"\s*-\s*").map(|re| re.replace_all(&without_note, " - ").into_owned()).unwrap_or(without_note);
+    let name = if spaced.contains('_') { humanize(&spaced) } else { spaced };
+    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!name.is_empty()).then_some(name)
 }
 
 fn product_name(bucket: &Value) -> Option<String> {
@@ -284,8 +435,8 @@ fn default_name(kind: BundleKind, raw: &str) -> String {
 fn unit_of(units: &str) -> (Unit, f64) {
     match units.trim().to_ascii_uppercase().as_str() {
         "GB" | "GBS" | "GIGABYTE" | "GIGABYTES" => (Unit::Gb, 1.0),
-        "MB" | "MBS" | "MEGABYTE" | "MEGABYTES" => (Unit::Gb, 1.0 / 1024.0),
-        "KB" | "KBS" => (Unit::Gb, 1.0 / (1024.0 * 1024.0)),
+        "MB" | "MBS" | "MEGABYTE" | "MEGABYTES" | "MEGA" => (Unit::Mb, 1.0),
+        "KB" | "KBS" => (Unit::Mb, 1.0 / 1024.0),
         "MIN" | "MINS" | "MINUTE" | "MINUTES" => (Unit::Minutes, 1.0),
         "SEC" | "SECS" | "SECONDS" => (Unit::Minutes, 1.0 / 60.0),
         "SMS" | "MESSAGE" | "MESSAGES" => (Unit::Sms, 1.0),
@@ -312,15 +463,68 @@ mod tests {
         assert_eq!(usage.package_name.as_deref(), Some("Flex 70"));
         let main = usage.main().unwrap();
         assert_eq!(main.kind, BundleKind::Data);
-        assert_eq!(main.unit, Unit::Gb);
-        assert!((main.total - 12.0).abs() < 1e-9, "MB are converted to GB: {}", main.total);
-        assert!((main.remaining - 6.8).abs() < 1e-9);
+        // Kept in the unit Vodafone states.
+        assert_eq!((main.unit, main.total, main.remaining), (Unit::Mb, 12288.0, 6963.2));
         assert_eq!(usage.renews_at.unwrap().to_rfc3339(), "2026-12-01T21:59:59+00:00");
         assert_eq!(usage.subscribed_at.unwrap().to_rfc3339(), "2026-11-01T00:00:00+00:00");
         let flex = usage.bundles.iter().find(|b| b.kind == BundleKind::Flex).unwrap();
         assert_eq!((flex.remaining, flex.total, flex.unit), (1200.0, 2000.0, Unit::Flex));
         let fakka = usage.bundles.iter().find(|b| b.name.contains("26 LE")).unwrap();
         assert_eq!(fakka.total, 750.0);
+    }
+
+    #[test]
+    fn keeps_units_and_drops_internal_counters() {
+        let usage = parse_usage(&fixture("vf_usage_others.json"), None, Utc::now()).unwrap();
+        assert_eq!(usage.balance_egp, Some(12.5));
+        let main = usage.main().unwrap();
+        assert_eq!(main.name, "New Plus Bundle 98 LE - 4750Mega");
+        assert_eq!((main.unit, main.remaining, main.total), (Unit::Mb, 992.0, 4748.0));
+        assert_eq!(main.expires_at.unwrap().to_rfc3339(), "2026-12-12T00:00:00+00:00");
+        let names: Vec<_> = usage.bundles.iter().map(|b| b.name.as_str()).collect();
+        // ACP/RX (a monetary pool in piastres), the refund cap and the flag counter are gone.
+        assert_eq!(names, ["New Plus Bundle 98 LE - 4750Mega", "MI Minutes Conversion Optin"]);
+        assert_eq!(usage.bundles[1].unit, Unit::Mb);
+    }
+
+    #[test]
+    fn parses_payments_newest_first() {
+        let payments = parse_payments(&fixture("vf_payments.json")).unwrap();
+        assert_eq!(payments.len(), 3);
+        assert_eq!(payments[0].at.to_rfc3339(), "2026-11-14T17:51:27+00:00");
+        assert_eq!(payments[0].amount_egp, 140.0);
+        assert_eq!(payments[0].method.as_deref(), Some("Card •••• 2222"));
+        assert_eq!(payments[1].amount_egp, 145.0);
+        assert_eq!(payments[2].method.as_deref(), Some("Topup via fawry"));
+        assert_eq!(parse_payments(&json!({"code": "2001", "message": "Access Denied"})), None);
+    }
+
+    #[test]
+    fn reads_the_token_profile() {
+        let claims = json!({
+            "preferred_username": "1000000000",
+            "userInfo": {
+                "msisdn": "01000000000",
+                "firstName": "سارة",
+                "lastName": "أحمد",
+                "customerType": "PREPAID",
+                "contractType": "prepaid",
+                "contractStatus": "ACTIVE",
+                "serviceClassCode": 723,
+                "serviceClassName": "14pt_Raya7Balak"
+            }
+        });
+        let p = profile_from_claims(&claims);
+        assert_eq!(p.name.as_deref(), Some("سارة أحمد"));
+        assert_eq!(p.msisdn.as_deref(), Some("01000000000"));
+        assert_eq!(p.payment, Some(PaymentKind::Prepaid));
+        assert_eq!(p.status.as_deref(), Some("Active"));
+        assert_eq!(p.plan_code.as_deref(), Some("723"));
+        assert_eq!(p.tariff.as_deref(), Some("14pt Raya7Balak"));
+        // No userInfo: standard claims still give the name.
+        assert_eq!(profile_from_claims(&json!({"name": "SAMIA FAHMY"})).name.as_deref(), Some("Samia Fahmy"));
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string());
+        assert_eq!(token_claims(&format!("h.{payload}.s")).unwrap()["userInfo"]["msisdn"], "01000000000");
     }
 
     #[test]
@@ -351,7 +555,5 @@ mod tests {
         assert_eq!(name_from_claims(&json!({"name": "SAMIA IBRAHIM FAHMY"})).as_deref(), Some("Samia Ibrahim Fahmy"));
         assert_eq!(name_from_claims(&json!({"given_name": "Samia", "family_name": "Fahmy"})).as_deref(), Some("Samia Fahmy"));
         assert_eq!(name_from_claims(&json!({"preferred_username": "01099214470"})), None);
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"name":"Karim Adel"}"#);
-        assert_eq!(owner_from_jwt(&format!("h.{payload}.s")).as_deref(), Some("Karim Adel"));
     }
 }

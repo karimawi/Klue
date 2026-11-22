@@ -1,0 +1,24 @@
+[
+  {
+    "amount": { "value": 14500 },
+    "id": "PFATP02261102195549915",
+    "paymentDate": "2026-11-02T19:55:49.000+0000",
+    "paymentItem": [{ "@type": "TOPUP_VIA_PAYFORT" }],
+    "paymentMethod": { "id": "411111******1111", "relatedParty": { "@referredType": "MSISDN", "id": "201000000000" } },
+    "taxAmount": { "value": 14500 }
+  },
+  {
+    "amount": { "value": 14000 },
+    "id": "PFATP01261114175127156",
+    "paymentDate": "2026-11-14T17:51:27.000+0000",
+    "paymentItem": [{ "@type": "TOPUP_VIA_PAYFORT" }],
+    "paymentMethod": { "id": "411111******2222", "relatedParty": { "@referredType": "MSISDN", "id": "201000000000" } },
+    "taxAmount": { "value": 14000 }
+  },
+  {
+    "amount": { "value": 5000 },
+    "id": "X1",
+    "paymentDate": "2026-10-01T09:00:00.000+0000",
+    "paymentItem": [{ "@type": "TOPUP_VIA_FAWRY" }]
+  }
+]

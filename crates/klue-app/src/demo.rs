@@ -67,6 +67,8 @@ fn build(l: Line) -> Account {
         subscribed_at: Some(sub),
         renews_at: Some(renew),
         fetched_at,
+        info: Default::default(),
+        payments: None,
     });
     a.last_attempt = Some(fetched_at);
     a
@@ -133,6 +135,8 @@ pub async fn verify(carrier: Carrier, number: &str, password: &str) -> Result<Us
         subscribed_at: Some(sub),
         renews_at: Some(renew),
         fetched_at: Utc::now(),
+        info: Default::default(),
+        payments: None,
     })
 }
 

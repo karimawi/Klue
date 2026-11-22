@@ -99,6 +99,8 @@ mod tests {
             subscribed_at: None,
             renews_at: Some(now + renews_in),
             fetched_at: now,
+            info: Default::default(),
+            payments: None,
         });
         a
     }

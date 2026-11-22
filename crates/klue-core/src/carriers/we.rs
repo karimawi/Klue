@@ -7,7 +7,8 @@
 //!    Each call replaces the previous captcha, so when the solver isn't sure of an image
 //!    Klue asks for another one rather than guess;
 //! 3. `userAuthenticate` with the token (and the solved code, if any);
-//! 4. `queryBalance`, `getSubscribedOfferings` and `queryFreeUnit` with the CSRF token.
+//! 4. `queryBalance`, `getSubscribedOfferings` and `queryFreeUnit` with the CSRF token;
+//!    best-effort, `queryRechargeLogCz` (payment history) and `querySubscribers` (plan).
 //!
 //! All requests go out with Chrome's TLS fingerprint (`curl_cffi`'s `chrome131` in the
 //! Python original), since WE's edge rejects obvious non-browser clients.
@@ -21,6 +22,7 @@ use wreq::header::{ACCEPT, ACCEPT_LANGUAGE, HeaderMap, HeaderName, HeaderValue, 
 use super::FetchContext;
 use crate::{
     Bundle, BundleKind, FetchError, LineType, Unit, Usage,
+    model::{LineInfo, Payment, PaymentKind, order_bundles},
     captcha::{clean_code, decode_data_uri},
     format::tidy_name,
     http,
@@ -64,6 +66,8 @@ pub struct Authenticated {
     subscriber_id: String,
     account_id: String,
     pub owner_name: Option<String>,
+    payment: Option<PaymentKind>,
+    status: Option<String>,
 }
 
 /// One sign-in attempt against WE, with its own cookie jar.
@@ -161,7 +165,20 @@ impl WeSession {
         let csrf_token = j::text(&body["token"]).ok_or_else(|| missing("body.token"))?;
         let subscriber_id = j::text(&body["subscriber"]["subscriberId"]).ok_or_else(|| missing("body.subscriber.subscriberId"))?;
         let account_id = j::text(&body["account"]["acctId"]).ok_or_else(|| missing("body.account.acctId"))?;
-        Ok(Authenticated { csrf_token, subscriber_id, account_id, owner_name: owner_name(body, &self.number) })
+        let subscriber = &body["subscriber"];
+        Ok(Authenticated {
+            csrf_token,
+            subscriber_id,
+            account_id,
+            owner_name: owner_name(body, &self.number),
+            payment: match j::text(&subscriber["paymentType"]).as_deref() {
+                Some("0") => Some(PaymentKind::Prepaid),
+                Some("1") => Some(PaymentKind::Postpaid),
+                _ => None,
+            },
+            // Huawei BES subscriber status 2 is "active"; other codes aren't shown.
+            status: (j::text(&subscriber["status"]).as_deref() == Some("2")).then(|| "Active".to_string()),
+        })
     }
 
     /// Read balance, package and quotas.
@@ -183,7 +200,7 @@ impl WeSession {
                     ret_ok(&v)
                         .then(|| j::num(&v["body"]["balanceInfo"][0]["totalAmount"]))
                         .flatten()
-                        .map(|amount| (amount / 10_000.0 * 100.0).round() / 100.0)
+                        .map(egp)
                 }
                 Err(e) => {
                     tracing::debug!("WE balance unreadable: {e}");
@@ -215,7 +232,7 @@ impl WeSession {
         let resp = self
             .client
             .post(format!("{API}/cz/cbs/bb/queryFreeUnit"))
-            .headers(headers)
+            .headers(headers.clone())
             .json(&json!({ "subscriberId": auth.subscriber_id, "mainOfferId": main_offer_id }))
             .send()
             .await?;
@@ -224,8 +241,96 @@ impl WeSession {
         if !ret_ok(&units) {
             return Err(carrier_error(&units, "quota"));
         }
-        build_usage(&units, package_name, balance_egp, auth.owner_name.clone())
+        let mut usage = build_usage(&units, package_name, balance_egp, auth.owner_name.clone())?;
+
+        // Extras. Neither is essential, so failures only leave them out.
+        let (plan, since) = self.line_product(auth, &headers, ctx).await.unwrap_or_default();
+        usage.info = LineInfo { plan, payment: auth.payment, status: auth.status.clone(), number: None, since };
+        usage.payments = self.recharges(auth, &headers, ctx).await;
+        Ok(usage)
     }
+
+    /// The line's product ("WE IOE VDSL Primary Prepaid") and activation date.
+    async fn line_product(
+        &self,
+        auth: &Authenticated,
+        headers: &HeaderMap,
+        ctx: &FetchContext<'_>,
+    ) -> Option<(Option<String>, Option<chrono::DateTime<Utc>>)> {
+        let resp = self
+            .client
+            .post(format!("{API}/cz/v1/customer/querySubscribers"))
+            .headers(headers.clone())
+            .json(&json!({ "subscriberId": auth.subscriber_id, "startNum": 0, "pageSize": 10 }))
+            .send()
+            .await
+            .ok()?;
+        let v = http::json_body(resp, "WE subscribers").await.ok()?;
+        ctx.dump("we-subscribers", &v);
+        let list = v["body"]["subscriberList"].as_array()?;
+        let line = list.iter().find(|s| j::text(&s["subscriberId"]).as_deref() == Some(&auth.subscriber_id)).or(list.first())?;
+        Some((j::text(&line["primaryOfferingName"]), j::epoch_ms(&line["activeDate"])))
+    }
+
+    /// Recharges over the last 90 days (30 if WE refuses the longer window).
+    async fn recharges(&self, auth: &Authenticated, headers: &HeaderMap, ctx: &FetchContext<'_>) -> Option<Vec<Payment>> {
+        let now = Utc::now().timestamp_millis();
+        for days in [90i64, 30] {
+            let body = json!({
+                "subscriberId": auth.subscriber_id,
+                "startTime": now - days * 86_400_000,
+                "endTime": now,
+                "startNum": 0,
+                "pageSize": 20,
+                "channelIds": RECHARGE_CHANNELS,
+            });
+            let resp = self.client.post(format!("{API}/cbs/ar/queryRechargeLogCz")).headers(headers.clone()).json(&body).send().await.ok()?;
+            let v = http::json_body(resp, "WE recharges").await.ok()?;
+            ctx.dump("we-recharges", &v);
+            if let Some(list) = parse_recharges(&v) {
+                return Some(list);
+            }
+        }
+        None
+    }
+}
+
+/// Channels the website asks `queryRechargeLogCz` about (all of them).
+const RECHARGE_CHANNELS: [&str; 15] = ["A", "0", "1", "2", "3", "4", "5", "6", "7", "11", "12", "13", "601", "702", "704"];
+
+/// `queryRechargeLogCz` entries. Amounts use the same 1/10000 EGP scale as `queryBalance`;
+/// `rechargeMethod` codes come from WE's `CZ_TRANSACTION_TYPE` dictionary.
+pub(crate) fn parse_recharges(v: &Value) -> Option<Vec<Payment>> {
+    if !ret_ok(v) {
+        return None;
+    }
+    let mut out: Vec<Payment> = v["body"]["rechargeList"]
+        .as_array()?
+        .iter()
+        .filter_map(|r| {
+            let method = j::text(&r["rechargeMethod"]).map(|m| match m.as_str() {
+                "0" => "Voucher".to_string(),
+                "1" => "Cash".to_string(),
+                "2" => "EVC".to_string(),
+                "3" => "Cash rollback".to_string(),
+                _ => m,
+            });
+            Some(Payment {
+                at: j::epoch_ms(&r["tradeTime"])?,
+                amount_egp: egp(j::num(&r["rechargeAmount"])?),
+                method,
+                reference: j::text(&r["transId"]),
+                balance_after: j::num(&r["newBalanceAmount"]).map(egp),
+            })
+        })
+        .collect();
+    out.sort_by_key(|p| std::cmp::Reverse(p.at));
+    Some(out)
+}
+
+/// WE's money amounts are in 1/10000 EGP.
+fn egp(amount: f64) -> f64 {
+    (amount / 10_000.0 * 100.0).round() / 100.0
 }
 
 /// Full refresh: warm up, captcha, sign in, read.
@@ -358,8 +463,10 @@ pub(crate) fn parse_free_units(v: &Value) -> Vec<Bundle> {
             let (Some(total), Some(remaining)) = (j::num(&detail["initialAmount"]), j::num(&detail["currentAmount"])) else {
                 continue;
             };
-            let unit_label = shallow_text(detail, &["measureUnitName", "measureUnit", "unitName"]).unwrap_or_default();
-            let factor = if unit_label.eq_ignore_ascii_case("mb") { 1.0 / 1024.0 } else { 1.0 };
+            let unit_label = shallow_text(detail, &["measureUnitName", "measureUnit", "unitName"])
+                .or_else(|| shallow_text(group, &["measureUnit"]))
+                .unwrap_or_default();
+            let (unit, factor) = unit_of(&unit_label);
             let name = shallow_text(detail, &["offeringName", "freeUnitTypeName", "freeUnitName"])
                 .or_else(|| group_name.clone())
                 .unwrap_or_else(|| if out.is_empty() { "Home internet".into() } else { "Add-on".into() });
@@ -367,7 +474,7 @@ pub(crate) fn parse_free_units(v: &Value) -> Vec<Bundle> {
                 key: String::new(),
                 kind: BundleKind::Addon,
                 name,
-                unit: Unit::Gb,
+                unit,
                 total: total * factor,
                 remaining: remaining * factor,
                 starts_at: j::epoch_ms(&detail["effectiveTime"]),
@@ -375,15 +482,23 @@ pub(crate) fn parse_free_units(v: &Value) -> Vec<Bundle> {
             });
         }
     }
-    if let Some(pos) = out.iter().position(|b| b.remaining > 0.0) {
-        let main = out.remove(pos);
-        out.insert(0, main);
-    }
+    order_bundles(&mut out);
     if let Some(main) = out.first_mut() {
         main.kind = BundleKind::Data;
     }
     assign_keys(&mut out);
     out
+}
+
+/// WE's measure units, as names or Huawei CBS codes (1109 GB, 1106 MB, 1108 KB).
+fn unit_of(label: &str) -> (Unit, f64) {
+    match label.trim().to_ascii_uppercase().as_str() {
+        "MB" | "1106" => (Unit::Mb, 1.0),
+        "KB" | "1108" => (Unit::Mb, 1.0 / 1024.0),
+        "MIN" | "MINUTES" => (Unit::Minutes, 1.0),
+        "1003" | "SEC" | "SECONDS" => (Unit::Minutes, 1.0 / 60.0),
+        _ => (Unit::Gb, 1.0),
+    }
 }
 
 fn shallow_text(v: &Value, keys: &[&str]) -> Option<String> {
@@ -406,6 +521,8 @@ pub(crate) fn build_usage(
         renews_at: main.expires_at,
         bundles,
         fetched_at: Utc::now(),
+        info: LineInfo::default(),
+        payments: None,
     })
 }
 
@@ -439,6 +556,31 @@ mod tests {
         let bundles = parse_free_units(&v);
         assert_eq!(bundles[0].name, "Extra 25 GB");
         assert_eq!(bundles[0].kind, BundleKind::Data);
+    }
+
+    #[test]
+    fn parses_recharges_newest_first() {
+        let v = json!({"header": {"retCode": "0"}, "body": {"totalRecord": 2, "rechargeList": [
+            {"serviceNumber": "FBB200000000", "rechargeAmount": "4000000", "currencyId": "1046", "channelId": "702",
+             "rechargeMethod": "1", "tradeTime": 1793000000000i64, "transId": "T1", "newBalanceAmount": "4685963"},
+            {"serviceNumber": "FBB200000000", "rechargeAmount": "1000000", "currencyId": "1046", "channelId": "A",
+             "rechargeMethod": "0", "tradeTime": 1795000000000i64, "transId": "T2", "newBalanceAmount": "1685963"}
+        ]}});
+        let list = parse_recharges(&v).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!((list[0].amount_egp, list[0].method.as_deref(), list[0].balance_after), (100.0, Some("Voucher"), Some(168.6)));
+        assert_eq!((list[1].amount_egp, list[1].method.as_deref(), list[1].reference.as_deref()), (400.0, Some("Cash"), Some("T1")));
+        assert!(parse_recharges(&json!({"header": {"retCode": "1", "retMsg": "x"}})).is_none());
+        let empty = json!({"header": {"retCode": "0"}, "body": {"rechargeList": [], "totalRecord": 0}});
+        assert_eq!(parse_recharges(&empty), Some(vec![]));
+    }
+
+    #[test]
+    fn reads_measure_unit_codes() {
+        assert_eq!(unit_of("1109"), (Unit::Gb, 1.0));
+        assert_eq!(unit_of("1106"), (Unit::Mb, 1.0));
+        assert_eq!(unit_of("MB"), (Unit::Mb, 1.0));
+        assert_eq!(unit_of(""), (Unit::Gb, 1.0));
     }
 
     #[test]

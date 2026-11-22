@@ -194,7 +194,7 @@ impl Shared {
         account.nickname = nickname.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
         account.apply_usage(usage);
         let id = account.id.clone();
-        if !self.demo && !self.secrets.set(&id, password) {
+        if !self.demo && !self.secrets.set(&account, password) {
             tracing::warn!("password for {id} is kept in memory only");
         }
         self.update(|d| d.accounts.push(account));
@@ -202,8 +202,11 @@ impl Shared {
     }
 
     pub fn remove_account(&self, id: &str) {
-        if !self.demo {
-            self.secrets.delete(id);
+        let account = self.data.lock().expect("data lock").account(id).cloned();
+        if !self.demo
+            && let Some(account) = &account
+        {
+            self.secrets.delete(account);
         }
         self.update(|d| d.accounts.retain(|a| a.id != id));
     }
@@ -241,7 +244,7 @@ impl Shared {
         let result = if self.demo {
             demo::refresh(&account).await
         } else {
-            match self.secrets.get(id) {
+            match self.secrets.get(&account) {
                 None => Err(FetchError::Carrier(crate::i18n::strings(self.settings().lang).no_password.into())),
                 Some(password) => {
                     carriers::fetch(account.carrier, account.line, &account.number, &password, &self.context(interactive)).await
