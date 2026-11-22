@@ -49,6 +49,7 @@ wreq = { version = "6.0.0-rc.31", features = ["prefix-symbols"] }
 [dev-dependencies]
 sha2 = "0.10"
 tokio = { workspace = true, features = ["fs"] }
+tracing-subscriber.workspace = true
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [[example]]
@@ -56,3 +57,6 @@ name = "we_captcha"
 
 [[example]]
 name = "fetch_ocr_model"
+
+[[example]]
+name = "live_check"
