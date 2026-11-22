@@ -68,8 +68,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev \
-            libdbus-1-dev libssl-dev cmake clang pkg-config
+          sudo apt-get install -y cmake clang pkg-config
 
       - name: Install cargo-deb
         if: runner.os == 'Linux'

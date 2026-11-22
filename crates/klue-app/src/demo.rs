@@ -6,6 +6,7 @@ use std::time::Duration;
 use chrono::{DateTime, Local, TimeZone, Utc};
 use klue_core::{
     Bundle, BundleKind, Carrier, FetchError, LineType, Unit, Usage,
+    model::{LineInfo, Payment, PaymentKind},
     store::{Account, AppData, BundleAlert, LeadUnit, RenewalReminder, ThresholdMode},
 };
 
@@ -30,6 +31,11 @@ struct Line {
     renew: (u32, u32),
     remind: (u32, LeadUnit),
     bundles: Vec<B>,
+    balance: f64,
+    plan: &'static str,
+    since: (i32, u32, u32),
+    /// (month, day, amount, method, balance after)
+    payments: Vec<(u32, u32, f64, &'static str, Option<f64>)>,
 }
 
 fn build(l: Line) -> Account {
@@ -62,13 +68,30 @@ fn build(l: Line) -> Account {
     a.apply_usage(Usage {
         owner_name: Some(l.owner.into()),
         package_name: Some(l.pkg.into()),
-        balance_egp: None,
+        balance_egp: Some(l.balance),
         bundles,
         subscribed_at: Some(sub),
         renews_at: Some(renew),
         fetched_at,
-        info: Default::default(),
-        payments: None,
+        info: LineInfo {
+            plan: Some(l.plan.into()),
+            payment: Some(PaymentKind::Prepaid),
+            status: Some("Active".into()),
+            number: None,
+            since: Local.with_ymd_and_hms(l.since.0, l.since.1, l.since.2, 0, 0, 0).single().map(|d| d.with_timezone(&Utc)),
+        },
+        payments: Some(
+            l.payments
+                .iter()
+                .map(|(m, d, amount, method, after)| Payment {
+                    at: at(*m, *d) + chrono::Duration::hours(14),
+                    amount_egp: *amount,
+                    method: Some((*method).into()),
+                    reference: None,
+                    balance_after: *after,
+                })
+                .collect(),
+        ),
     });
     a.last_attempt = Some(fetched_at);
     a
@@ -83,25 +106,33 @@ pub fn data() -> AppData {
             carrier: Carrier::We, line: LineType::Landline, number: "0223584417", owner: mo, nick: Some("Home internet"),
             pkg: "Super 140", sub: (11, 5), renew: (12, 5), remind: (2, LeadUnit::Days),
             bundles: vec![B(K::Data, "Home internet", 140.0, 62.4, U::Gb, Some(10.0)), B(K::Addon, "Extra 25 GB", 25.0, 18.5, U::Gb, None)],
+            balance: 168.6, plan: "WE IOE VDSL Primary Prepaid", since: (2014, 11, 19),
+            payments: vec![(11, 4, 410.0, "Cash", Some(578.6)), (10, 5, 410.0, "Voucher", Some(412.25)), (9, 5, 400.0, "Cash", Some(405.1))],
         },
         Line {
             carrier: Carrier::We, line: LineType::Landline, number: "0348712290", owner: mo, nick: None,
             pkg: "Super 25", sub: (11, 12), renew: (12, 12), remind: (12, LeadUnit::Hours),
             bundles: vec![B(K::Data, "Home internet", 25.0, 3.1, U::Gb, Some(5.0)), B(K::Minutes, "All-network minutes", 1000.0, 610.0, U::Minutes, Some(100.0))],
+            balance: 12.4, plan: "WE IOE ADSL Primary Prepaid", since: (2019, 3, 2),
+            payments: vec![(11, 11, 165.0, "EVC", Some(177.4))],
         },
         Line {
             carrier: Carrier::Vodafone, line: LineType::Mobile, number: "01001285532", owner: mo, nick: Some("My phone"),
-            pkg: "Red Essential", sub: (11, 8), renew: (12, 8), remind: (2, LeadUnit::Days),
+            pkg: "New Plus Bundle 98 LE", sub: (11, 8), renew: (12, 8), remind: (2, LeadUnit::Days),
             bundles: vec![
-                B(K::Data, "Mobile data", 20.0, 11.2, U::Gb, Some(2.0)),
-                B(K::Social, "Social 5 GB", 5.0, 4.1, U::Gb, None),
+                B(K::Data, "New Plus Bundle 98 LE - 4750Mega", 4748.0, 992.0, U::Mb, Some(500.0)),
+                B(K::Addon, "MI Minutes Conversion Optin", 475.0, 315.0, U::Mb, None),
                 B(K::Minutes, "All-network minutes", 1500.0, 1020.0, U::Minutes, Some(150.0)),
             ],
+            balance: 0.0, plan: "Worry Free 14 PT", since: (2021, 6, 1),
+            payments: vec![(11, 14, 140.0, "Card •••• 0485", None), (11, 2, 145.0, "Card •••• 0485", None), (10, 29, 150.0, "Card •••• 0485", None), (10, 16, 140.0, "Card •••• 4987", None)],
         },
         Line {
             carrier: Carrier::Vodafone, line: LineType::Mobile, number: "01099214470", owner: "Samia Ibrahim Fahmy", nick: Some("Mom"),
             pkg: "Flex 70", sub: (11, 1), renew: (12, 1), remind: (1, LeadUnit::Days),
-            bundles: vec![B(K::Data, "Mobile data", 12.0, 6.8, U::Gb, Some(1.0)), B(K::Minutes, "All-network minutes", 500.0, 388.0, U::Minutes, None)],
+            bundles: vec![B(K::Flex, "Flex 70", 2000.0, 1200.0, U::Flex, Some(200.0)), B(K::Data, "Mobile data", 12288.0, 6963.0, U::Mb, Some(1024.0))],
+            balance: 37.25, plan: "Flex", since: (2016, 2, 14),
+            payments: vec![(11, 1, 70.0, "Topup via fawry", None)],
         },
     ];
     AppData { accounts: lines.into_iter().map(build).collect(), ..AppData::default() }
@@ -114,14 +145,14 @@ pub async fn verify(carrier: Carrier, number: &str, password: &str) -> Result<Us
         return Err(FetchError::BadCredentials);
     }
     let (sub, renew) = (Utc::now() - chrono::Duration::days(6), Utc::now() + chrono::Duration::days(24));
-    let (pkg, total, rem, kind, name) = match carrier {
-        Carrier::We => ("Super 200", 200.0, 171.3, BundleKind::Data, "Home internet"),
-        _ => ("Flex 100", 30.0, 21.7, BundleKind::Data, "Mobile data"),
+    let (pkg, total, rem, kind, name, plan) = match carrier {
+        Carrier::We => ("Super 200", 200.0, 171.3, BundleKind::Data, "Home internet", "WE IOE VDSL Primary Prepaid"),
+        _ => ("Flex 100", 30.0, 21.7, BundleKind::Data, "Mobile data", "Flex 100"),
     };
     Ok(Usage {
         owner_name: Some("Karim Adel Mansour".into()),
         package_name: Some(pkg.into()),
-        balance_egp: None,
+        balance_egp: Some(42.5),
         bundles: vec![Bundle {
             key: format!("demo-{number}"),
             kind,
@@ -135,8 +166,14 @@ pub async fn verify(carrier: Carrier, number: &str, password: &str) -> Result<Us
         subscribed_at: Some(sub),
         renews_at: Some(renew),
         fetched_at: Utc::now(),
-        info: Default::default(),
-        payments: None,
+        info: LineInfo {
+            plan: Some(plan.into()),
+            payment: Some(PaymentKind::Prepaid),
+            status: Some("Active".into()),
+            number: Some(number.to_string()),
+            since: Some(Utc::now() - chrono::Duration::days(400)),
+        },
+        payments: Some(Vec::new()),
     })
 }
 

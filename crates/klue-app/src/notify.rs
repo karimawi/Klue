@@ -1,9 +1,16 @@
-//! Desktop notifications for quota and renewal alerts.
+//! Desktop notifications for quota and renewal alerts, shown as coming from Klue.
+
+use std::path::Path;
 
 use chrono::Utc;
 use klue_core::{alerts::AlertEvent, format, store::Account, store::Lang};
 
 use crate::i18n::{self, carrier_name};
+
+/// Klue's identity for the OS: the macOS bundle identifier and the Windows
+/// AppUserModelID that toasts are filed under.
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+pub const APP_ID: &str = "io.github.karimawi.klue";
 
 /// Notification title and body, like the preview card in the Alerts dialog.
 pub fn describe(account: &Account, event: &AlertEvent, lang: Lang) -> (String, String) {
@@ -16,7 +23,7 @@ pub fn describe(account: &Account, event: &AlertEvent, lang: Lang) -> (String, S
     let ar = lang == Lang::Ar;
     let body = match event {
         AlertEvent::QuotaLow { bundle, .. } => {
-            let is_main = account.usage.as_ref().and_then(|u| u.main()).is_some_and(|m| m.key == bundle.key);
+            let is_main = account.main_bundle().is_some_and(|m| m.key == bundle.key);
             let on = if is_main { package } else { bundle.name.clone() };
             let left = format!("{} {}", format::amount(bundle.remaining, bundle.unit), i18n::unit_name(bundle.unit, lang));
             if ar { format!("متبقي {left} فقط من باقة {on}") } else { format!("Only {left} left on {on}") }
@@ -33,21 +40,58 @@ pub fn describe(account: &Account, event: &AlertEvent, lang: Lang) -> (String, S
     (title, body)
 }
 
-/// macOS shows a notification under whichever app bundle it's sent as, and that's
-/// Finder unless we name one. Name Klue's own bundle when running from Klue.app.
-pub fn init() {
+/// Make notifications appear as Klue's. `data_dir` gets a copy of the icon on Windows.
+#[allow(unused_variables)]
+pub fn init(data_dir: &Path) {
+    // macOS files a notification under whichever app bundle it names (Finder by
+    // default); name Klue's own when running from Klue.app.
     #[cfg(target_os = "macos")]
     {
         let in_bundle = std::env::current_exe().is_ok_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"));
         if in_bundle {
-            let _ = notify_rust::set_application("io.github.karimawi.klue");
+            let _ = notify_rust::set_application(APP_ID);
         }
+    }
+    // Windows only shows a toast's sender as an app if its AppUserModelID is known to the
+    // shell; unpackaged apps can register theirs (name + icon) under HKCU. Without this,
+    // toasts are sent as Windows PowerShell.
+    #[cfg(windows)]
+    if let Err(e) = windows::register(data_dir) {
+        tracing::warn!("couldn't register Klue for notifications: {e}");
+    }
+}
+
+#[cfg(windows)]
+mod windows {
+    use std::path::Path;
+
+    use super::APP_ID;
+
+    pub fn register(data_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        let icon = data_dir.join("klue-notify.png");
+        if std::fs::read(&icon).ok().as_deref() != Some(crate::assets::APP_ICON_PNG) {
+            std::fs::write(&icon, crate::assets::APP_ICON_PNG)?;
+        }
+        let key = windows_registry::CURRENT_USER.create(format!(r"Software\Classes\AppUserModelId\{APP_ID}"))?;
+        key.set_string("DisplayName", "Klue")?;
+        key.set_string("IconUri", icon.to_string_lossy().as_ref())?;
+        key.set_string("IconBackgroundColor", "FFFFBE32")?;
+        // Also file this process's windows and taskbar button under the same id.
+        let wide: Vec<u16> = APP_ID.encode_utf16().chain(std::iter::once(0)).collect();
+        unsafe {
+            windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(wide.as_ptr());
+        }
+        Ok(())
     }
 }
 
 pub fn show(title: String, body: String) {
     std::thread::spawn(move || {
-        if let Err(e) = notify_rust::Notification::new().appname("Klue").summary(&title).body(&body).show() {
+        let mut n = notify_rust::Notification::new();
+        n.appname("Klue").summary(&title).body(&body);
+        #[cfg(windows)]
+        n.app_id(APP_ID);
+        if let Err(e) = n.show() {
             tracing::warn!("couldn't show a notification: {e}");
         }
     });

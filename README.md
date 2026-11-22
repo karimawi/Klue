@@ -1,6 +1,6 @@
 # Klue
 
-A desktop app that puts the quota, package and renewal date of all your Egyptian telecom lines in one window. It's written in Rust: [Dioxus](https://dioxuslabs.com) for the UI, and the carrier sign-in flows were reverse-engineered.
+A desktop app that puts the quota, package and renewal date of all your Egyptian telecom lines in one window. It's written in Rust: [iced](https://iced.rs) draws the UI natively on the CPU (no webview, no GPU stack), and the carrier sign-in flows were reverse-engineered.
 
 ![Dashboard, light theme](docs/screenshots/dashboard-light-we.png)
 
@@ -13,37 +13,43 @@ A desktop app that puts the quota, package and renewal date of all your Egyptian
 
 ## Features
 
-- One tab per number, grouped by carrier. Each number shows its registered owner, an optional nickname, the package, GB left with percentages, the subscription date and the next renewal.
+- One tab per number, grouped by carrier. Each number shows its registered owner, an optional nickname, the package, what's left in each bucket in the bucket's own unit (GB, MB, minutes, units), the subscription date and the next renewal.
+- The balance in EGP, the line's plan, payment type and status, and the payment history (WE recharges and Vodafone payments).
+- The main quota is the largest bucket that isn't empty. Any other bucket can be made the main one with its star.
 - Quota alerts at X GB or X% left, per bundle, and a renewal reminder X days or hours before renewal. Both arrive as desktop notifications.
 - Adding a number signs in with the carrier's own password, checks it, and fills in the owner name from the account.
 - Light, Dark and Match themes. Match recolors the app with each carrier's brand colors.
 - English and Arabic, with a fully mirrored right-to-left layout. Fonts are DM Sans and Google Sans, bundled with the app.
-- A tray icon with a quick-view popup. Optional launch at startup, minimized to the tray.
-- Passwords live in the OS credential store (Windows Credential Manager, macOS Keychain or Secret Service), never in Klue's data file.
+- A tray icon with a quick-view popup that closes when you click elsewhere. Closing the window leaves Klue in the tray and frees the window's memory. Optional launch at startup, minimized to the tray.
+- One Klue at a time: launching it again brings the running one forward.
+- Passwords live in the OS credential store (Windows Credential Manager, macOS Keychain or Secret Service), never in Klue's data file. Each is saved under the service `Klue` and the account `<carrier>:<number>` (for example `we:0223584417`), so any version of Klue finds it, and the list of your numbers is kept there too: an update or reinstall that starts with an empty data folder brings them back.
 
 | | |
 | --- | --- |
 | ![Match theme, low quota](docs/screenshots/match-we-low-quota.png) | ![Dark theme, Vodafone](docs/screenshots/dark-vodafone.png) |
-| ![Arabic](docs/screenshots/arabic-rtl.png) | ![Add a number](docs/screenshots/add-number-verified.png) |
-| ![Alerts](docs/screenshots/alerts.png) | ![Coming soon](docs/screenshots/coming-soon.png) |
+| ![Balance, bundles and payments](docs/screenshots/vodafone-balance-payments.png) | ![Arabic](docs/screenshots/arabic-rtl.png) |
+| ![Add a number](docs/screenshots/add-number-verified.png) | ![Alerts](docs/screenshots/alerts.png) |
+| ![Coming soon](docs/screenshots/coming-soon.png) | <img src="docs/screenshots/tray-quick-view.png" alt="Tray quick view" width="240"> |
 
 ## Download
 
 Builds for Windows, macOS (Apple Silicon and Intel) and Linux (`.deb` and `.tar.gz`) are on the [Releases](https://github.com/karimawi/Klue/releases) page. They aren't code-signed yet; the release notes explain how to open them the first time.
 
-Klue draws its own title bar on every platform. On Windows and Linux the window is frameless; on macOS it keeps the native window shape and edges, with the system title bar made transparent and its buttons hidden.
+Klue draws its own title bar on every platform. On Windows and Linux the window is frameless; on macOS it keeps the native window shape and edges, with the system title bar made transparent and the traffic-light buttons over Klue's own title bar.
 
 ## Building
 
 You need Rust 1.92 or newer plus a few native tools. `wreq` builds BoringSSL so that requests carry Chrome's TLS fingerprint.
 
-- **Windows:** Visual Studio Build Tools (C++ workload), [CMake](https://cmake.org) and [LLVM](https://github.com/llvm/llvm-project/releases), which provides `libclang` for bindgen: `winget install Kitware.CMake LLVM.LLVM`. WebView2 is already part of Windows 10 and 11.
-- **Linux:** `cmake clang pkg-config libssl-dev libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev libdbus-1-dev`
+- **Windows:** Visual Studio Build Tools (C++ workload), [CMake](https://cmake.org), [LLVM](https://github.com/llvm/llvm-project/releases), which provides `libclang` for bindgen, and [NASM](https://www.nasm.us): `winget install Kitware.CMake LLVM.LLVM NASM.NASM`.
+- **Linux:** `cmake clang pkg-config`. No GUI development packages are needed: the X11, Wayland and xkbcommon libraries are loaded at run time (minimal installs may need `libxkbcommon-x11-0`), and the tray icon talks to the desktop over D-Bus.
 - **macOS:** Xcode command line tools and `cmake`.
 
 ```sh
 cargo run --release            # the app (binary: klue)
 cargo run -- --demo            # sample numbers from the mockups, nothing saved, no network
+cargo run -- --demo --quick-view   # start with the tray popup instead of the window
+cargo run -- --minimized       # start in the tray (what "Launch at startup" uses)
 cargo test -p klue-core --no-default-features
 ```
 
@@ -94,8 +100,10 @@ The field names for the registrant name (WE) and the package name are not docume
 
 ```
 crates/klue-core     carrier clients (WE, Vodafone), captcha readers, storage, alert rules; no UI
-crates/klue-app      Dioxus desktop app: window, tray, notifications, launch at startup
+crates/klue-app      iced desktop app: window, tray popup, notifications, single instance, launch at startup
 tools/captcha-model  synthetic WE captcha generator and model training (Python, PyTorch)
+tools/fonts          makes the bundled static TTFs from the variable fonts (fontTools)
+tools/icons          renders the app and tray icons from icons/klue.svg
 packaging/           release packaging (macOS bundle, Linux desktop entry, release notes)
 design/              UI mockups
 ```

@@ -1,0 +1,297 @@
+//! The main window: title bar, carrier rail, number tabs, then the dashboard (or an
+//! empty state), with dialogs on top.
+
+use iced::{
+    Alignment, Color, Length,
+    alignment::Horizontal,
+    font::Weight,
+    mouse,
+    widget::{Space, button, column, container, mouse_area, opaque, row, scrollable, stack, text_input},
+    window::Direction,
+};
+use klue_core::{
+    Carrier, LineType, format,
+    store::{Lang, Theme},
+};
+
+use super::{Ctx, El, dashboard, empty, hline, modals, tile, vline};
+use crate::{
+    app::{App, Message, ModalKind},
+    assets::Icon,
+    i18n,
+    theme,
+};
+
+pub fn view(app: &App) -> El<'_> {
+    let ctx = Ctx::new(app, app.carrier, false);
+    let p = ctx.p;
+
+    let content: El<'_> = match app.current() {
+        Some(account) => dashboard::view(&ctx, account),
+        None if !app.carrier.is_supported() => empty::coming_soon(&ctx, app.carrier),
+        None => empty::view(&ctx, app.carrier),
+    };
+    let main = column![tabs(&ctx), content].width(Length::Fill).height(Length::Fill);
+    let body = ctx.row(vec![rail(&ctx), vline(p.chdv, 2.0), main.into()]).height(Length::Fill).align_y(Alignment::Start);
+    let page = container(column![titlebar(&ctx), hline(p.chdv, 2.0), body])
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(move |_| theme::fill(p.bg, 0.0));
+
+    let mut layers: Vec<El<'_>> = vec![page.into()];
+    if let Some(dialog) = modals::view(&ctx) {
+        layers.push(overlay(dialog, Message::CloseModal));
+    }
+    if let Some(ask) = &app.captcha {
+        layers.push(overlay(modals::captcha(&ctx, ask), Message::CaptchaCancel));
+    }
+    if !cfg!(target_os = "macos") {
+        layers.push(resize_edges());
+    }
+    stack(layers).width(Length::Fill).height(Length::Fill).into()
+}
+
+/// A dimmed layer with `dialog` centred on it; clicking the dim area sends `dismiss`.
+fn overlay<'a>(dialog: El<'a>, dismiss: Message) -> El<'a> {
+    let dim = mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_| theme::fill(Color::from_rgba8(10, 9, 9, 0.52), 0.0)))
+        .on_press(dismiss);
+    let centred = container(opaque(dialog)).center(Length::Fill).padding(24);
+    opaque(stack([dim.into(), centred.into()]))
+}
+
+/// Thin invisible handles along the edges: the window has no native frame to resize by.
+fn resize_edges<'a>() -> El<'a> {
+    const T: f32 = 5.0;
+    let edge = |w: Length, h: Length, dir: Direction, cursor: mouse::Interaction| -> El<'a> {
+        mouse_area(Space::new().width(w).height(h)).on_press(Message::DragResize(dir)).interaction(cursor).into()
+    };
+    let ns = mouse::Interaction::ResizingVertically;
+    let ew = mouse::Interaction::ResizingHorizontally;
+    let nwse = mouse::Interaction::ResizingDiagonallyDown;
+    let nesw = mouse::Interaction::ResizingDiagonallyUp;
+    let top = row![
+        edge(T.into(), T.into(), Direction::NorthWest, nwse),
+        edge(Length::Fill, T.into(), Direction::North, ns),
+        edge(T.into(), T.into(), Direction::NorthEast, nesw)
+    ];
+    let middle = row![
+        edge(T.into(), Length::Fill, Direction::West, ew),
+        Space::new().width(Length::Fill).height(Length::Fill),
+        edge(T.into(), Length::Fill, Direction::East, ew)
+    ];
+    let bottom = row![
+        edge(T.into(), T.into(), Direction::SouthWest, nesw),
+        edge(Length::Fill, T.into(), Direction::South, ns),
+        edge(T.into(), T.into(), Direction::SouthEast, nwse)
+    ];
+    column![top, middle.height(Length::Fill), bottom].into()
+}
+
+// ---------------------------------------------------------------------------------------
+// Title bar
+
+fn titlebar<'a>(ctx: &Ctx<'a>) -> El<'a> {
+    let p = ctx.p;
+    let s = ctx.s;
+    let settings = &ctx.app.snap.data.settings;
+    let synced = if ctx.app.snap.refreshing.is_empty() {
+        i18n::synced(ctx.app.snap.data.last_sync(), ctx.now, ctx.lang)
+    } else {
+        s.syncing.to_string()
+    };
+
+    let switch = |options: Vec<(String, bool, Message)>| -> El<'a> {
+        let buttons = options
+            .into_iter()
+            .map(|(label, on, msg)| {
+                let weight = if on { Weight::Semibold } else { Weight::Normal };
+                button(container(ctx.text(label, 12.0, weight, if on { p.ch } else { p.chm })).center_y(Length::Fill))
+                    .padding([0, 10])
+                    .height(Length::Fill)
+                    .style(theme::segment(on, p.cht, p.ch, p.chm, 6.0))
+                    .on_press(msg)
+                    .into()
+            })
+            .collect();
+        container(ctx.row(buttons).spacing(2).height(Length::Fill))
+            .height(26)
+            .padding(2)
+            .style(move |_| theme::outlined(Color::TRANSPARENT, p.chdv, 8.0))
+            .into()
+    };
+    let themes = switch(
+        [(Theme::Light, s.light), (Theme::Dark, s.dark), (Theme::Match, s.match_)]
+            .into_iter()
+            .map(|(t, label)| (label.to_string(), settings.theme == t, Message::SetTheme(t)))
+            .collect(),
+    );
+    let langs = switch(vec![
+        ("EN".to_string(), settings.lang == Lang::En, Message::SetLang(Lang::En)),
+        ("ع".to_string(), settings.lang == Lang::Ar, Message::SetLang(Lang::Ar)),
+    ]);
+
+    let brand = ctx
+        .row(vec![super::logo(16.0), ctx.text("Klue", 14.0, Weight::ExtraBold, p.cht).into(), ctx.text(synced, 12.0, Weight::Normal, p.chm).into()])
+        .spacing(10);
+    // Dragging the empty part of the title bar moves the window.
+    let handle = mouse_area(container(brand).width(Length::Fill).height(Length::Fill).align_x(ctx.start()).align_y(Alignment::Center))
+        .on_press(Message::Drag)
+        .on_double_click(Message::ToggleMaximize);
+    let middle = ctx.row(vec![handle.into(), themes, langs]).spacing(12).width(Length::Fill).height(Length::Fill);
+
+    // macOS draws its traffic lights at the top left; elsewhere Klue's window buttons
+    // sit at the right edge in both languages, where the OS puts them.
+    let bar = if cfg!(target_os = "macos") {
+        row![Space::new().width(78), middle, Space::new().width(12)]
+    } else {
+        let win = |icon: Icon, msg: Message, close: bool| -> El<'a> {
+            button(container(ctx.icon(icon, 14.0, p.cht)).center(Length::Fill))
+                .width(46)
+                .height(Length::Fill)
+                .padding(0)
+                .style(theme::window_button(p, close))
+                .on_press(msg)
+                .into()
+        };
+        row![
+            Space::new().width(16),
+            middle,
+            Space::new().width(12),
+            win(Icon::WinMin, Message::Minimize, false),
+            win(Icon::WinMax, Message::ToggleMaximize, false),
+            win(Icon::WinClose, Message::CloseMain, true)
+        ]
+    };
+    container(bar.height(40).align_y(Alignment::Center)).height(40).style(move |_| theme::fill(p.ch, 0.0)).into()
+}
+
+// ---------------------------------------------------------------------------------------
+// Carrier rail
+
+fn rail<'a>(ctx: &Ctx<'a>) -> El<'a> {
+    let p = ctx.p;
+    let s = ctx.s;
+    let data = &ctx.app.snap.data;
+    let items: Vec<El<'a>> = Carrier::ALL
+        .into_iter()
+        .map(|carrier| {
+            let on = carrier == ctx.app.carrier;
+            let count = data.accounts_for(carrier).count();
+            let soon = !carrier.is_supported();
+            let t = crate::assets::tile(carrier);
+            let tile_el = tile(carrier, 46.0, t.rail, 13.0, false);
+            let badge: Option<El<'a>> = if soon {
+                Some(badge(ctx, s.soon, 9.5))
+            } else if count > 0 {
+                Some(badge(ctx, &count.to_string(), 11.0))
+            } else {
+                None
+            };
+            let tile_with_badge: El<'a> = match badge {
+                Some(b) => stack([
+                    container(tile_el).padding([8, 12]).into(),
+                    container(b).width(Length::Fill).align_x(if ctx.rtl() { Horizontal::Left } else { Horizontal::Right }).into(),
+                ])
+                .width(70)
+                .into(),
+                None => container(tile_el).padding([8, 12]).into(),
+            };
+            let label = ctx.text(i18n::carrier_name(carrier, ctx.lang), 12.0, Weight::Semibold, if on { p.cht } else { p.chm });
+            let inner = column![tile_with_badge, label].align_x(Alignment::Center).spacing(2).width(Length::Fill);
+            let indicator = container(Space::new()).width(4).height(52).style(move |_| theme::fill(if on { p.ch_bar } else { Color::TRANSPARENT }, 2.0));
+            let item = button(inner).width(Length::Fill).padding([6, 0]).style(theme::plain(p.ch_act, on.then_some(p.ch_act), 14.0)).on_press(Message::SelectCarrier(carrier));
+            ctx.row(vec![indicator.into(), container(item).padding([0, 8]).width(Length::Fill).into()]).into()
+        })
+        .collect();
+
+    let tool = |icon: Icon, label: &'a str, msg: Message| -> El<'a> {
+        let content = column![ctx.icon(icon, 18.0, p.chm), ctx.text(label, 11.0, Weight::Normal, p.chm)].spacing(4).align_x(Alignment::Center).width(Length::Fill);
+        container(button(content).width(Length::Fill).padding([10, 0]).style(theme::plain(p.ch_act, None, 12.0)).on_press(msg)).padding([0, 8]).into()
+    };
+    let col = column(items)
+        .spacing(4)
+        .push(Space::new().height(Length::Fill))
+        .push(tool(Icon::Plus, s.add, Message::OpenModal(ModalKind::Add)))
+        .push(tool(Icon::Sliders, s.settings, Message::OpenModal(ModalKind::Settings)))
+        .padding([8, 0])
+        .width(92)
+        .height(Length::Fill);
+    container(col).height(Length::Fill).style(move |_| theme::fill(p.ch, 0.0)).into()
+}
+
+fn badge<'a>(ctx: &Ctx<'a>, label: &str, size: f32) -> El<'a> {
+    let p = ctx.p;
+    container(ctx.num(label.to_string(), size, Weight::ExtraBold, p.ch))
+        .padding([1, 6])
+        .style(move |_| {
+            let mut s = theme::fill(p.cht, 10.0);
+            s.border = theme::border(p.ch, 2.0, 10.0);
+            s
+        })
+        .into()
+}
+
+// ---------------------------------------------------------------------------------------
+// Number tabs
+
+fn tabs<'a>(ctx: &Ctx<'a>) -> El<'a> {
+    let p = ctx.p;
+    let app = ctx.app;
+    let current = app.current().map(|a| a.id.clone());
+    let mut items: Vec<El<'a>> = app
+        .snap
+        .data
+        .accounts_for(app.carrier)
+        .map(|account| {
+            let on = current.as_deref() == Some(account.id.as_str());
+            let icon = if account.line == LineType::Landline { Icon::Landline } else { Icon::Mobile };
+            let fg = if on { p.tx } else { p.mu };
+            let text_col = column![
+                ctx.text(account.display_name(), 14.0, Weight::ExtraBold, fg),
+                ctx.num(format::pretty_number(&account.number), 11.5, Weight::Normal, fg)
+            ]
+            .spacing(0)
+            .align_x(ctx.start());
+            let mut parts: Vec<El<'a>> = vec![ctx.icon(icon, 16.0, fg), text_col.into()];
+            if account.last_error.is_some() {
+                parts.push(container(Space::new()).width(8).height(8).style(move |_| theme::fill(p.danger, 4.0)).into());
+            }
+            let accent = container(Space::new()).width(Length::Fill).height(3).style(move |_| theme::fill(if on { p.ac } else { Color::TRANSPARENT }, 2.0));
+            let label = container(ctx.row(parts).spacing(10)).padding([0, 18]).height(45).align_y(Alignment::Center);
+            let tab = column![container(accent).padding([0, 14]), label];
+            button(tab)
+                .padding(0)
+                .style(move |_, status| {
+                    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                    let bg = if on { Some(p.bg) } else if hovered { Some(theme::mix(p.strip, p.bg, 0.5)) } else { None };
+                    button::Style {
+                        background: bg.map(iced::Background::Color),
+                        border: iced::Border { radius: iced::border::Radius { top_left: 12.0, top_right: 12.0, bottom_right: 0.0, bottom_left: 0.0 }, ..Default::default() },
+                        ..Default::default()
+                    }
+                })
+                .on_press(Message::SelectAccount(account.id.clone()))
+                .into()
+        })
+        .collect();
+    if app.carrier.is_supported() {
+        let add = button(ctx.row(vec![ctx.icon(Icon::Plus, 15.0, p.mu), ctx.text(ctx.s.add_number, 13.0, Weight::Normal, p.mu).into()]).spacing(8))
+            .padding([8, 12])
+            .style(theme::ghost(p.mu, p.bg, 10.0))
+            .on_press(Message::OpenModal(ModalKind::Add));
+        items.push(container(add).padding(ctx.pad(0.0, 0.0, 6.0, 4.0)).into());
+    }
+    let strip = ctx.row(items).spacing(4).align_y(Alignment::End).height(58);
+    let scroller = scrollable(container(strip).padding([0, 22])).direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::new().width(0).scroller_width(0)));
+    container(scroller).width(Length::Fill).height(58).style(move |_| theme::fill(p.strip, 0.0)).into()
+}
+
+/// Shared by dialogs that need a text field in Klue's style.
+pub fn field<'a>(ctx: &Ctx<'a>, placeholder: &str, value: &str, on_input: impl Fn(String) -> Message + 'a, error: bool) -> text_input::TextInput<'a, Message> {
+    text_input(placeholder, value)
+        .on_input(on_input)
+        .padding([9, 10])
+        .size(14)
+        .font(crate::assets::font(ctx.lang, Weight::Normal))
+        .style(theme::field(ctx.p, error))
+}

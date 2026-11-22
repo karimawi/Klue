@@ -1,5 +1,5 @@
-//! State shared by every window: the data file, passwords, refreshes and alerts.
-//! Windows subscribe to revision bumps and re-read a [`Snapshot`].
+//! State shared by the UI and background work: the data file, passwords, refreshes and
+//! alerts. The UI listens for revision bumps and re-reads a [`Snapshot`].
 
 use std::{
     collections::BTreeSet,
@@ -42,14 +42,6 @@ pub struct CaptchaRequest {
     pub reply: oneshot::Sender<Option<String>>,
 }
 
-/// Something another window (the tray widget) wants the main window to do.
-#[derive(Debug, Clone, PartialEq)]
-pub enum UiRequest {
-    Show,
-    OpenSettings,
-    ShowAccount(String),
-}
-
 /// Captcha "solver" that asks the person in front of the screen.
 struct PromptSolver {
     tx: mpsc::UnboundedSender<CaptchaRequest>,
@@ -78,8 +70,6 @@ pub struct Shared {
     ocr: Option<Arc<dyn CaptchaSolver>>,
     prompt: Arc<dyn CaptchaSolver>,
     captcha_rx: Mutex<Option<mpsc::UnboundedReceiver<CaptchaRequest>>>,
-    ui_tx: mpsc::UnboundedSender<UiRequest>,
-    ui_rx: Mutex<Option<mpsc::UnboundedReceiver<UiRequest>>>,
     debug_dir: Option<PathBuf>,
     pub demo: bool,
 }
@@ -91,19 +81,32 @@ const MIN_INTERACTIVE_GAP: chrono::Duration = chrono::Duration::seconds(20);
 
 impl Shared {
     pub fn new(store: Store, demo: bool) -> Arc<Self> {
-        let data = if demo { demo::data() } else { store.load() };
+        let secrets = Secrets::new();
+        let data = if demo {
+            demo::data()
+        } else {
+            let mut data = store.load();
+            // Accounts the OS vault remembers but this data file doesn't (a fresh install,
+            // or a file written by another Klue version) come back without their history.
+            let restored = data.restore(secrets.load_index());
+            if restored > 0 {
+                tracing::info!("restored {restored} account(s) from the credential store");
+                if let Err(e) = store.save(&data) {
+                    tracing::error!("couldn't save {}: {e}", store.dir().display());
+                }
+            }
+            secrets.save_index(&data.accounts);
+            data
+        };
         let (tx, rx) = mpsc::unbounded_channel();
-        let (ui_tx, ui_rx) = mpsc::unbounded_channel();
         Arc::new(Self {
-            secrets: Secrets::new(),
+            secrets,
             data: Mutex::new(data),
             refreshing: Mutex::new(BTreeSet::new()),
             revision: watch::channel(0).0,
             ocr: if demo { None } else { default_solver() },
             prompt: Arc::new(PromptSolver { tx }),
             captcha_rx: Mutex::new(Some(rx)),
-            ui_tx,
-            ui_rx: Mutex::new(Some(ui_rx)),
             debug_dir: std::env::var_os("KLUE_DEBUG_DIR").map(PathBuf::from),
             store,
             demo,
@@ -149,14 +152,6 @@ impl Shared {
         self.captcha_rx.lock().ok()?.take()
     }
 
-    pub fn take_ui_requests(&self) -> Option<mpsc::UnboundedReceiver<UiRequest>> {
-        self.ui_rx.lock().ok()?.take()
-    }
-
-    pub fn request_ui(&self, request: UiRequest) {
-        let _ = self.ui_tx.send(request);
-    }
-
     /// Captchas go to the model; when it isn't sure of one, WE is asked for another. Only if
     /// it declines all of them, and someone is at the screen (`interactive`), are they asked.
     fn context(&self, interactive: bool) -> FetchContext<'_> {
@@ -198,7 +193,35 @@ impl Shared {
             tracing::warn!("password for {id} is kept in memory only");
         }
         self.update(|d| d.accounts.push(account));
+        self.save_vault_index();
         Ok(id)
+    }
+
+    /// Rename a number (an empty nickname clears it).
+    pub fn rename(&self, id: &str, nickname: &str) {
+        let nickname = Some(nickname.trim().to_string()).filter(|n| !n.is_empty());
+        self.update(|d| {
+            if let Some(a) = d.account_mut(id) {
+                a.nickname = nickname;
+            }
+        });
+        self.save_vault_index();
+    }
+
+    /// Make `bundle` this number's main quota (`None` goes back to the default).
+    pub fn set_main_bundle(&self, id: &str, bundle: Option<String>) {
+        self.update(|d| {
+            if let Some(a) = d.account_mut(id) {
+                a.main_bundle = bundle;
+            }
+        });
+    }
+
+    fn save_vault_index(&self) {
+        if !self.demo {
+            let accounts = self.data.lock().expect("data lock").accounts.clone();
+            self.secrets.save_index(&accounts);
+        }
     }
 
     pub fn remove_account(&self, id: &str) {
@@ -209,6 +232,7 @@ impl Shared {
             self.secrets.delete(account);
         }
         self.update(|d| d.accounts.retain(|a| a.id != id));
+        self.save_vault_index();
     }
 
     fn set_refreshing(&self, id: &str, on: bool) -> bool {
