@@ -1,5 +1,6 @@
 //! Demo mode (`klue --demo` or `KLUE_DEMO=1`): the numbers from the mockup, kept in
 //! memory only, with simulated sign-ins. Useful for trying the UI without accounts.
+//! Every name, number, amount and card here is made up.
 
 use std::time::Duration;
 
@@ -106,8 +107,8 @@ pub fn data() -> AppData {
             carrier: Carrier::We, line: LineType::Landline, number: "0223584417", owner: mo, nick: Some("Home internet"),
             pkg: "Super 140", sub: (11, 5), renew: (12, 5), remind: (2, LeadUnit::Days),
             bundles: vec![B(K::Data, "Home internet", 140.0, 62.4, U::Gb, Some(10.0)), B(K::Addon, "Extra 25 GB", 25.0, 18.5, U::Gb, None)],
-            balance: 168.6, plan: "WE IOE VDSL Primary Prepaid", since: (2014, 11, 19),
-            payments: vec![(11, 4, 410.0, "Cash", Some(578.6)), (10, 5, 410.0, "Voucher", Some(412.25)), (9, 5, 400.0, "Cash", Some(405.1))],
+            balance: 214.35, plan: "WE IOE VDSL Primary Prepaid", since: (2016, 3, 8),
+            payments: vec![(11, 4, 410.0, "Cash", Some(624.35)), (10, 5, 410.0, "Voucher", Some(418.2)), (9, 5, 400.0, "Cash", Some(407.95))],
         },
         Line {
             carrier: Carrier::We, line: LineType::Landline, number: "0348712290", owner: mo, nick: None,
@@ -120,12 +121,12 @@ pub fn data() -> AppData {
             carrier: Carrier::Vodafone, line: LineType::Mobile, number: "01001285532", owner: mo, nick: Some("My phone"),
             pkg: "New Plus Bundle 98 LE", sub: (11, 8), renew: (12, 8), remind: (2, LeadUnit::Days),
             bundles: vec![
-                B(K::Data, "New Plus Bundle 98 LE - 4750Mega", 4748.0, 992.0, U::Mb, Some(500.0)),
-                B(K::Addon, "MI Minutes Conversion Optin", 475.0, 315.0, U::Mb, None),
+                B(K::Data, "New Plus Bundle 98 LE - 4750Mega", 4750.0, 1310.0, U::Mb, Some(500.0)),
+                B(K::Addon, "MI Minutes Conversion Optin", 500.0, 240.0, U::Mb, None),
                 B(K::Minutes, "All-network minutes", 1500.0, 1020.0, U::Minutes, Some(150.0)),
             ],
-            balance: 0.0, plan: "Worry Free 14 PT", since: (2021, 6, 1),
-            payments: vec![(11, 14, 140.0, "Card •••• 0485", None), (11, 2, 145.0, "Card •••• 0485", None), (10, 29, 150.0, "Card •••• 0485", None), (10, 16, 140.0, "Card •••• 4987", None)],
+            balance: 23.75, plan: "Worry Free 14 PT", since: (2021, 6, 1),
+            payments: vec![(11, 9, 120.0, "Card •••• 4242", None), (10, 24, 135.0, "Card •••• 4242", None), (10, 3, 120.0, "Card •••• 1881", None), (9, 12, 100.0, "Topup via fawry", None)],
         },
         Line {
             carrier: Carrier::Vodafone, line: LineType::Mobile, number: "01099214470", owner: "Samia Ibrahim Fahmy", nick: Some("Mom"),
@@ -150,7 +151,7 @@ pub async fn verify(carrier: Carrier, number: &str, password: &str) -> Result<Us
         _ => ("Flex 100", 30.0, 21.7, BundleKind::Data, "Mobile data", "Flex 100"),
     };
     Ok(Usage {
-        owner_name: Some("Karim Adel Mansour".into()),
+        owner_name: Some("Youssef Adel Mansour".into()),
         package_name: Some(pkg.into()),
         balance_egp: Some(42.5),
         bundles: vec![Bundle {
