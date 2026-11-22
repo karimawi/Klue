@@ -17,7 +17,7 @@
 use std::{collections::BTreeMap, path::PathBuf, time::Instant};
 
 use klue_core::{
-    Carrier, LineType, Usage,
+    BundleState, Carrier, LineType, Usage,
     captcha::default_solver,
     carriers::{self, FetchContext},
     format,
@@ -85,6 +85,9 @@ fn report(u: &Usage) {
     println!("  package:    {}", or_dash(&u.package_name));
     println!("  subscribed: {}   renews: {}", date(u.subscribed_at), date(u.renews_at));
     println!("  balance:    {}", u.balance_egp.map(|b| format!("{} EGP", format::money(b))).unwrap_or_else(|| "—".into()));
+    if let Some(owed) = u.owed_egp {
+        println!("  owed:       {} EGP", format::money(owed));
+    }
     let info = &u.info;
     println!(
         "  line:       plan {} · {} · status {} · number {} · since {}",
@@ -97,7 +100,7 @@ fn report(u: &Usage) {
     println!("  buckets ({}), main first:", u.bundles.len());
     for (i, b) in u.ordered(None).into_iter().enumerate() {
         println!(
-            "    {} {:<44} {:>10} / {:<10} {:?} {:?}  key={}  ends {}",
+            "    {} {:<44} {:>10} / {:<10} {:?} {:?}  key={}  ends {}{}",
             if i == 0 { "*" } else { " " },
             b.name,
             format::amount(b.remaining, b.unit),
@@ -106,6 +109,10 @@ fn report(u: &Usage) {
             b.kind,
             b.key,
             date(b.expires_at),
+            match b.state {
+                BundleState::Active => String::new(),
+                state => format!("  {state:?}, settle by {}", date(b.settle_by)),
+            },
         );
     }
     match &u.payments {

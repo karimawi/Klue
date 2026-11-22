@@ -6,7 +6,7 @@ use iced::{
     font::Weight,
     widget::{button, column, container, scrollable},
 };
-use klue_core::{Carrier, format};
+use klue_core::{BundleState, Carrier, format};
 
 use super::{Ctx, El, hline, tile};
 use crate::{app::{App, Message}, assets::Icon, i18n, theme};
@@ -38,12 +38,28 @@ pub fn view(app: &App) -> El<'_> {
                 let days = (r - ctx.now).num_days().max(0);
                 if ctx.rtl() { format!("يتجدد خلال {days} يوم") } else { format!("Renews in {days}d") }
             });
-            let sub = [renews, Some(account.pretty_number())].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+            // A borrowed or frozen bundle (frozen first, main or not, as on the dashboard)
+            // matters more than the renewal date.
+            let state = account.usage.as_ref().and_then(|u| {
+                let b = u.bundles.iter().filter(|b| b.state != BundleState::Active).max_by_key(|b| b.state == BundleState::Frozen)?;
+                Some(match (b.state, b.settle_by) {
+                    (BundleState::Frozen, _) => s.frozen.to_string(),
+                    (_, Some(by)) => i18n::settle_by_short(by, ctx.lang),
+                    _ => s.borrowed.to_string(),
+                })
+            });
+            let frozen = main.is_some_and(|m| m.state == BundleState::Frozen);
+            let sub = [state.or(renews), Some(account.pretty_number())].into_iter().flatten().collect::<Vec<_>>().join(" · ");
             let text = column![ctx.semi(account.display_name(), 13.5), ctx.muted(sub, 11.5)].spacing(0).align_x(ctx.start()).width(Length::Fill);
             let right: El<'_> = match main {
                 Some(m) => column![
-                    ctx.num(format!("{} {}", format::amount(m.remaining, m.unit), i18n::unit_name(m.unit, ctx.lang)), 14.0, Weight::ExtraBold, if low { p.danger } else { p.tx }),
-                    super::bar(m.remaining_pct() / 100.0, 4.0, if low { p.danger } else { p.ac }, p.sf, None, ctx.rtl()),
+                    ctx.num(
+                        format!("{} {}", format::amount(m.remaining, m.unit), i18n::unit_name(m.unit, ctx.lang)),
+                        14.0,
+                        Weight::ExtraBold,
+                        if frozen { p.mu } else if low { p.danger } else { p.tx },
+                    ),
+                    super::bar(m.remaining_pct() / 100.0, 4.0, if frozen { p.dv } else if low { p.danger } else { p.ac }, p.sf, None, ctx.rtl()),
                 ]
                 .spacing(5)
                 .align_x(ctx.end())

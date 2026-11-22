@@ -4,7 +4,9 @@
 //! 1. open the OpenID Connect auth page and post the number/password to its login form;
 //! 2. Keycloak redirects to `/ar/KClogin?code=…`; trade the code for an access token;
 //! 3. read `usageConsumptionReport` (aggregated buckets: tariff, flex, data, ...);
-//! 4. best-effort extras: the rate plan's name and the payment history.
+//! 4. best-effort extras: the rate plan's name, a Flex bundle's borrowed/frozen state
+//!    (`pim/product`) and the payment history. A borrowed bundle's debt shows in the usage
+//!    report as a "Negative Balance" bucket.
 //!
 //! The access token is a JWT whose `userInfo` claim carries the line's profile (number,
 //! first and last name, prepaid/postpaid, status, rate plan code). Klue only reads it:
@@ -19,7 +21,7 @@ use wreq::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, LOCATION, ORIGIN, REFE
 
 use super::FetchContext;
 use crate::{
-    Bundle, BundleKind, FetchError, LineType, Unit, Usage,
+    Bundle, BundleKind, BundleState, FetchError, LineType, Unit, Usage,
     format::tidy_name,
     http, json as j,
     model::{LineInfo, Payment, PaymentKind, assign_keys, order_bundles},
@@ -113,8 +115,75 @@ pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Resu
         since: None,
     };
     let payer = profile.user_id.as_deref().unwrap_or(&msisdn);
+    // A Flex bundle can be borrowed or frozen; Vodafone's Flex page says which, until
+    // when, and the plan's current name.
+    if usage.bundles.iter().any(|b| b.kind == BundleKind::Flex)
+        && let Some(flex) = flex_status(&client, &access_token, payer, ctx).await
+    {
+        apply_flex_status(&mut usage, &flex);
+    }
     usage.payments = payment_history(&client, &access_token, payer, ctx).await;
     Ok(usage)
+}
+
+/// What Vodafone's Flex page says about the line's Flex bundle: the product flagged
+/// `isFlexTariff` in `pim/product?@type=FlexFaceLiftProfile`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct FlexStatus {
+    /// `None` for states Klue doesn't show ("grace": expired, waiting for renewal).
+    pub state: Option<BundleState>,
+    /// `AFBFreezeDate`: when a borrowed bundle freezes unless it's paid for.
+    pub settle_by: Option<DateTime<Utc>>,
+    /// The plan as the Flex page names it ("Flex 115"), more current than the content
+    /// API's record for its code ([`plan_name`] can still say "Flex 100").
+    pub plan: Option<String>,
+}
+
+async fn flex_status(client: &wreq::Client, access_token: &str, msisdn: &str, ctx: &FetchContext<'_>) -> Option<FlexStatus> {
+    let url = format!("{BASE}/services/dxl/pim/product?relatedParty.id={msisdn}&@type=FlexFaceLiftProfile");
+    let resp = dxl_get(client, &url, access_token, msisdn).send().await.ok()?;
+    let v = http::json_body(resp, "Vodafone flex status")
+        .await
+        .inspect_err(|e| tracing::info!("Vodafone flex status unavailable: {e}"))
+        .ok()?;
+    ctx.dump("vf-flex", &v);
+    parse_flex_status(&v)
+}
+
+pub(crate) fn parse_flex_status(v: &Value) -> Option<FlexStatus> {
+    let characteristic = |p: &Value, name: &str| {
+        p["characteristic"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|c| j::text(&c["name"]).is_some_and(|n| n.eq_ignore_ascii_case(name)))
+            .map(|c| c["value"].clone())
+    };
+    let tariff = v
+        .as_array()?
+        .iter()
+        .find(|p| characteristic(p, "isFlexTariff").and_then(|y| j::text(&y)).is_some_and(|y| y.eq_ignore_ascii_case("y")))?;
+    let state = j::text(&tariff["status"]).and_then(|s| {
+        if s.eq_ignore_ascii_case("active") { Some(BundleState::Active) } else { state_named(&s) }
+    });
+    let settle_by = characteristic(tariff, "AFBFreezeDate").and_then(|d| j::iso_datetime(&d).or_else(|| j::epoch_ms(&d)));
+    Some(FlexStatus { state, settle_by, plan: j::text(&tariff["productSpecification"]["name"]) })
+}
+
+/// The Flex page's word on the line's Flex bundle (the largest one, the plan's own) and
+/// plan wins over the usage report's; only a borrowed bundle keeps a settle-by date.
+pub(crate) fn apply_flex_status(usage: &mut Usage, flex: &FlexStatus) {
+    if let Some(plan) = &flex.plan {
+        usage.package_name = Some(plan.clone());
+        usage.info.plan = Some(plan.clone());
+    }
+    let Some(bundle) = usage.bundles.iter_mut().filter(|b| b.kind == BundleKind::Flex).max_by(|a, b| a.total.total_cmp(&b.total)) else {
+        return;
+    };
+    if let Some(state) = flex.state {
+        bundle.state = state;
+    }
+    bundle.settle_by = flex.settle_by.filter(|_| bundle.state == BundleState::Borrowed);
 }
 
 /// A DXL API request with the headers the web app sends.
@@ -320,6 +389,7 @@ pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, plan: Opti
         .as_array()
         .ok_or_else(|| FetchError::Unexpected("Vodafone's usage report isn't a list".into()))?;
     let mut balance_egp = None;
+    let mut owed_egp = 0.0;
     let mut tariff_name = None;
     let mut bundles = Vec::new();
 
@@ -339,6 +409,13 @@ pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, plan: Opti
             let balance = &bucket["bucketBalance"][0];
             let units = balance["remainingValue"]["units"].as_str().unwrap_or_default();
             let usage_type = bucket["usageType"].as_str().unwrap_or_default().to_ascii_lowercase();
+            // What the line owes, e.g. for a borrowed bundle: a balance below zero.
+            if usage_type == "negativebalance" {
+                if let Some(amount) = j::num(&balance["remainingValue"]["amount"]).filter(|a| *a < 0.0) {
+                    owed_egp -= amount * money_factor(units);
+                }
+                continue;
+            }
             if is_internal_counter(&kind_raw, &usage_type, units) {
                 continue;
             }
@@ -375,6 +452,8 @@ pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, plan: Opti
                 remaining: remaining * factor,
                 starts_at: j::iso_datetime(&valid["startDateTime"]),
                 expires_at: j::iso_datetime(&valid["endDateTime"]),
+                state: bucket_state(bucket),
+                settle_by: None,
             });
         }
     }
@@ -395,6 +474,7 @@ pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, plan: Opti
         owner_name,
         package_name,
         balance_egp,
+        owed_egp: (owed_egp > 0.0).then(|| (owed_egp * 100.0).round() / 100.0),
         subscribed_at: main.starts_at,
         renews_at,
         bundles,
@@ -412,6 +492,37 @@ fn is_internal_counter(kind_raw: &str, usage_type: &str, units: &str) -> bool {
     matches!(usage_type, "monetary" | "money")
         || (kind_raw == "others" && usage_type == "units")
         || matches!(units.as_str(), "PT" | "PTS" | "PIASTER" | "PIASTERS" | "PIASTRES" | "MONEY")
+}
+
+/// EGP per unit of a money amount: Vodafone counts in piastres ("PT") or pounds ("LE").
+fn money_factor(units: &str) -> f64 {
+    match units.trim().to_ascii_uppercase().as_str() {
+        "PT" | "PTS" | "PIASTER" | "PIASTERS" | "PIASTRES" => 0.01,
+        _ => 1.0,
+    }
+}
+
+/// A bundle Vodafone marks `"Status": "borrowed"` or `"frozen"`, on the bucket or as a
+/// characteristic of its product.
+fn bucket_state(bucket: &Value) -> BundleState {
+    let from_products = bucket["product"].as_array().into_iter().flatten().flat_map(|p| {
+        p["characteristics"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|c| j::text(&c["characteristicName"]).is_some_and(|n| n.eq_ignore_ascii_case("status")))
+            .filter_map(|c| j::text(&c["characteristicValue"]))
+    });
+    j::text(&bucket["Status"]).into_iter().chain(from_products).find_map(|s| state_named(&s)).unwrap_or_default()
+}
+
+/// Vodafone's names for a Flex bundle's state; `None` for ones Klue treats as usable.
+fn state_named(status: &str) -> Option<BundleState> {
+    match status.trim().to_ascii_lowercase().as_str() {
+        "borrowed" => Some(BundleState::Borrowed),
+        "frozen" => Some(BundleState::Frozen),
+        _ => None,
+    }
 }
 
 /// `Grace_Flex` buckets (units `DataFlexes` / `VoiceFlexes`) count the flexes used on
@@ -517,6 +628,8 @@ mod tests {
         assert_eq!(usage.balance_egp, Some(12.5));
         // Not a Flex line: the package is the subscribed bundle, not the tariff.
         assert_eq!(usage.package_name.as_deref(), Some("New Plus Bundle 98 LE - 4750Mega"));
+        assert_eq!(usage.owed_egp, None);
+        assert!(usage.bundles.iter().all(|b| b.state == BundleState::Active));
         let main = usage.main().unwrap();
         assert_eq!(main.name, "New Plus Bundle 98 LE - 4750Mega");
         assert_eq!((main.unit, main.remaining, main.total), (Unit::Mb, 992.0, 4748.0));
@@ -539,6 +652,10 @@ mod tests {
         let rows: Vec<_> = usage.bundles.iter().map(|b| (b.name.as_str(), b.unit, b.remaining, b.total)).collect();
         assert_eq!(rows, [("AFB Freeze Quota", Unit::Flex, 4200.0, 5000.0), ("Fakka 19 LE", Unit::Units, 120.0, 425.0)]);
         assert_eq!(usage.main().unwrap().kind, BundleKind::Flex);
+        // Frozen per the bucket's Status; the debt is the "Negative Balance" bucket, in piastres.
+        assert_eq!(usage.main().unwrap().state, BundleState::Frozen);
+        assert_eq!(usage.bundles[1].state, BundleState::Active);
+        assert_eq!(usage.owed_egp, Some(104.5));
         assert_eq!(usage.renews_at.unwrap().to_rfc3339(), "2026-12-17T00:00:00+00:00");
 
         // Without the plan's name, the flex bucket's.
@@ -551,6 +668,41 @@ mod tests {
         let usage = parse_usage(&grace, None, None, Utc::now()).unwrap();
         let g = usage.bundles.iter().find(|b| b.name == "Grace Flex").unwrap();
         assert_eq!((g.unit, g.remaining, g.total), (Unit::Flex, 50.0, 750.0));
+    }
+
+    #[test]
+    fn reads_the_flex_page_status() {
+        let frozen = fixture("vf_flex_profile_frozen.json");
+        let status = parse_flex_status(&frozen).unwrap();
+        assert_eq!(status, FlexStatus { state: Some(BundleState::Frozen), settle_by: None, plan: Some("Flex 115".into()) });
+
+        // Borrowed: usable until AFBFreezeDate. (The tariff is the product flagged isFlexTariff.)
+        let mut borrowed = frozen.clone();
+        let tariff = borrowed.as_array_mut().unwrap().iter_mut().find(|p| p["id"] == "Flex_2024_631").unwrap();
+        tariff["status"] = json!("Borrowed");
+        tariff["characteristic"].as_array_mut().unwrap().push(json!({"name": "AFBFreezeDate", "value": "2026-12-10T00:00:00.000+0000"}));
+        let status = parse_flex_status(&borrowed).unwrap();
+        assert_eq!(status.state, Some(BundleState::Borrowed));
+        assert_eq!(status.settle_by.unwrap().to_rfc3339(), "2026-12-10T00:00:00+00:00");
+
+        // It wins over the usage report and renames the plan; only a borrowed bundle keeps a date.
+        let report = fixture("vf_usage_flex_frozen.json");
+        let mut usage = parse_usage(&report, None, Some("Flex 100"), Utc::now()).unwrap();
+        apply_flex_status(&mut usage, &status);
+        let main = usage.main().unwrap();
+        assert_eq!((main.state, main.settle_by), (BundleState::Borrowed, status.settle_by));
+        assert_eq!((usage.package_name.as_deref(), usage.info.plan.as_deref()), (Some("Flex 115"), Some("Flex 115")));
+        assert_eq!(usage.bundles[1].state, BundleState::Active);
+
+        // "Grace" (expired) isn't a state Klue shows: the report's stays. "Active" clears it.
+        let mut usage = parse_usage(&report, None, None, Utc::now()).unwrap();
+        apply_flex_status(&mut usage, &FlexStatus { state: None, settle_by: status.settle_by, plan: None });
+        assert_eq!((usage.main().unwrap().state, usage.main().unwrap().settle_by), (BundleState::Frozen, None));
+        apply_flex_status(&mut usage, &FlexStatus { state: Some(BundleState::Active), ..Default::default() });
+        assert_eq!(usage.main().unwrap().state, BundleState::Active);
+        assert_eq!(usage.package_name.as_deref(), Some("AFB Freeze Quota"));
+
+        assert!(parse_flex_status(&json!({"code": "1001", "reason": "No Data Found"})).is_none());
     }
 
     #[test]

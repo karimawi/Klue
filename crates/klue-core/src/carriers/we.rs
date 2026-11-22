@@ -26,7 +26,7 @@ use wreq::header::{ACCEPT, ACCEPT_LANGUAGE, HeaderMap, HeaderName, HeaderValue, 
 
 use super::FetchContext;
 use crate::{
-    Bundle, BundleKind, FetchError, LineType, Unit, Usage,
+    Bundle, BundleKind, BundleState, FetchError, LineType, Unit, Usage,
     model::{LineInfo, Payment, PaymentKind, order_bundles},
     captcha::{clean_code, decode_data_uri},
     format::tidy_name,
@@ -526,6 +526,8 @@ pub(crate) fn parse_free_units(v: &Value) -> Vec<Bundle> {
             remaining: remaining * factor,
             starts_at: j::epoch_ms(&detail["effectiveTime"]),
             expires_at: j::epoch_ms(&detail["expireTime"]),
+            state: BundleState::Active,
+            settle_by: None,
         });
     }
     order_bundles(&mut out);
@@ -587,6 +589,7 @@ pub(crate) fn build_usage(
         owner_name,
         package_name: quota.map(|q| q.name.clone()).or(offering.name).or_else(|| Some(first.name.clone())),
         balance_egp,
+        owed_egp: None,
         subscribed_at: quota.and_then(|q| q.starts_at).or(offering.subscribed_at).or(first.starts_at),
         renews_at: quota.and_then(|q| q.expires_at).or(offering.renews_at).or(first.expires_at),
         bundles,

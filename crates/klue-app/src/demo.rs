@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Local, TimeZone, Utc};
 use klue_core::{
-    Bundle, BundleKind, Carrier, FetchError, LineType, Unit, Usage,
+    Bundle, BundleKind, BundleState, Carrier, FetchError, LineType, Unit, Usage,
     model::{LineInfo, Payment, PaymentKind},
     store::{Account, AppData, BundleAlert, LeadUnit, RenewalReminder, ThresholdMode},
 };
@@ -33,6 +33,8 @@ struct Line {
     remind: (u32, LeadUnit),
     bundles: Vec<B>,
     balance: f64,
+    /// The Flex bundle was renewed on credit: settle-by (month, day) and what's owed.
+    borrowed: Option<((u32, u32), f64)>,
     plan: &'static str,
     since: (i32, u32, u32),
     /// (month, day, amount, method, balance after)
@@ -55,6 +57,8 @@ fn build(l: Line) -> Account {
             remaining: *rem,
             starts_at: Some(sub),
             expires_at: Some(renew),
+            state: if l.borrowed.is_some() && *kind == BundleKind::Flex { BundleState::Borrowed } else { BundleState::Active },
+            settle_by: l.borrowed.filter(|_| *kind == BundleKind::Flex).map(|((m, d), _)| at(m, d)),
         })
         .collect();
     for (bundle, B(.., alert)) in bundles.iter().zip(&l.bundles) {
@@ -70,6 +74,7 @@ fn build(l: Line) -> Account {
         owner_name: Some(l.owner.into()),
         package_name: Some(l.pkg.into()),
         balance_egp: Some(l.balance),
+        owed_egp: l.borrowed.map(|(_, owed)| owed),
         bundles,
         subscribed_at: Some(sub),
         renews_at: Some(renew),
@@ -107,14 +112,14 @@ pub fn data() -> AppData {
             carrier: Carrier::We, line: LineType::Landline, number: "0223584417", owner: mo, nick: Some("Home internet"),
             pkg: "Super 140", sub: (11, 5), renew: (12, 5), remind: (2, LeadUnit::Days),
             bundles: vec![B(K::Data, "Home internet", 140.0, 62.4, U::Gb, Some(10.0)), B(K::Addon, "Extra 25 GB", 25.0, 18.5, U::Gb, None)],
-            balance: 214.35, plan: "WE IOE VDSL Primary Prepaid", since: (2016, 3, 8),
+            balance: 214.35, borrowed: None, plan: "WE IOE VDSL Primary Prepaid", since: (2016, 3, 8),
             payments: vec![(11, 4, 410.0, "Cash", Some(624.35)), (10, 5, 410.0, "Voucher", Some(418.2)), (9, 5, 400.0, "Cash", Some(407.95))],
         },
         Line {
             carrier: Carrier::We, line: LineType::Landline, number: "0348712290", owner: mo, nick: None,
             pkg: "Super 25", sub: (11, 12), renew: (12, 12), remind: (12, LeadUnit::Hours),
             bundles: vec![B(K::Data, "Home internet", 25.0, 3.1, U::Gb, Some(5.0)), B(K::Minutes, "All-network minutes", 1000.0, 610.0, U::Minutes, Some(100.0))],
-            balance: 12.4, plan: "WE IOE ADSL Primary Prepaid", since: (2019, 3, 2),
+            balance: 12.4, borrowed: None, plan: "WE IOE ADSL Primary Prepaid", since: (2019, 3, 2),
             payments: vec![(11, 11, 165.0, "EVC", Some(177.4))],
         },
         Line {
@@ -125,15 +130,15 @@ pub fn data() -> AppData {
                 B(K::Addon, "MI Minutes Conversion Optin", 500.0, 240.0, U::Mb, None),
                 B(K::Minutes, "All-network minutes", 1500.0, 1020.0, U::Minutes, Some(150.0)),
             ],
-            balance: 23.75, plan: "Worry Free 14 PT", since: (2021, 6, 1),
+            balance: 23.75, borrowed: None, plan: "Worry Free 14 PT", since: (2021, 6, 1),
             payments: vec![(11, 9, 120.0, "Card •••• 4242", None), (10, 24, 135.0, "Card •••• 4242", None), (10, 3, 120.0, "Card •••• 1881", None), (9, 12, 100.0, "Topup via fawry", None)],
         },
         Line {
             carrier: Carrier::Vodafone, line: LineType::Mobile, number: "01099214470", owner: "Samia Ibrahim Fahmy", nick: Some("Mom"),
             pkg: "Flex 70", sub: (11, 1), renew: (12, 1), remind: (1, LeadUnit::Days),
             bundles: vec![B(K::Flex, "Flex 70", 2000.0, 1200.0, U::Flex, Some(200.0)), B(K::Data, "Mobile data", 12288.0, 6963.0, U::Mb, Some(1024.0))],
-            balance: 37.25, plan: "Flex", since: (2016, 2, 14),
-            payments: vec![(11, 1, 70.0, "Topup via fawry", None)],
+            balance: 0.0, borrowed: Some(((11, 26), 79.8)), plan: "Flex 70", since: (2016, 2, 14),
+            payments: vec![(10, 2, 80.0, "Topup via fawry", None)],
         },
     ];
     AppData { accounts: lines.into_iter().map(build).collect(), ..AppData::default() }
@@ -154,6 +159,7 @@ pub async fn verify(carrier: Carrier, number: &str, password: &str) -> Result<Us
         owner_name: Some("Youssef Adel Mansour".into()),
         package_name: Some(pkg.into()),
         balance_egp: Some(42.5),
+        owed_egp: None,
         bundles: vec![Bundle {
             key: format!("demo-{number}"),
             kind,
@@ -163,6 +169,8 @@ pub async fn verify(carrier: Carrier, number: &str, password: &str) -> Result<Us
             remaining: rem,
             starts_at: Some(sub),
             expires_at: Some(renew),
+            state: BundleState::Active,
+            settle_by: None,
         }],
         subscribed_at: Some(sub),
         renews_at: Some(renew),

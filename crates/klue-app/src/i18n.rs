@@ -2,7 +2,7 @@
 //! the mockup doesn't cover (coming soon, captcha, sync errors).
 
 use chrono::{DateTime, Datelike, Local, Utc};
-use klue_core::{BundleKind, Carrier, FetchError, LineType, Unit, store::Lang};
+use klue_core::{BundleKind, BundleState, Carrier, FetchError, LineType, Unit, format, store::Lang};
 
 pub struct Strings {
     pub app: &'static str,
@@ -120,6 +120,10 @@ pub struct Strings {
     pub main_default: &'static str,
     pub main_picked: &'static str,
     pub egp: &'static str,
+    /// Bundle states (see [`state_name`]) and the note under an owed amount.
+    pub borrowed: &'static str,
+    pub frozen: &'static str,
+    pub owed_note: &'static str,
 }
 
 pub static EN: Strings = Strings {
@@ -170,6 +174,9 @@ pub static EN: Strings = Strings {
     main_default: "Use the default",
     main_picked: "Picked by you",
     egp: "EGP",
+    borrowed: "Borrowed",
+    frozen: "Frozen",
+    owed_note: "Your next recharge pays it first.",
 };
 
 pub static AR: Strings = Strings {
@@ -221,6 +228,9 @@ pub static AR: Strings = Strings {
     main_default: "الافتراضي",
     main_picked: "اخترتها أنت",
     egp: "جنيه",
+    borrowed: "مستلفة",
+    frozen: "موقوفة",
+    owed_note: "يُخصم أولًا من الشحنة القادمة.",
 };
 
 pub fn strings(lang: Lang) -> &'static Strings {
@@ -358,6 +368,72 @@ const MONTHS_AR: [&str; 12] = ["يناير", "فبراير", "مارس", "أبر
 const DAYS_EN: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DAYS_AR: [&str; 7] = ["الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"];
 
+/// "Borrowed" / "Frozen" for a bundle that isn't simply usable.
+pub fn state_name(state: BundleState, lang: Lang) -> Option<&'static str> {
+    let s = strings(lang);
+    match state {
+        BundleState::Active => None,
+        BundleState::Borrowed => Some(s.borrowed),
+        BundleState::Frozen => Some(s.frozen),
+    }
+}
+
+/// "104.50 EGP owed" / "عليك 104.50 جنيه", under the balance.
+pub fn owed(amount: f64, lang: Lang) -> String {
+    let m = format::money(amount);
+    match lang {
+        Lang::En => format!("{m} EGP owed"),
+        Lang::Ar => format!("عليك {m} جنيه"),
+    }
+}
+
+/// "Settle by 10 Dec" / "سدد قبل 10 ديسمبر", for the tray.
+pub fn settle_by_short(dt: DateTime<Utc>, lang: Lang) -> String {
+    let d = dt.with_timezone(&Local);
+    let m = d.month0() as usize;
+    match lang {
+        Lang::En => format!("Settle by {} {}", d.day(), &MONTHS_EN[m][..3]),
+        Lang::Ar => format!("سدد قبل {} {}", d.day(), MONTHS_AR[m]),
+    }
+}
+
+/// Title and text of the notice about a borrowed or frozen bundle, in Vodafone's words.
+/// `what` names it: the package, or the bundle's own name when it isn't the main one.
+pub fn state_notice(
+    state: BundleState,
+    carrier: Carrier,
+    what: &str,
+    owed: Option<f64>,
+    settle_by: Option<DateTime<Utc>>,
+    lang: Lang,
+) -> Option<(String, String)> {
+    let ar = is_ar(lang);
+    let name = carrier_name(carrier, lang);
+    let pay = match (owed.map(format::money), ar) {
+        (Some(a), false) => format!("Settle {a} EGP"),
+        (Some(a), true) => format!("سدد {a} جنيه"),
+        (None, false) => "Settle it".to_string(),
+        (None, true) => "سدد قيمتها".to_string(),
+    };
+    match (state, ar) {
+        (BundleState::Active, _) => None,
+        (BundleState::Borrowed, false) => {
+            let by = settle_by.map(|d| format!(" by {}", date_long(d, lang))).unwrap_or_default();
+            Some((format!("{what} is borrowed"), format!("{name} renewed it on credit. {pay}{by}, or it will be frozen.")))
+        }
+        (BundleState::Borrowed, true) => {
+            let by = settle_by.map(|d| format!(" قبل {}", date_long(d, lang))).unwrap_or_default();
+            Some((format!("باقة {what} مستلفة"), format!("جددتها {name} بالسلف. {pay}{by} لتجنب إيقاف الباقة.")))
+        }
+        (BundleState::Frozen, false) => {
+            Some((format!("{what} is frozen"), format!("It was renewed on credit and not paid for in time. {pay} to use it again.")))
+        }
+        (BundleState::Frozen, true) => {
+            Some((format!("باقة {what} موقوفة"), format!("جُددت بالسلف ولم تُسدَّد قيمتها في موعدها. {pay} لتستخدمها مرة أخرى.")))
+        }
+    }
+}
+
 /// "Tue, 8 December 2026" / "الثلاثاء، 8 ديسمبر 2026".
 pub fn date_long(dt: DateTime<Utc>, lang: Lang) -> String {
     let d = dt.with_timezone(&Local);
@@ -494,5 +570,31 @@ mod tests {
         let until = Utc.with_ymd_and_hms(2026, 12, 8, 0, 0, 0).unwrap();
         assert_eq!(countdown(until, now, Lang::En), "in 16 days, 14 hrs");
         assert_eq!(countdown(until, now, Lang::Ar), "بعد 16 يوم و14 ساعة");
+    }
+
+    #[test]
+    fn borrowed_and_frozen_notices() {
+        let by = Local.with_ymd_and_hms(2026, 12, 8, 12, 0, 0).unwrap().with_timezone(&Utc);
+        let notice = |state, owed, settle_by, lang| state_notice(state, Carrier::Vodafone, "Flex 115", owed, settle_by, lang).unwrap();
+        assert_eq!(
+            notice(BundleState::Borrowed, Some(104.5), Some(by), Lang::En),
+            ("Flex 115 is borrowed".into(), "Vodafone renewed it on credit. Settle 104.50 EGP by Tue, 8 December 2026, or it will be frozen.".into())
+        );
+        assert_eq!(notice(BundleState::Borrowed, None, None, Lang::En).1, "Vodafone renewed it on credit. Settle it, or it will be frozen.");
+        assert_eq!(
+            notice(BundleState::Borrowed, Some(104.5), Some(by), Lang::Ar),
+            ("باقة Flex 115 مستلفة".into(), "جددتها فودافون بالسلف. سدد 104.50 جنيه قبل الثلاثاء، 8 ديسمبر 2026 لتجنب إيقاف الباقة.".into())
+        );
+        assert_eq!(
+            notice(BundleState::Frozen, Some(104.5), None, Lang::En),
+            ("Flex 115 is frozen".into(), "It was renewed on credit and not paid for in time. Settle 104.50 EGP to use it again.".into())
+        );
+        assert_eq!(notice(BundleState::Frozen, None, None, Lang::Ar).1, "جُددت بالسلف ولم تُسدَّد قيمتها في موعدها. سدد قيمتها لتستخدمها مرة أخرى.");
+        assert!(state_notice(BundleState::Active, Carrier::Vodafone, "x", None, None, Lang::En).is_none());
+
+        assert_eq!((owed(1685.5, Lang::En), owed(79.8, Lang::Ar)), ("1,685.50 EGP owed".into(), "عليك 79.80 جنيه".into()));
+        assert_eq!((settle_by_short(by, Lang::En), settle_by_short(by, Lang::Ar)), ("Settle by 8 Dec".into(), "سدد قبل 8 ديسمبر".into()));
+        assert_eq!(state_name(BundleState::Frozen, Lang::Ar), Some("موقوفة"));
+        assert_eq!(state_name(BundleState::Active, Lang::En), None);
     }
 }

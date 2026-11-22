@@ -499,6 +499,8 @@ mod tests {
             remaining,
             starts_at: None,
             expires_at: None,
+            state: Default::default(),
+            settle_by: None,
         }
     }
 

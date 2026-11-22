@@ -14,4 +14,4 @@ pub mod model;
 pub mod store;
 
 pub use error::FetchError;
-pub use model::{Bundle, BundleKind, Carrier, LineType, Unit, Usage};
+pub use model::{Bundle, BundleKind, BundleState, Carrier, LineType, Unit, Usage};

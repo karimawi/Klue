@@ -15,6 +15,7 @@ A desktop app that puts the quota, package and renewal date of all your Egyptian
 
 - One tab per number, grouped by carrier. Each number shows its registered owner, an optional nickname, the package, what's left in each bucket in the bucket's own unit (GB, MB, minutes, units), the subscription date and the next renewal.
 - The balance in EGP, the line's plan, payment type and status, and the payment history (WE recharges and Vodafone payments).
+- A Vodafone Flex bundle renewed on credit is marked borrowed, with the date to pay by before Vodafone freezes it, or frozen once it has; what the line owes shows under the balance.
 - The main quota is the largest bucket that isn't empty. Any other bucket can be made the main one with its star.
 - Quota alerts at X GB or X% left, per bundle, and a renewal reminder X days or hours before renewal. Both arrive as desktop notifications.
 - Adding a number signs in with the carrier's own password, checks it, and fills in the owner name from the account.

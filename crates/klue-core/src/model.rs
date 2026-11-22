@@ -76,6 +76,20 @@ pub enum BundleKind {
     Other,
 }
 
+/// Whether a bundle can be used right now. Vodafone lets a Flex bundle renew on credit
+/// (a "borrowed" bundle): it works until a settle-by date, then it's frozen until it's
+/// paid for. The next recharge pays it first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BundleState {
+    #[default]
+    Active,
+    /// Renewed on credit and usable until [`Bundle::settle_by`].
+    Borrowed,
+    /// Renewed on credit and not paid for in time: unusable until it is.
+    Frozen,
+}
+
 /// One quota bucket: the main internet quota, an add-on, minutes, flexes...
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Bundle {
@@ -91,6 +105,11 @@ pub struct Bundle {
     pub starts_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub expires_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub state: BundleState,
+    /// For a borrowed bundle: when it freezes unless it's paid for.
+    #[serde(default)]
+    pub settle_by: Option<DateTime<Utc>>,
 }
 
 impl Bundle {
@@ -172,6 +191,10 @@ pub struct Usage {
     pub package_name: Option<String>,
     #[serde(default)]
     pub balance_egp: Option<f64>,
+    /// Money the line owes the carrier, e.g. for a borrowed bundle; the next recharge pays
+    /// it first. `None` when nothing is owed.
+    #[serde(default)]
+    pub owed_egp: Option<f64>,
     /// In default display order (see [`Usage::ordered`]): the first is the main quota.
     pub bundles: Vec<Bundle>,
     pub subscribed_at: Option<DateTime<Utc>>,
@@ -260,7 +283,7 @@ mod tests {
     }
 
     fn bundle(name: &str, unit: Unit, total: f64, remaining: f64) -> Bundle {
-        Bundle { key: slug(name), kind: BundleKind::Other, name: name.into(), unit, total, remaining, starts_at: None, expires_at: None }
+        Bundle { key: slug(name), kind: BundleKind::Other, name: name.into(), unit, total, remaining, starts_at: None, expires_at: None, state: BundleState::Active, settle_by: None }
     }
 
     #[test]
@@ -287,6 +310,7 @@ mod tests {
             owner_name: None,
             package_name: None,
             balance_egp: None,
+            owed_egp: None,
             bundles: vec![bundle("data", Unit::Mb, 4748.0, 992.0), bundle("minutes", Unit::Minutes, 500.0, 120.0)],
             subscribed_at: None,
             renews_at: None,
@@ -312,6 +336,8 @@ mod tests {
             remaining: 1.0,
             starts_at: None,
             expires_at: None,
+            state: BundleState::Active,
+            settle_by: None,
         };
         let mut v = vec![b("Extra 25 GB"), b("Extra 25 GB"), b("سوشيال")];
         assign_keys(&mut v);

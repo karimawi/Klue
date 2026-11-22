@@ -2,12 +2,12 @@
 //! bundles (any of which can be made the main quota) and the payment history.
 
 use iced::{
-    Alignment, Length,
+    Alignment, Color, Length,
     font::Weight,
     widget::{Space, column, container, scrollable, stack},
 };
 use klue_core::{
-    Bundle, Unit, Usage, format,
+    Bundle, BundleState, Unit, Usage, format,
     model::PaymentKind,
     store::{Account, BundleAlert, Lang, LeadUnit, ThresholdMode},
 };
@@ -27,7 +27,12 @@ pub fn view<'a>(ctx: &Ctx<'a>, account: &'a Account) -> El<'a> {
 
     let mut page = column![header(ctx, account, refreshing), hline(p.dv, 2.0)].spacing(0);
     if let Some(error) = &account.last_error {
-        page = page.push(gap(16.0)).push(notice(ctx, i18n::error_title(error, ctx.lang), i18n::error_text(error, account.carrier, ctx.lang)));
+        page = page.push(gap(16.0)).push(notice(ctx, Icon::Warning, ctx.p.danger, i18n::error_title(error, ctx.lang), i18n::error_text(error, account.carrier, ctx.lang)));
+    }
+    if let Some(usage) = &account.usage
+        && let Some(state) = state_notice(ctx, account, usage)
+    {
+        page = page.push(gap(16.0)).push(state);
     }
     match &account.usage {
         Some(usage) => {
@@ -82,13 +87,37 @@ fn header<'a>(ctx: &Ctx<'a>, account: &'a Account, refreshing: bool) -> El<'a> {
         .into()
 }
 
-fn notice<'a>(ctx: &Ctx<'a>, title: &'a str, body: String) -> El<'a> {
-    let p = ctx.p;
+fn notice<'a>(ctx: &Ctx<'a>, icon: Icon, color: Color, title: impl iced::widget::text::IntoFragment<'a>, body: String) -> El<'a> {
     let text = column![ctx.bold(title, 14.0), ctx.body(body, 13.0)].spacing(2).align_x(ctx.start()).width(Length::Fill);
-    container(ctx.row(vec![ctx.icon(Icon::Warning, 18.0, p.danger), text.into()]).spacing(12).align_y(Alignment::Start))
+    container(ctx.row(vec![ctx.icon(icon, 18.0, color), text.into()]).spacing(12).align_y(Alignment::Start))
         .padding([12, 14])
-        .style(move |_| theme::fill(theme::fade(p.danger, 0.12), 10.0))
+        .style(move |_| theme::fill(theme::fade(color, 0.12), 10.0))
         .into()
+}
+
+/// A borrowed or frozen bundle (frozen first): what happened and what to pay.
+fn state_notice<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> Option<El<'a>> {
+    let bundle = usage.bundles.iter().filter(|b| b.state != BundleState::Active).max_by_key(|b| b.state == BundleState::Frozen)?;
+    let is_main = usage.main_for(account.main_bundle.as_deref()).is_some_and(|m| m.key == bundle.key);
+    let what = usage.package_name.clone().filter(|_| is_main).unwrap_or_else(|| bundle.name.clone());
+    let (title, body) = i18n::state_notice(bundle.state, account.carrier, &what, usage.owed_egp, bundle.settle_by, ctx.lang)?;
+    Some(notice(ctx, Icon::Clock, state_color(ctx, bundle.state), title, body))
+}
+
+/// Frozen bundles read like errors; borrowed ones in the accent.
+fn state_color(ctx: &Ctx<'_>, state: BundleState) -> Color {
+    match state {
+        BundleState::Frozen => ctx.p.danger,
+        BundleState::Borrowed => ctx.p.ac_tx,
+        BundleState::Active => ctx.p.tx,
+    }
+}
+
+/// "Borrowed" / "Frozen" as a tinted label, next to the package or under a bundle.
+fn state_pill<'a>(ctx: &Ctx<'a>, state: BundleState) -> Option<El<'a>> {
+    let label = i18n::state_name(state, ctx.lang)?;
+    let color = state_color(ctx, state);
+    Some(container(ctx.text(label, 11.0, Weight::Semibold, color)).padding([3, 10]).style(move |_| theme::fill(theme::fade(color, 0.14), 10.0)).into())
 }
 
 /// "10 GB" or "20%" for a bundle alert.
@@ -111,10 +140,11 @@ fn overview<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a>
     let mut quota = column![].spacing(0);
     let mut quota_foot: El<'a> = Space::new().into();
     let mut top = vec![ctx.caps(s.package).into(), super::fill_x()];
+    top.extend(main.and_then(|m| state_pill(ctx, m.state)));
     if account.main_alert_triggered() {
         top.push(container(ctx.text(s.below_alert, 11.0, Weight::Semibold, p.on)).padding([3, 10]).style(move |_| theme::fill(p.danger, 10.0)).into());
     }
-    quota = quota.push(ctx.row(top));
+    quota = quota.push(ctx.row(top).spacing(6));
     quota = quota.push(ctx.bold(package.clone(), 21.0));
     if let Some(m) = main {
         if m.name != package || picked {
@@ -130,11 +160,14 @@ fn overview<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a>
         let unit = i18n::unit_name(m.unit, ctx.lang);
         let pct = (m.remaining_pct() * 10.0).round() / 10.0;
         let low = alert.is_triggered(m);
+        // Frozen flexes can't be used: greyed out, as on Vodafone's own Flex page.
+        let frozen = m.state == BundleState::Frozen;
         let total = format::amount_short(m.total, m.unit);
         let used = format::amount(m.used(), m.unit);
         let mark = threshold_text(&alert, m.unit, ctx.lang);
 
-        let big = ctx.num(format::amount(m.remaining, m.unit), 88.0, Weight::ExtraBold, if low { p.danger } else { p.tx }).line_height(0.9);
+        let figure = if frozen { p.mu } else if low { p.danger } else { p.tx };
+        let big = ctx.num(format::amount(m.remaining, m.unit), 88.0, Weight::ExtraBold, figure).line_height(0.9);
         let label = column![
             ctx.bold(i18n::left_label(m.unit, ctx.lang), 16.0),
             ctx.muted(if ar { format!("من {total} {unit}") } else { format!("of {total} {unit}") }, 13.0)
@@ -146,7 +179,7 @@ fn overview<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a>
         quota = quota.push(gap(18.0)).push(ctx.row(vec![left.into(), super::fill_x(), right.into()]).align_y(Alignment::End));
 
         // Meter with the alert threshold marked.
-        let meter = ctx.meter(m.remaining_pct() / 100.0, 16.0, if low { p.danger } else { p.ac });
+        let meter = ctx.meter(m.remaining_pct() / 100.0, 16.0, if frozen { p.dv } else if low { p.danger } else { p.ac });
         let meter: El<'a> = if alert.enabled && m.total > 0.0 {
             let at = (alert.threshold(m) / m.total).clamp(0.0, 1.0);
             let before = ((at * 1000.0).round() as u16).max(1);
@@ -267,7 +300,11 @@ fn money_and_line<'a>(ctx: &Ctx<'a>, usage: &'a Usage) -> El<'a> {
             .into(),
         None => ctx.num("—", 34.0, Weight::ExtraBold, p.mu).into(),
     };
-    let balance = column![ctx.row(vec![ctx.icon(Icon::Wallet, 14.0, p.mu), ctx.caps(s.balance).into()]).spacing(6), figure].spacing(8).align_x(ctx.start());
+    let mut balance = column![ctx.row(vec![ctx.icon(Icon::Wallet, 14.0, p.mu), ctx.caps(s.balance).into()]).spacing(6), figure].spacing(8).align_x(ctx.start());
+    if let Some(owed) = usage.owed_egp.filter(|o| *o > 0.0) {
+        let owed = column![ctx.text(i18n::owed(owed, ctx.lang), 13.5, Weight::Semibold, p.danger), ctx.muted(s.owed_note, 12.0)];
+        balance = balance.push(owed.spacing(1).align_x(ctx.start()));
+    }
 
     let info = &usage.info;
     let mut pairs: Vec<(&str, String)> = Vec::new();
@@ -332,10 +369,24 @@ fn bundles<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a> 
         let low = alert.is_triggered(bundle);
         let pct = (bundle.remaining_pct() * 10.0).round() / 10.0;
         let alert_text = if alert.enabled { format!("≤ {}", threshold_text(&alert, bundle.unit, ctx.lang)) } else { s.off.to_string() };
-        let name = column![ctx.semi(bundle.name.clone(), 13.5), ctx.muted(i18n::kind_name(bundle.kind, ctx.lang), 11.5)].spacing(0).align_x(ctx.start());
+        let frozen = bundle.state == BundleState::Frozen;
+        let kind: El<'a> = match i18n::state_name(bundle.state, ctx.lang) {
+            Some(state) => ctx
+                .row(vec![
+                    ctx.muted(i18n::kind_name(bundle.kind, ctx.lang), 11.5).into(),
+                    ctx.muted("·", 11.5).into(),
+                    ctx.text(state, 11.5, Weight::Semibold, state_color(ctx, bundle.state)).into(),
+                ])
+                .spacing(4)
+                .into(),
+            None => ctx.muted(i18n::kind_name(bundle.kind, ctx.lang), 11.5).into(),
+        };
+        let name = column![ctx.semi(bundle.name.clone(), 13.5), kind].spacing(0).align_x(ctx.start());
         let left = ctx
             .row(vec![
-                container(super::bar(bundle.remaining_pct() / 100.0, 6.0, if low { p.danger } else { p.ac }, p.sf, None, ctx.rtl())).width(Length::Fill).into(),
+                container(super::bar(bundle.remaining_pct() / 100.0, 6.0, if frozen { p.dv } else if low { p.danger } else { p.ac }, p.sf, None, ctx.rtl()))
+                    .width(Length::Fill)
+                    .into(),
                 container(ctx.num(format!("{pct:.1}%"), 12.5, Weight::Normal, p.tx)).width(46).align_x(ctx.end()).into(),
             ])
             .spacing(10);
@@ -350,7 +401,7 @@ fn bundles<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a> 
         );
         let cells: Vec<El<'a>> = vec![
             container(name).width(cols[0]).align_x(ctx.start()).into(),
-            container(ctx.num(format!("{} {unit}", format::amount(bundle.remaining, bundle.unit)), 13.5, Weight::ExtraBold, if low { p.danger } else { p.tx }))
+            container(ctx.num(format!("{} {unit}", format::amount(bundle.remaining, bundle.unit)), 13.5, Weight::ExtraBold, if frozen { p.mu } else if low { p.danger } else { p.tx }))
                 .width(cols[1])
                 .align_x(ctx.start())
                 .into(),

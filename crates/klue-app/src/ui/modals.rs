@@ -77,7 +77,7 @@ pub enum Msg {
     AddShowPassword,
     AddNickname(String),
     AddSubmit,
-    AddResult(Result<Usage, FetchError>),
+    AddResult(Result<Box<Usage>, FetchError>),
 
     RenameInput(String),
     RenameUseOwner,
@@ -181,7 +181,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
                 }
                 f.phase = Phase::Verifying;
                 let (carrier, line, number, password) = (f.carrier, f.line, f.number.clone(), f.password.clone());
-                return Task::perform(async move { shared.verify(carrier, line, &number, &password).await }, |r| Message::Modal(Msg::AddResult(r)));
+                return Task::perform(async move { shared.verify(carrier, line, &number, &password).await }, |r| Message::Modal(Msg::AddResult(r.map(Box::new))));
             }
         },
         (Modal::Add(f), Msg::AddResult(result)) => {
@@ -192,7 +192,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
                 Err(_) => None,
             };
             f.phase = match result {
-                Ok(usage) => Phase::Verified(Box::new(usage)),
+                Ok(usage) => Phase::Verified(usage),
                 Err(e) => Phase::Error(e),
             };
             if let Some(id) = next {

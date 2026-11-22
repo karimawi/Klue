@@ -87,6 +87,7 @@ mod tests {
             owner_name: None,
             package_name: None,
             balance_egp: None,
+            owed_egp: None,
             bundles: vec![Bundle {
                 key: "mobile-data".into(),
                 kind: BundleKind::Data,
@@ -96,6 +97,8 @@ mod tests {
                 remaining,
                 starts_at: None,
                 expires_at: Some(now + renews_in),
+                state: Default::default(),
+                settle_by: None,
             }],
             subscribed_at: None,
             renews_at: Some(now + renews_in),
