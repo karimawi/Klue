@@ -16,20 +16,26 @@ A desktop app that puts the quota, package and renewal date of all your Egyptian
 - One tab per number, grouped by carrier; only carriers you have numbers with are listed. Each number shows its registered owner, an optional nickname, the package, what's left in each bucket in the bucket's own unit (GB, MB, minutes, units), the subscription date and the next renewal.
 - The balance in EGP, the line's plan, payment type and status, and the payment history (WE recharges and Vodafone payments).
 - A Vodafone Flex bundle renewed on credit is marked borrowed, with the date to pay by before Vodafone freezes it, or frozen once it has; what the line owes shows under the balance.
-- The main quota is the largest bucket that isn't empty. Any other bucket can be made the main one with its star.
-- Quota alerts at X GB or X% left, per bundle, and a renewal reminder X days or hours before renewal. Both arrive as desktop notifications.
+- The main quota is the largest bucket that isn't empty. The arrows on the quota card step through the number's other buckets, and any of them can be made the main one with its star.
+- WE lines show the package's speed (for example 30 Mbps down and 3 Mbps up) and the speed after the quota runs out, as WE's own site reports them.
+- Usage graphs. Klue keeps what each bucket had left at every refresh and draws it, over what was used per day or per hour, with today's usage, the averages and the day the quota runs out at that rate. Refreshes come whenever they come (the computer sleeps, Klue is closed), so usage between two refreshes is spread over the time between them, and the graph shows where that was a long wait; renewals, top-ups and one-off bad readings don't throw it off. Hovering a refresh's dot gives its exact minute. Until there are enough refreshes for a graph, the averages are estimates from the cycle so far.
+- Quota alerts at X GB or X% left, per bundle, and a renewal reminder X days or hours before renewal; Settings can set them for every number at once, and new numbers start with those. They arrive as desktop notifications with a sound (a warning tone for low quota, a softer one for the rest). Alerts that came due while Klue was closed or the computer slept arrive when it's back.
 - Adding a number signs in with the carrier's own password, checks it, and fills in the owner name from the account.
-- Light, Dark and Match themes. Match recolors the app with each carrier's brand colors.
+- Light, Dark and Match themes, in Settings. Match recolors the app with each carrier's brand colors.
 - English and Arabic, with a fully mirrored right-to-left layout. In Arabic, packages and plans carry the carrier's own Arabic names where it has them (WE's package names, Vodafone's plans and Flex); bundles the carriers only name in English stay in English. Fonts are DM Sans and Google Sans, bundled with the app.
 - A tray icon with a quick-view popup that closes when you click elsewhere. Closing the window leaves Klue in the tray and frees the window's memory. Optional launch at startup, minimized to the tray.
 - One Klue at a time: launching it again brings the running one forward.
+- Updates: on launch Klue looks for a newer release on GitHub and shows what's new. It can download and install it: the Windows and Linux builds replace their own program file and restart, and a macOS disk image or a Linux package opens in the system's installer. Only releases built from the `main` branch count.
+- On Windows, Klue adds itself to the Start menu (and to App Paths), so searching for it finds it, and its program file names Karim W. Almorsi as the publisher. Settings has an About section with the version and links.
+- A disclaimer to accept on first launch and after each update: carriers don't offer these APIs to apps like Klue, and using one is at your own risk.
 - Passwords live in the OS credential store (Windows Credential Manager, macOS Keychain or Secret Service), never in Klue's data file. Each is saved under the service `Klue` and the account `<carrier>:<number>` (for example `we:0223584417`), so any version of Klue finds it, and the list of your numbers is kept there too: an update or reinstall that starts with an empty data folder brings them back.
 
 | | |
 | --- | --- |
+| ![Usage per day, with a refresh's time](docs/screenshots/usage-days.png) | ![Usage per hour, dark theme](docs/screenshots/usage-hours-dark.png) |
 | ![Match theme, low quota](docs/screenshots/match-we-low-quota.png) | ![Dark theme, Vodafone](docs/screenshots/dark-vodafone.png) |
-| ![Balance, bundles and payments](docs/screenshots/vodafone-balance-payments.png) | ![Arabic](docs/screenshots/arabic-rtl.png) |
-| ![Add a number](docs/screenshots/add-number-verified.png) | ![Alerts](docs/screenshots/alerts.png) |
+| ![Bundles and payments](docs/screenshots/vodafone-bundles-payments.png) | ![Arabic](docs/screenshots/arabic-rtl.png) |
+| ![Add a number](docs/screenshots/add-number.png) | ![Alerts](docs/screenshots/alerts.png) |
 | ![Borrowed Flex bundle](docs/screenshots/vodafone-flex-borrowed.png) | <img src="docs/screenshots/tray-quick-view.png" alt="Tray quick view" width="240"> |
 
 ## Download
@@ -51,6 +57,7 @@ cargo run --release            # the app (binary: klue)
 cargo run -- --demo            # sample numbers from the mockups, nothing saved, no network
 cargo run -- --demo --quick-view   # start with the tray popup instead of the window
 cargo run -- --minimized       # start in the tray (what "Launch at startup" uses)
+cargo run -- --debug           # a console button in the title bar opens Klue's whole log
 cargo test -p klue-core --no-default-features
 ```
 
@@ -91,7 +98,9 @@ git tag v0.1.1 && git push origin v0.1.1
 
 or use **Actions → Release → Run workflow** and pick `dev` (the tag is then `v` plus the `Cargo.toml` version; untick *Publish* to only build). GitHub only shows that button once the workflow file is on the default branch (`main`).
 
-It builds `klue` on Windows, macOS (arm64 and x64) and Ubuntu 22.04, packages it with `packaging/package.sh` (zip, `.dmg` with `Klue.app`, `.deb` and `.tar.gz`) and attaches the files to a pre-release. If a build fails, the release stays a draft with that build's log attached.
+It builds `klue` on Windows, macOS (arm64 and x64) and Ubuntu 22.04, packages it with `packaging/package.sh` (zip, `.dmg` with `Klue.app`, `.deb` and `.tar.gz`) and attaches the files to a pre-release. If a build fails, the release stays a draft with that build's log attached. The version Klue reports (in About, and to the updater) is the tag's.
+
+Klue's updater only offers releases whose commit is on `main`: a release made from `dev` is skipped. The first release from `main` is the first one users are offered.
 
 ## Debugging the carrier parsers
 

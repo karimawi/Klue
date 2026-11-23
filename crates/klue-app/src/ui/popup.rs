@@ -55,7 +55,10 @@ pub fn view(app: &App) -> El<'_> {
             // A line too long for the row breaks after the "·", never inside the number.
             let number = account.pretty_number().replace(' ', "\u{a0}");
             let syncing = app.snap.is_refreshing(&account.id).then(|| s.syncing.to_string());
-            let sub = [syncing.or(state).or(renews), Some(number)].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+            // A borrowed or frozen bundle's note ("Settle by 28 Nov") is too long to share a
+            // line with the number, whatever the date: the number goes on a line of its own.
+            let joiner = if syncing.is_none() && state.is_some() { "\n" } else { " · " };
+            let sub = [syncing.or(state).or(renews), Some(number)].into_iter().flatten().collect::<Vec<_>>().join(joiner);
             let text = column![ctx.semi(account.display_name(), 13.5), ctx.muted(sub, 11.5)].spacing(0).align_x(ctx.start()).width(Length::Fill);
             let right: El<'_> = match main {
                 Some(m) => column![
