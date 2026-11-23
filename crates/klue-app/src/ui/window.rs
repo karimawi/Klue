@@ -42,6 +42,10 @@ pub fn view(app: &App) -> El<'_> {
     {
         layers.push(overlay(dialog, Message::UpdateLater));
     }
+    // Over everything, and only accepting or quitting closes it.
+    if app.disclaimer_due() {
+        layers.push(overlay(modals::disclaimer(&ctx), Message::Done));
+    }
     if let Some(ask) = &app.captcha {
         layers.push(overlay(modals::captcha(&ctx, ask), Message::CaptchaCancel));
     }

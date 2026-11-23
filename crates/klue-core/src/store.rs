@@ -80,6 +80,8 @@ pub struct Settings {
     pub alerts: AlertDefaults,
     /// A release the user chose to skip: not offered again on its own.
     pub skipped_update: Option<String>,
+    /// The version of Klue whose disclaimer was accepted; each new version asks again.
+    pub accepted_disclaimer: Option<String>,
 }
 
 impl Default for Settings {
@@ -92,6 +94,7 @@ impl Default for Settings {
             keep_in_tray: true,
             alerts: AlertDefaults::default(),
             skipped_update: None,
+            accepted_disclaimer: None,
         }
     }
 }

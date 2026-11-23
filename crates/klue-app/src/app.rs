@@ -99,6 +99,8 @@ pub enum Message {
     FocusPrevious,
     /// Escape closes the popup, the captcha prompt or the open dialog.
     Escape(window::Id),
+    /// The disclaimer: accept (and start), or quit.
+    AcceptDisclaimer,
     OpenUrl(&'static str),
     OpenUrlOwned(String),
     /// Look for a newer release; `manual` from About (shows a skipped one too).
@@ -231,6 +233,12 @@ impl App {
         self.snap.data.settings.lang
     }
 
+    /// Whether this version's disclaimer still has to be accepted (first launch, or the
+    /// first launch after an update). Until it is, Klue signs in nowhere.
+    pub fn disclaimer_due(&self) -> bool {
+        !self.shared.demo && self.snap.data.settings.accepted_disclaimer.as_deref() != Some(about::VERSION)
+    }
+
     /// The carrier the main window shows: the one picked while it has numbers, else the
     /// first that has any. `None` without any numbers. Carriers without numbers (and so
     /// the ones Klue can't sign in to yet) aren't listed at all.
@@ -296,8 +304,15 @@ impl App {
             Message::Init => {
                 self.tray = systray::create(self.lang());
                 let shared = self.shared.clone();
-                let refresh = Task::perform(async move { shared.refresh_due().await }, |_| Message::Done);
-                let window = if self.start_quick_view {
+                let refresh = if self.disclaimer_due() {
+                    Task::none()
+                } else {
+                    Task::perform(async move { shared.refresh_due().await }, |_| Message::Done)
+                };
+                // The disclaimer needs a window, even when starting in the tray.
+                let window = if self.disclaimer_due() {
+                    self.show_main(None)
+                } else if self.start_quick_view {
                     self.toggle_popup(None)
                 } else if self.start_minimized && self.tray.is_some() {
                     Task::none()
@@ -325,6 +340,9 @@ impl App {
             }
             Message::Tick => {
                 self.now = Utc::now();
+                if self.disclaimer_due() {
+                    return Task::none();
+                }
                 let alerts = self.shared.take_due_alerts(self.now);
                 notify::send(&alerts, self.lang());
                 let shared = self.shared.clone();
@@ -402,6 +420,7 @@ impl App {
                 self.shared.update(|d| d.settings.lang = lang);
                 Task::none()
             }
+            Message::Refresh(_) | Message::RefreshAll if self.disclaimer_due() => Task::none(),
             Message::Refresh(id) => {
                 let shared = self.shared.clone();
                 Task::perform(async move { shared.refresh(&id, true).await }, |_| Message::Done)
@@ -444,6 +463,7 @@ impl App {
             Message::Modal(msg) => ui::modals::update(self, msg),
             Message::FocusNext => operation::focus_next(),
             Message::FocusPrevious => operation::focus_previous(),
+            Message::Escape(_) if self.disclaimer_due() => Task::none(),
             Message::Escape(window) => {
                 if Some(window) == self.popup {
                     window::close(window)
@@ -453,6 +473,12 @@ impl App {
                     self.modal = Modal::None;
                     Task::none()
                 }
+            }
+            Message::AcceptDisclaimer => {
+                self.shared.update(|d| d.settings.accepted_disclaimer = Some(about::VERSION.to_string()));
+                self.snap = self.shared.snapshot();
+                let shared = self.shared.clone();
+                Task::perform(async move { shared.refresh_due().await }, |_| Message::Done)
             }
             Message::OpenUrl(url) => {
                 about::open_url(url);
@@ -682,6 +708,9 @@ impl App {
     fn toggle_popup(&mut self, anchor: Option<Anchor>) -> Task<Message> {
         if let Some(id) = self.popup {
             return window::close(id);
+        }
+        if self.disclaimer_due() {
+            return self.show_main(None);
         }
         // A click on the tray icon first takes focus from the popup, which closes it;
         // that click shouldn't reopen it.

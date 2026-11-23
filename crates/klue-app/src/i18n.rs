@@ -162,6 +162,16 @@ pub struct Strings {
     pub update_failed: &'static str,
     pub release_page: &'static str,
     pub update_notify_body: &'static str,
+    /// The disclaimer shown on first launch and after each update.
+    pub disc_kicker: &'static str,
+    pub disc_title: &'static str,
+    pub disc_passwords_title: &'static str,
+    pub disc_passwords: &'static str,
+    pub disc_unofficial_title: &'static str,
+    pub disc_unofficial: &'static str,
+    pub disc_risk_title: &'static str,
+    pub disc_risk: &'static str,
+    pub disc_accept: &'static str,
 }
 
 pub static EN: Strings = Strings {
@@ -249,6 +259,15 @@ pub static EN: Strings = Strings {
     update_failed: "The update couldn't be installed.",
     release_page: "Open the release page",
     update_notify_body: "Open Klue to install it.",
+    disc_kicker: "Before you start",
+    disc_title: "Please read and accept",
+    disc_passwords_title: "Your passwords stay on this device",
+    disc_passwords: "Klue keeps them in your system's credential store (Windows Credential Manager, the macOS Keychain, or the Secret Service on Linux) and sends them nowhere but to your carrier, when it signs in for you.",
+    disc_unofficial_title: "Klue isn't an official app",
+    disc_unofficial: "It talks to your carrier the way the carrier's own app and website do, through interfaces worked out from them (reverse engineered). Carriers don't seem to look for tools like this today, but they may make them harder to use in the future, or even warn or penalise accounts that use them.",
+    disc_risk_title: "Use it at your own risk",
+    disc_risk: "Karim W. Almorsi isn't responsible for anything your carrier does about accounts that use Klue.",
+    disc_accept: "I understand and accept",
 };
 
 pub static AR: Strings = Strings {
@@ -337,6 +356,15 @@ pub static AR: Strings = Strings {
     update_failed: "تعذّر تثبيت التحديث.",
     release_page: "فتح صفحة الإصدار",
     update_notify_body: "افتح Klue لتثبيته.",
+    disc_kicker: "قبل أن تبدأ",
+    disc_title: "يُرجى القراءة والموافقة",
+    disc_passwords_title: "تبقى كلمات المرور على هذا الجهاز",
+    disc_passwords: "يحفظها Klue في مخزن بيانات الاعتماد في نظامك (مدير بيانات الاعتماد في ويندوز، أو سلسلة المفاتيح في macOS، أو خدمة الأسرار في لينكس)، ولا يرسلها إلى أي جهة سوى شركة الاتصالات الخاصة بك عند تسجيل الدخول نيابةً عنك.",
+    disc_unofficial_title: "Klue ليس تطبيقاً رسمياً",
+    disc_unofficial: "يتواصل مع شركتك بالطريقة التي يتواصل بها تطبيقها وموقعها، عبر واجهات تم التوصل إليها بالهندسة العكسية. لا يبدو أن الشركات تتعقب مثل هذه الأدوات حالياً، لكنها قد تجعل استخدامها أصعب مستقبلاً، بل قد تُنذر الحسابات التي تستخدمها أو تعاقبها.",
+    disc_risk_title: "استخدمه على مسؤوليتك الخاصة",
+    disc_risk: "لا يتحمل Karim W. Almorsi أي مسؤولية عما قد تتخذه شركتك من إجراءات تجاه الحسابات التي تستخدم Klue.",
+    disc_accept: "أفهم ذلك وأوافق",
 };
 
 pub fn strings(lang: Lang) -> &'static Strings {

@@ -345,14 +345,17 @@ pub fn view<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
 // ---------------------------------------------------------------------------------------
 // Frame
 
-fn dialog<'a>(ctx: &Ctx<'a>, width: f32, kicker: String, title: String, close: Message, body: El<'a>, foot: El<'a>) -> El<'a> {
+fn dialog<'a>(ctx: &Ctx<'a>, width: f32, kicker: String, title: String, close: Option<Message>, body: El<'a>, foot: El<'a>) -> El<'a> {
     let p = ctx.p;
-    let close = button(container(ctx.icon(Icon::Close, 16.0, p.tx)).center(Length::Fill)).width(32).height(32).padding(0).style(theme::ghost(p.tx, p.sf, 9.0)).on_press(close);
+    let close = close.map(|close| {
+        Element::from(button(container(ctx.icon(Icon::Close, 16.0, p.tx)).center(Length::Fill)).width(32).height(32).padding(0).style(theme::ghost(p.tx, p.sf, 9.0)).on_press(close))
+    });
     let head = ctx
-        .row(vec![
-            container(column![ctx.kicker(&kicker), ctx.bold(title, 21.0)].spacing(2).align_x(ctx.start())).width(Length::Fill).align_x(ctx.start()).into(),
-            close.into(),
-        ])
+        .row(
+            std::iter::once(container(column![ctx.kicker(&kicker), ctx.bold(title, 21.0)].spacing(2).align_x(ctx.start())).width(Length::Fill).align_x(ctx.start()).into())
+                .chain(close)
+                .collect(),
+        )
         .align_y(Alignment::Start)
         .spacing(16);
     // The body scrolls within what the window leaves (the overlay's margins, the title
@@ -539,7 +542,7 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
         ctx.primary(primary, (!verifying && (verified || ready)).then_some(Message::Modal(Msg::AddSubmit))).width(150).into(),
     ])
     .spacing(8);
-    dialog(ctx, 520.0, s.new_number.to_string(), s.add_title.to_string(), Message::CloseModal, body.into(), foot.into())
+    dialog(ctx, 520.0, s.new_number.to_string(), s.add_title.to_string(), Some(Message::CloseModal), body.into(), foot.into())
 }
 
 // ---------------------------------------------------------------------------------------
@@ -598,7 +601,7 @@ fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::A
     ])
     .spacing(8);
     let kicker = format!("{} · {}", i18n::carrier_name(account.carrier, ctx.lang), account.pretty_number());
-    dialog(ctx, 520.0, kicker, s.rename_title.to_string(), Message::CloseModal, body.into(), foot.into())
+    dialog(ctx, 520.0, kicker, s.rename_title.to_string(), Some(Message::CloseModal), body.into(), foot.into())
 }
 
 // ---------------------------------------------------------------------------------------
@@ -714,7 +717,7 @@ fn alerts<'a>(ctx: &Ctx<'a>, f: &'a AlertsForm, account: &'a klue_core::store::A
     let body = column![quota, renewal, column![label(ctx, s.preview), gap(6.0), preview]].spacing(16);
     let foot = ctx.row(vec![super::fill_x(), ctx.outline(s.cancel, Some(Message::CloseModal)).into(), ctx.primary(s.save, Some(Message::Modal(Msg::AlertsSave))).into()]).spacing(8);
     let kicker = format!("{carrier_name} · {}", account.pretty_number());
-    dialog(ctx, 560.0, kicker, account.display_name(), Message::CloseModal, body.into(), foot.into())
+    dialog(ctx, 560.0, kicker, account.display_name(), Some(Message::CloseModal), body.into(), foot.into())
 }
 
 // ---------------------------------------------------------------------------------------
@@ -780,7 +783,7 @@ fn settings<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
     ]
     .spacing(16);
     let foot = ctx.row(vec![container(ctx.muted(s.disclaimer, 11.5)).width(Length::Fill).align_x(ctx.start()).into(), ctx.primary(s.done, Some(Message::CloseModal)).into()]).spacing(12);
-    dialog(ctx, 540.0, s.app.to_string(), s.settings_title.to_string(), Message::CloseModal, body.into(), foot.into())
+    dialog(ctx, 540.0, s.app.to_string(), s.settings_title.to_string(), Some(Message::CloseModal), body.into(), foot.into())
 }
 
 /// Alerts for all numbers: saved as they change (new numbers start with them), and given
@@ -867,6 +870,50 @@ fn about<'a>(ctx: &Ctx<'a>) -> El<'a> {
 }
 
 // ---------------------------------------------------------------------------------------
+// Disclaimer
+
+/// The disclaimer: accepted once per version of Klue, before it signs in anywhere.
+pub fn disclaimer<'a>(ctx: &Ctx<'a>) -> El<'a> {
+    let p = ctx.p;
+    let s = ctx.s;
+    let point = |icon: Icon, title: &'a str, text: &'a str| -> El<'a> {
+        ctx.row(vec![
+            container(ctx.icon(icon, 18.0, p.ac_tx)).padding(super::pad4(2.0, 0.0, 0.0, 0.0)).into(),
+            column![ctx.bold(title, 14.5), ctx.body(text, 13.0).line_height(1.45)].spacing(3).align_x(ctx.start()).width(Length::Fill).into(),
+        ])
+        .spacing(12)
+        .align_y(Alignment::Start)
+        .into()
+    };
+    let body = column![
+        point(Icon::Check, s.disc_passwords_title, s.disc_passwords),
+        point(Icon::Info, s.disc_unofficial_title, s.disc_unofficial),
+        point(Icon::Warning, s.disc_risk_title, s.disc_risk),
+    ]
+    .spacing(18);
+    // It comes before Settings can be reached, so it has its own language switch.
+    let lang = ctx.app.snap.data.settings.lang;
+    let langs = ctx.segmented(
+        vec![
+            ("English".to_string(), lang == Lang::En, Some(Message::SetLang(Lang::En))),
+            ("العربية".to_string(), lang == Lang::Ar, Some(Message::SetLang(Lang::Ar))),
+        ],
+        34.0,
+        13.0,
+    );
+    let foot = ctx.row(vec![
+        langs,
+        super::fill_x(),
+        ctx.outline(s.quit, Some(Message::Quit)).into(),
+        ctx.primary(s.disc_accept, Some(Message::AcceptDisclaimer)).into(),
+    ])
+    .spacing(8)
+    .align_y(Alignment::Center);
+    // No close button: Quit or accept.
+    dialog(ctx, 560.0, s.disc_kicker.to_string(), s.disc_title.to_string(), None, body.into(), foot.into())
+}
+
+// ---------------------------------------------------------------------------------------
 // Update
 
 /// The update dialog: what's new, and getting it.
@@ -905,7 +952,7 @@ pub fn update_dialog<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
         _ => ctx.primary(if installs_itself { s.update_install } else { s.update_download }, (!busy).then_some(Message::UpdateInstall)).into(),
     });
     let foot = ctx.row(foot).spacing(10).align_y(Alignment::Center);
-    Some(dialog(ctx, 560.0, s.update_kicker.to_string(), i18n::update_available(&version, ctx.lang), Message::UpdateLater, body.into(), foot.into()))
+    Some(dialog(ctx, 560.0, s.update_kicker.to_string(), i18n::update_available(&version, ctx.lang), Some(Message::UpdateLater), body.into(), foot.into()))
 }
 
 /// Release notes in Markdown, shown simply: headings in bold, list items with a bullet,
@@ -942,5 +989,5 @@ pub fn captcha<'a>(ctx: &Ctx<'a>, ask: &'a CaptchaAsk) -> El<'a> {
         .style(theme::field(p, false));
     let body = column![ctx.muted(s.captcha_body, 13.0), picture, input].spacing(14).align_x(ctx.start());
     let foot = ctx.row(vec![super::fill_x(), ctx.outline(s.cancel, Some(Message::CaptchaCancel)).into(), ctx.primary(s.continue_, (!ask.input.is_empty()).then_some(Message::CaptchaSubmit)).into()]).spacing(8);
-    dialog(ctx, 420.0, i18n::carrier_name(Carrier::We, ctx.lang).to_string(), s.captcha_title.to_string(), Message::CaptchaCancel, body.into(), foot.into())
+    dialog(ctx, 420.0, i18n::carrier_name(Carrier::We, ctx.lang).to_string(), s.captcha_title.to_string(), Some(Message::CaptchaCancel), body.into(), foot.into())
 }
