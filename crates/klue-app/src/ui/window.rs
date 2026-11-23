@@ -37,6 +37,11 @@ pub fn view(app: &App) -> El<'_> {
     if let Some(dialog) = modals::view(&ctx) {
         layers.push(overlay(dialog, Message::CloseModal));
     }
+    if app.update.dialog()
+        && let Some(dialog) = modals::update_dialog(&ctx)
+    {
+        layers.push(overlay(dialog, Message::UpdateLater));
+    }
     if let Some(ask) = &app.captcha {
         layers.push(overlay(modals::captcha(&ctx, ask), Message::CaptchaCancel));
     }

@@ -1,5 +1,6 @@
 //! One Klue at a time. The first instance listens on a local socket (a named pipe on
 //! Windows); a second launch connects to it, asks it to show its window, and exits.
+//! A Klue started by an update waits for the old one to quit instead ([`wait_until_gone`]).
 
 use std::{
     io::{BufRead, BufReader, Write},
@@ -51,7 +52,12 @@ pub fn claim(quick_view: bool) -> Start {
             for conn in listener.incoming().flatten() {
                 let mut line = String::new();
                 let _ = BufReader::new(conn).read_line(&mut line);
-                let request = if line.trim() == "quick-view" { Request::QuickView } else { Request::Show };
+                let request = match line.trim() {
+                    "quick-view" => Request::QuickView,
+                    // Someone checking whether this Klue is still running.
+                    "ping" => continue,
+                    _ => Request::Show,
+                };
                 if tx.send(request).is_err() {
                     break;
                 }
@@ -59,6 +65,24 @@ pub fn claim(quick_view: bool) -> Start {
         })
         .ok();
     Start::First
+}
+
+/// Wait (up to `timeout`) until no other Klue answers on the socket: the one an update
+/// replaced, which is quitting. Returns whether it has gone.
+pub fn wait_until_gone(timeout: std::time::Duration) -> bool {
+    let Ok(name) = NAME.to_ns_name::<GenericNamespaced>() else { return true };
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        match LocalStream::connect(name.clone()) {
+            Ok(mut stream) => {
+                let _ = stream.write_all(b"ping\n");
+                drop(stream);
+                std::thread::sleep(std::time::Duration::from_millis(250));
+            }
+            Err(_) => return true,
+        }
+    }
+    false
 }
 
 /// Requests from later launches.

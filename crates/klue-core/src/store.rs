@@ -78,6 +78,8 @@ pub struct Settings {
     pub keep_in_tray: bool,
     /// Alert settings for every number at once; new numbers start with them.
     pub alerts: AlertDefaults,
+    /// A release the user chose to skip: not offered again on its own.
+    pub skipped_update: Option<String>,
 }
 
 impl Default for Settings {
@@ -89,6 +91,7 @@ impl Default for Settings {
             launch_at_startup: false,
             keep_in_tray: true,
             alerts: AlertDefaults::default(),
+            skipped_update: None,
         }
     }
 }

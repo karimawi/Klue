@@ -21,6 +21,19 @@ pub(crate) fn browser_client() -> Result<wreq::Client, FetchError> {
     builder.build().map_err(|e| FetchError::Network(e.to_string()))
 }
 
+/// A client for plain HTTPS (GitHub's API and downloads): follows redirects, waits up
+/// to `timeout` for a whole response.
+pub(crate) fn plain_client(timeout: Duration) -> Result<wreq::Client, FetchError> {
+    let mut builder = wreq::Client::builder()
+        .redirect(wreq::redirect::Policy::limited(10))
+        .timeout(timeout)
+        .connect_timeout(Duration::from_secs(15));
+    if let Some(store) = env_cert_store() {
+        builder = builder.tls_cert_store(store.clone());
+    }
+    builder.build().map_err(|e| FetchError::Network(e.to_string()))
+}
+
 /// The CA certificates named by `SSL_CERT_FILE` / `SSL_CERT_DIR`, which then replace
 /// the bundled Mozilla roots, as in OpenSSL and curl. Networks that inspect TLS with
 /// their own CA (corporate proxies, sandboxes) set these. `None` when neither is set.

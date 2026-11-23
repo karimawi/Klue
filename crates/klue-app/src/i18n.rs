@@ -139,6 +139,29 @@ pub struct Strings {
     pub all_other_bundles: &'static str,
     pub apply_all: &'static str,
     pub applied_all: &'static str,
+    /// Settings: About.
+    pub about: &'static str,
+    pub made_by: &'static str,
+    pub repo_link: &'static str,
+    pub website_link: &'static str,
+    pub check_updates: &'static str,
+    pub checking_updates: &'static str,
+    pub up_to_date: &'static str,
+    pub update_check_failed: &'static str,
+    pub view_update: &'static str,
+    /// The update dialog.
+    pub update_kicker: &'static str,
+    pub whats_new: &'static str,
+    pub update_install: &'static str,
+    pub update_download: &'static str,
+    pub update_later: &'static str,
+    pub update_skip: &'static str,
+    pub update_downloading: &'static str,
+    pub update_installing: &'static str,
+    pub update_opened: &'static str,
+    pub update_failed: &'static str,
+    pub release_page: &'static str,
+    pub update_notify_body: &'static str,
 }
 
 pub static EN: Strings = Strings {
@@ -205,6 +228,27 @@ pub static EN: Strings = Strings {
     all_other_bundles: "Also alert on the other bundles",
     apply_all: "Apply to all numbers",
     applied_all: "Applied to every number.",
+    about: "About Klue",
+    made_by: "Made by",
+    repo_link: "GitHub repository",
+    website_link: "Website",
+    check_updates: "Check for updates",
+    checking_updates: "Checking for updates…",
+    up_to_date: "Klue is up to date.",
+    update_check_failed: "Couldn't check for updates.",
+    view_update: "View the update",
+    update_kicker: "Update",
+    whats_new: "What's new",
+    update_install: "Download and install",
+    update_download: "Download",
+    update_later: "Later",
+    update_skip: "Skip this version",
+    update_downloading: "Downloading…",
+    update_installing: "Installing… Klue will restart by itself.",
+    update_opened: "The download is open. Finish installing it there, then start Klue again.",
+    update_failed: "The update couldn't be installed.",
+    release_page: "Open the release page",
+    update_notify_body: "Open Klue to install it.",
 };
 
 pub static AR: Strings = Strings {
@@ -272,12 +316,58 @@ pub static AR: Strings = Strings {
     all_other_bundles: "وتنبيه للباقات الأخرى أيضاً",
     apply_all: "تطبيق على كل الأرقام",
     applied_all: "تم التطبيق على كل الأرقام.",
+    about: "عن Klue",
+    made_by: "من تطوير",
+    repo_link: "المستودع على GitHub",
+    website_link: "الموقع",
+    check_updates: "التحقق من التحديثات",
+    checking_updates: "جارٍ التحقق من التحديثات…",
+    up_to_date: "Klue محدَّث بآخر إصدار.",
+    update_check_failed: "تعذّر التحقق من التحديثات.",
+    view_update: "عرض التحديث",
+    update_kicker: "تحديث",
+    whats_new: "الجديد",
+    update_install: "تنزيل وتثبيت",
+    update_download: "تنزيل",
+    update_later: "لاحقاً",
+    update_skip: "تخطي هذا الإصدار",
+    update_downloading: "جارٍ التنزيل…",
+    update_installing: "جارٍ التثبيت… سيُعاد تشغيل Klue تلقائياً.",
+    update_opened: "تم فتح الملف الذي تم تنزيله. أكمل التثبيت منه ثم شغّل Klue من جديد.",
+    update_failed: "تعذّر تثبيت التحديث.",
+    release_page: "فتح صفحة الإصدار",
+    update_notify_body: "افتح Klue لتثبيته.",
 };
 
 pub fn strings(lang: Lang) -> &'static Strings {
     match lang {
         Lang::En => &EN,
         Lang::Ar => &AR,
+    }
+}
+
+/// "Klue 0.3.0 is available".
+pub fn update_available(version: &str, lang: Lang) -> String {
+    if is_ar(lang) { format!("الإصدار {version} من Klue متاح") } else { format!("Klue {version} is available") }
+}
+
+/// "Version 0.2.0" / "You have 0.2.0".
+pub fn version_label(version: &str, lang: Lang) -> String {
+    if is_ar(lang) { format!("الإصدار {version}") } else { format!("Version {version}") }
+}
+
+pub fn you_have(version: &str, lang: Lang) -> String {
+    if is_ar(lang) { format!("لديك الإصدار {version}.") } else { format!("You have {version}.") }
+}
+
+/// "4.2 of 12.8 MB".
+pub fn downloaded(got: u64, total: Option<u64>, lang: Lang) -> String {
+    let mb = |b: u64| format!("{:.1}", b as f64 / 1_048_576.0);
+    match (total, is_ar(lang)) {
+        (Some(t), false) => format!("{} of {} MB", mb(got), mb(t)),
+        (Some(t), true) => format!("{} من {} ميجابايت", mb(got), mb(t)),
+        (None, false) => format!("{} MB", mb(got)),
+        (None, true) => format!("{} ميجابايت", mb(got)),
     }
 }
 

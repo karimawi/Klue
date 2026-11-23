@@ -7,11 +7,13 @@
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod about;
 mod app;
 mod assets;
 mod autostart;
 mod demo;
 mod i18n;
+mod install;
 mod instance;
 mod notify;
 mod shared;
@@ -19,6 +21,7 @@ mod sound;
 mod systray;
 mod theme;
 mod ui;
+mod updater;
 
 use klue_core::store::Store;
 use tracing_subscriber::EnvFilter;
@@ -32,6 +35,14 @@ fn main() -> iced::Result {
     let demo = args.iter().any(|a| a == "--demo") || std::env::var_os("KLUE_DEMO").is_some();
     let minimized = args.iter().any(|a| a == "--minimized");
     let quick_view = args.iter().any(|a| a == "--quick-view");
+
+    // Started by an update: the old Klue is quitting; take over once it has gone.
+    if args.iter().any(|a| a == "--after-update") {
+        if !instance::wait_until_gone(std::time::Duration::from_secs(30)) {
+            tracing::warn!("the old Klue is still running after an update");
+        }
+        updater::cleanup();
+    }
 
     // A second launch just brings the running Klue forward.
     if !demo && matches!(instance::claim(quick_view), instance::Start::Second) {
@@ -48,6 +59,9 @@ fn main() -> iced::Result {
         }
     };
     notify::init(store.dir());
+    if !demo {
+        install::register();
+    }
     let shared = shared::Shared::new(store, demo);
     app::run(shared, minimized || quick_view, quick_view)
 }

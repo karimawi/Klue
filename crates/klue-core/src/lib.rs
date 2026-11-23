@@ -12,6 +12,7 @@ mod http;
 mod json;
 pub mod model;
 pub mod store;
+pub mod update;
 
 pub use error::FetchError;
 pub use model::{Bundle, BundleKind, BundleState, Carrier, LineType, Unit, Usage};

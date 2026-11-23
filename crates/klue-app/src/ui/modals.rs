@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use iced::{
-    Alignment, Color, Length, Task,
+    Alignment, Color, Element, Length, Task,
     font::Weight,
     widget::{Space, button, column, container, image, row, scrollable, text_input},
 };
@@ -355,7 +355,10 @@ fn dialog<'a>(ctx: &Ctx<'a>, width: f32, kicker: String, title: String, close: M
         ])
         .align_y(Alignment::Start)
         .spacing(16);
-    let body = super::smooth::smooth(scrollable(container(body).padding([18, 22])).style(theme::scroller(p)).height(Length::Shrink));
+    // The body scrolls within what the window leaves (the overlay's margins, the title
+    // bar, this dialog's head and foot), so the foot stays in view.
+    let room = (ctx.app.main_size.height - 48.0 - 40.0 - 150.0).max(160.0);
+    let body = container(super::smooth::smooth(scrollable(container(body).padding([18, 22])).style(theme::scroller(p)).height(Length::Shrink))).max_height(room);
     container(column![container(head).padding(super::pad4(18.0, 22.0, 14.0, 22.0)), hline(p.dv, 2.0), body, hline(p.dv, 2.0), container(foot).padding([14, 22])])
         .width(width)
         .max_height(720)
@@ -773,6 +776,7 @@ fn settings<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
             hline(p.dvs, 1.0)
         ],
         all_alerts(ctx, f),
+        about(ctx),
     ]
     .spacing(16);
     let foot = ctx.row(vec![container(ctx.muted(s.disclaimer, 11.5)).width(Length::Fill).align_x(ctx.start()).into(), ctx.primary(s.done, Some(Message::CloseModal)).into()]).spacing(12);
@@ -819,6 +823,106 @@ fn all_alerts<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
     ]
     .align_x(ctx.start())
     .into()
+}
+
+/// About Klue: version, author, links, and the update check.
+fn about<'a>(ctx: &Ctx<'a>) -> El<'a> {
+    let p = ctx.p;
+    let s = ctx.s;
+    let link = |label: &'a str, url: &'static str| -> El<'a> {
+        button(ctx.row(vec![ctx.text(label, 13.0, Weight::Semibold, p.ac_tx).into(), ctx.icon(Icon::Link, 13.0, p.ac_tx)]).spacing(6).align_y(Alignment::Center))
+            .padding([6, 10])
+            .style(theme::ghost(p.ac_tx, p.sf, 8.0))
+            .on_press(Message::OpenUrl(url))
+            .into()
+    };
+    let (status, action): (String, El<'a>) = match &ctx.app.update {
+        app::UpdateState::Checking => (s.checking_updates.into(), ctx.outline(s.check_updates, None).into()),
+        app::UpdateState::UpToDate => (s.up_to_date.into(), ctx.outline(s.check_updates, Some(Message::CheckUpdates { manual: true })).into()),
+        app::UpdateState::CheckFailed => (s.update_check_failed.into(), ctx.outline(s.check_updates, Some(Message::CheckUpdates { manual: true })).into()),
+        update @ (app::UpdateState::Available { .. } | app::UpdateState::Failed { .. } | app::UpdateState::Opened { .. }) => (
+            update.release().map(|r| i18n::update_available(&r.version.to_string(), ctx.lang)).unwrap_or_default(),
+            ctx.primary(s.view_update, Some(Message::ShowUpdate)).into(),
+        ),
+        app::UpdateState::Downloading { .. } | app::UpdateState::Installing { .. } => (s.update_downloading.into(), ctx.outline(s.check_updates, None).into()),
+        app::UpdateState::Idle => (String::new(), ctx.outline(s.check_updates, Some(Message::CheckUpdates { manual: true })).into()),
+    };
+    let who = column![
+        ctx.row(vec![super::logo(18.0), ctx.bold("Klue", 16.0).into(), ctx.muted(i18n::version_label(crate::about::VERSION, ctx.lang), 12.5).into()]).spacing(8).align_y(Alignment::Center),
+        ctx.row(vec![ctx.muted(s.made_by, 13.0).into(), ctx.semi(crate::about::AUTHOR, 13.0).into()]).spacing(5),
+    ]
+    .spacing(4)
+    .align_x(ctx.start());
+    column![
+        ctx.caps(s.about),
+        gap(6.0),
+        hline(p.dv, 2.0),
+        gap(10.0),
+        ctx.row(vec![container(who).width(Length::Fill).align_x(ctx.start()).into(), link(s.repo_link, crate::about::REPO), link(s.website_link, crate::about::WEBSITE)]).spacing(6).align_y(Alignment::Center),
+        gap(10.0),
+        ctx.row(vec![container(ctx.muted(status, 12.5)).width(Length::Fill).align_x(ctx.start()).into(), action]).spacing(12).align_y(Alignment::Center),
+    ]
+    .align_x(ctx.start())
+    .into()
+}
+
+// ---------------------------------------------------------------------------------------
+// Update
+
+/// The update dialog: what's new, and getting it.
+pub fn update_dialog<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
+    let p = ctx.p;
+    let s = ctx.s;
+    let state = &ctx.app.update;
+    let release = state.release()?;
+    let version = release.version.to_string();
+    let mut body = column![ctx.muted(i18n::you_have(crate::about::VERSION, ctx.lang), 13.0)].spacing(12).align_x(ctx.start());
+    if !release.notes.trim().is_empty() {
+        body = body.push(column![label(ctx, s.whats_new), gap(6.0), notes(ctx, &release.notes)].align_x(ctx.start()));
+    }
+    let foot_status: El<'a> = match state {
+        app::UpdateState::Downloading { got, total, .. } => {
+            let fraction = total.map_or(0.35, |t| *got as f64 / t.max(1) as f64);
+            column![ctx.muted(format!("{} {}", s.update_downloading, i18n::downloaded(*got, *total, ctx.lang)), 12.5), ctx.meter(fraction, 4.0, p.ac)].spacing(6).width(Length::Fill).into()
+        }
+        app::UpdateState::Installing { .. } => ctx.muted(s.update_installing, 12.5).into(),
+        app::UpdateState::Opened { .. } => ctx.muted(s.update_opened, 12.5).into(),
+        app::UpdateState::Failed { message, .. } => column![ctx.text(s.update_failed, 12.5, Weight::Semibold, p.danger), ctx.muted(message.clone(), 11.5)].spacing(2).into(),
+        _ => Space::new().into(),
+    };
+    let busy = matches!(state, app::UpdateState::Downloading { .. } | app::UpdateState::Installing { .. });
+    // A disk image or a package is downloaded and handed to the system; the rest installs itself.
+    let installs_itself = release.asset(crate::updater::suffixes()).is_some_and(|a| a.name.ends_with(".zip") || a.name.ends_with(".tar.gz"));
+    let mut foot = vec![container(foot_status).width(Length::Fill).align_x(ctx.start()).into()];
+    if !busy {
+        foot.push(ctx.link(s.update_skip, Message::UpdateSkip).into());
+        foot.push(ctx.outline(s.update_later, Some(Message::UpdateLater)).into());
+    }
+    let page = release.page.clone();
+    foot.push(match state {
+        app::UpdateState::Opened { .. } => ctx.primary(s.done, Some(Message::UpdateLater)).into(),
+        app::UpdateState::Failed { .. } if release.asset(crate::updater::suffixes()).is_none() || !page.is_empty() => ctx.primary(s.release_page, Some(Message::OpenUrlOwned(page))).into(),
+        _ => ctx.primary(if installs_itself { s.update_install } else { s.update_download }, (!busy).then_some(Message::UpdateInstall)).into(),
+    });
+    let foot = ctx.row(foot).spacing(10).align_y(Alignment::Center);
+    Some(dialog(ctx, 560.0, s.update_kicker.to_string(), i18n::update_available(&version, ctx.lang), Message::UpdateLater, body.into(), foot.into()))
+}
+
+/// Release notes in Markdown, shown simply: headings in bold, list items with a bullet,
+/// other lines as text; at most 40 lines.
+fn notes<'a>(ctx: &Ctx<'a>, markdown: &str) -> El<'a> {
+    let clean = |t: &str| t.replace("**", "").replace("__", "").replace('`', "");
+    let mut col = column![].spacing(4).align_x(ctx.start());
+    for line in markdown.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with("<!--")).take(40) {
+        col = col.push(if let Some(heading) = line.strip_prefix('#') {
+            Element::from(ctx.bold(clean(heading.trim_start_matches('#').trim()), 14.0))
+        } else if let Some(item) = line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")) {
+            ctx.row(vec![ctx.muted("•", 13.0).into(), ctx.body(clean(item), 13.0).into()]).spacing(8).align_y(Alignment::Start).into()
+        } else {
+            ctx.body(clean(line), 13.0).into()
+        });
+    }
+    container(col).padding([12, 14]).width(Length::Fill).style(theme::bg_line(ctx.p.sf, ctx.p.dvs, 12.0)).into()
 }
 
 // ---------------------------------------------------------------------------------------

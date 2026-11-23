@@ -22,8 +22,10 @@ use klue_core::{
 };
 use tokio::sync::oneshot;
 
+use klue_core::update::{Release, Version};
+
 use crate::{
-    assets, autostart, notify,
+    about, assets, autostart, i18n, notify, updater,
     shared::{Shared, Snapshot, TICK},
     systray::{self, Anchor, Tray},
     ui::{self, modals::Modal},
@@ -97,7 +99,53 @@ pub enum Message {
     FocusPrevious,
     /// Escape closes the popup, the captcha prompt or the open dialog.
     Escape(window::Id),
+    OpenUrl(&'static str),
+    OpenUrlOwned(String),
+    /// Look for a newer release; `manual` from About (shows a skipped one too).
+    CheckUpdates { manual: bool },
+    UpdateChecked { manual: bool, result: Result<Option<Box<Release>>, String> },
+    ShowUpdate,
+    UpdateLater,
+    UpdateSkip,
+    UpdateInstall,
+    UpdateProgress(u64, Option<u64>),
+    UpdateDownloaded(Result<std::path::PathBuf, String>),
+    UpdateInstalled(Result<updater::Outcome, String>),
     Done,
+}
+
+/// The update check, and installing what it found. See `crate::updater`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpdateState {
+    Idle,
+    Checking,
+    UpToDate,
+    CheckFailed,
+    /// A newer release from the main branch; its dialog is up while `shown`.
+    Available { release: Box<Release>, shown: bool },
+    Downloading { release: Box<Release>, got: u64, total: Option<u64> },
+    Installing { release: Box<Release> },
+    /// Handed to the system to install (a disk image or a package).
+    Opened { release: Box<Release> },
+    Failed { release: Box<Release>, message: String },
+}
+
+impl UpdateState {
+    pub fn release(&self) -> Option<&Release> {
+        match self {
+            UpdateState::Available { release, .. }
+            | UpdateState::Downloading { release, .. }
+            | UpdateState::Installing { release }
+            | UpdateState::Opened { release }
+            | UpdateState::Failed { release, .. } => Some(release),
+            _ => None,
+        }
+    }
+
+    /// Whether the update dialog is up.
+    pub fn dialog(&self) -> bool {
+        !matches!(self, UpdateState::Idle | UpdateState::Checking | UpdateState::UpToDate | UpdateState::CheckFailed | UpdateState::Available { shown: false, .. })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -129,6 +177,9 @@ pub struct App {
     pub hero: HashMap<String, String>,
     pub modal: Modal,
     pub captcha: Option<CaptchaAsk>,
+    pub update: UpdateState,
+    /// The main window's size, which dialogs fit into.
+    pub main_size: Size,
 }
 
 pub fn run(shared: Arc<Shared>, minimized: bool, quick_view: bool) -> iced::Result {
@@ -168,6 +219,8 @@ impl App {
             hero: HashMap::new(),
             modal: Modal::None,
             captcha: None,
+            update: UpdateState::Idle,
+            main_size: MAIN_SIZE,
         };
         // The tray icon is created on the first update: on macOS the event loop must be
         // running by then.
@@ -251,7 +304,13 @@ impl App {
                 } else {
                     self.show_main(None)
                 };
-                Task::batch([window, refresh])
+                // Look for an update once the first refreshes are under way.
+                let check = if self.shared.demo {
+                    Task::none()
+                } else {
+                    Task::perform(tokio::time::sleep(Duration::from_secs(5)), |_| Message::CheckUpdates { manual: false })
+                };
+                Task::batch([window, refresh, check])
             }
             Message::Revision => {
                 self.snap = self.shared.snapshot();
@@ -395,8 +454,146 @@ impl App {
                     Task::none()
                 }
             }
+            Message::OpenUrl(url) => {
+                about::open_url(url);
+                Task::none()
+            }
+            Message::OpenUrlOwned(url) => {
+                about::open_url_owned(&url);
+                Task::none()
+            }
+            Message::CheckUpdates { manual } => self.check_updates(manual),
+            Message::UpdateChecked { manual, result } => self.update_checked(manual, result),
+            Message::ShowUpdate => {
+                if let UpdateState::Available { shown, .. } = &mut self.update {
+                    *shown = true;
+                }
+                self.show_main(None)
+            }
+            Message::UpdateLater => {
+                self.update = match std::mem::replace(&mut self.update, UpdateState::Idle) {
+                    UpdateState::Available { release, .. } | UpdateState::Failed { release, .. } => UpdateState::Available { release, shown: false },
+                    other @ (UpdateState::Downloading { .. } | UpdateState::Installing { .. }) => other,
+                    _ => UpdateState::Idle,
+                };
+                Task::none()
+            }
+            Message::UpdateSkip => {
+                if let Some(release) = self.update.release() {
+                    let version = release.version.to_string();
+                    self.shared.update(|d| d.settings.skipped_update = Some(version));
+                }
+                self.update = UpdateState::Idle;
+                Task::none()
+            }
+            Message::UpdateInstall => self.install_update(),
+            Message::UpdateProgress(got, total) => {
+                if let UpdateState::Downloading { got: g, total: t, .. } = &mut self.update {
+                    (*g, *t) = (got, total);
+                }
+                Task::none()
+            }
+            Message::UpdateDownloaded(result) => {
+                let Some(release) = self.update.release().cloned() else { return Task::none() };
+                match result {
+                    Ok(file) => {
+                        self.update = UpdateState::Installing { release: Box::new(release) };
+                        Task::perform(async move { tokio::task::spawn_blocking(move || updater::install(&file)).await.map_err(|e| e.to_string())? }, Message::UpdateInstalled)
+                    }
+                    Err(message) => {
+                        self.update = UpdateState::Failed { release: Box::new(release), message };
+                        Task::none()
+                    }
+                }
+            }
+            Message::UpdateInstalled(result) => {
+                let Some(release) = self.update.release().cloned() else { return Task::none() };
+                match result {
+                    // The new Klue is starting and waits for this one to quit.
+                    Ok(updater::Outcome::Restart) => self.update(Message::Quit),
+                    Ok(updater::Outcome::Opened) => {
+                        self.update = UpdateState::Opened { release: Box::new(release) };
+                        Task::none()
+                    }
+                    Err(message) => {
+                        tracing::warn!("update failed: {message}");
+                        self.update = UpdateState::Failed { release: Box::new(release), message };
+                        Task::none()
+                    }
+                }
+            }
             Message::Done => Task::none(),
         }
+    }
+
+    fn check_updates(&mut self, manual: bool) -> Task<Message> {
+        if matches!(self.update, UpdateState::Checking | UpdateState::Downloading { .. } | UpdateState::Installing { .. }) {
+            return Task::none();
+        }
+        self.update = UpdateState::Checking;
+        if self.shared.demo {
+            let result = Ok(manual.then(|| Box::new(crate::demo::update())));
+            return Task::perform(tokio::time::sleep(Duration::from_millis(900)), move |_| Message::UpdateChecked { manual, result: result.clone() });
+        }
+        let current = Version::parse(about::VERSION).unwrap_or(Version { major: 0, minor: 0, patch: 0, pre: None });
+        Task::perform(
+            async move { klue_core::update::newer_than(&current).await.map(|r| r.map(Box::new)).map_err(|e| e.to_string()) },
+            move |result| Message::UpdateChecked { manual, result },
+        )
+    }
+
+    fn update_checked(&mut self, manual: bool, result: Result<Option<Box<Release>>, String>) -> Task<Message> {
+        self.update = match result {
+            Ok(Some(release)) => {
+                let skipped = self.snap.data.settings.skipped_update.as_deref() == Some(release.version.to_string().as_str());
+                if skipped && !manual {
+                    tracing::info!("update {} is skipped", release.version);
+                    UpdateState::Idle
+                } else {
+                    tracing::info!("update available: {}", release.version);
+                    // With no window open it waits for one; a notification says it's there.
+                    if self.main.is_none() && !manual {
+                        notify::notice(i18n::update_available(&release.version.to_string(), self.lang()), i18n::strings(self.lang()).update_notify_body.into());
+                    }
+                    UpdateState::Available { release, shown: true }
+                }
+            }
+            Ok(None) => UpdateState::UpToDate,
+            Err(e) => {
+                tracing::info!("update check failed: {e}");
+                UpdateState::CheckFailed
+            }
+        };
+        Task::none()
+    }
+
+    /// Download the release file for this platform, then install it.
+    fn install_update(&mut self) -> Task<Message> {
+        let Some(release) = self.update.release().cloned() else { return Task::none() };
+        let Some(asset) = release.asset(updater::suffixes()).cloned() else {
+            // No file for this platform: the release page has whatever there is.
+            about::open_url_owned(&release.page);
+            return Task::none();
+        };
+        let dir = updater::download_dir(&release.version.to_string());
+        self.update = UpdateState::Downloading { release: Box::new(release), got: 0, total: (asset.size > 0).then_some(asset.size) };
+        Task::run(
+            iced::stream::channel(16, move |mut out: iced::futures::channel::mpsc::Sender<Message>| async move {
+                let mut shown = 0u64;
+                let result = klue_core::update::download(&asset, &dir, |got, total| {
+                    // A message per percent (or per MB without a total), not per chunk.
+                    let step = total.map_or(1 << 20, |t| (t / 100).max(1));
+                    if got / step != shown / step {
+                        shown = got;
+                        let _ = out.try_send(Message::UpdateProgress(got, total));
+                    }
+                })
+                .await
+                .map_err(|e| e.to_string());
+                let _ = out.send(Message::UpdateDownloaded(result)).await;
+            }),
+            |m| m,
+        )
     }
 
     fn on_main(&self, f: impl FnOnce(window::Id) -> Task<Message>) -> Task<Message> {
@@ -433,6 +630,11 @@ impl App {
         if !matches!(event, window::Event::RedrawRequested(_) | window::Event::Moved(_)) {
             let which = if Some(id) == self.popup { "popup" } else if Some(id) == self.main { "main" } else { "other" };
             tracing::debug!("{which} window: {event:?}");
+        }
+        if Some(id) == self.main
+            && let window::Event::Opened { size, .. } | window::Event::Resized(size) = event
+        {
+            self.main_size = size;
         }
         match event {
             window::Event::CloseRequested if Some(id) == self.main => self.close_main(),

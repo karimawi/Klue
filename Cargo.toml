@@ -8,7 +8,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.92"
 license = "MIT"
-authors = ["Kareem Almorsi"]
+authors = ["Karim W. Almorsi"]
 repository = "https://github.com/karimawi/Klue"
 
 [workspace.dependencies]

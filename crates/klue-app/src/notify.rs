@@ -105,6 +105,12 @@ fn show(title: String, body: String) {
     });
 }
 
+/// A notification about Klue itself (an update), with the notice sound.
+pub fn notice(title: String, body: String) {
+    show(title, body);
+    sound::play(Tone::Notice);
+}
+
 /// The sound an alert plays: a low quota is a warning, renewals are notices.
 pub fn tone(event: &AlertEvent) -> Tone {
     match event {
