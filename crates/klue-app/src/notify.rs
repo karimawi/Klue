@@ -5,7 +5,10 @@ use std::path::Path;
 use chrono::Utc;
 use klue_core::{alerts::AlertEvent, format, store::Account, store::Lang};
 
-use crate::i18n::{self, carrier_name};
+use crate::{
+    i18n::{self, carrier_name},
+    sound::{self, Tone},
+};
 
 /// Klue's identity for the OS: the macOS bundle identifier and the Windows
 /// AppUserModelID that toasts are filed under.
@@ -85,19 +88,38 @@ mod windows {
     }
 }
 
-pub fn show(title: String, body: String) {
+/// Show a notification. It's silent: [`send`] plays Klue's own sound.
+fn show(title: String, body: String) {
     std::thread::spawn(move || {
         let mut n = notify_rust::Notification::new();
         n.appname("Klue").summary(&title).body(&body);
         #[cfg(windows)]
         n.app_id(APP_ID);
+        // Without a sound name notify-rust sends Windows toasts silent and macOS ones
+        // without a sound; Linux notification servers are asked not to play theirs.
+        #[cfg(all(unix, not(target_os = "macos")))]
+        n.hint(notify_rust::Hint::SuppressSound(true));
         if let Err(e) = n.show() {
             tracing::warn!("couldn't show a notification: {e}");
         }
     });
 }
 
-pub fn alert(account: &Account, event: &AlertEvent, lang: Lang) {
-    let (title, body) = describe(account, event, lang);
-    show(title, body);
+/// The sound an alert plays: a low quota is a warning, renewals are notices.
+pub fn tone(event: &AlertEvent) -> Tone {
+    match event {
+        AlertEvent::QuotaLow { .. } => Tone::Warning,
+        AlertEvent::RenewalSoon { .. } | AlertEvent::RenewalToday { .. } => Tone::Notice,
+    }
+}
+
+/// Show these alerts, with one sound for all of them.
+pub fn send(alerts: &[(Account, AlertEvent)], lang: Lang) {
+    for (account, event) in alerts {
+        let (title, body) = describe(account, event, lang);
+        show(title, body);
+    }
+    if let Some(tone) = sound::for_all(alerts.iter().map(|(_, e)| tone(e))) {
+        sound::play(tone);
+    }
 }

@@ -15,6 +15,7 @@ mod i18n;
 mod instance;
 mod notify;
 mod shared;
+mod sound;
 mod systray;
 mod theme;
 mod ui;

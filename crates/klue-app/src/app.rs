@@ -262,9 +262,7 @@ impl App {
             Message::Tick => {
                 self.now = Utc::now();
                 let alerts = self.shared.take_due_alerts(self.now);
-                for (account, event) in &alerts {
-                    notify::alert(account, event, self.lang());
-                }
+                notify::send(&alerts, self.lang());
                 let shared = self.shared.clone();
                 Task::perform(async move { shared.refresh_due().await }, |_| Message::Done)
             }
@@ -308,6 +306,7 @@ impl App {
                 if let Some(c) = self.captcha.take() {
                     c.answer(None);
                 }
+                crate::sound::cleanup();
                 iced::exit()
             }
 
