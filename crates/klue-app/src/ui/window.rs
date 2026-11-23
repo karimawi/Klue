@@ -23,13 +23,13 @@ use crate::{
 };
 
 pub fn view(app: &App) -> El<'_> {
-    let ctx = Ctx::new(app, app.carrier, false);
+    let shown = app.shown_carrier();
+    let ctx = Ctx::new(app, shown.unwrap_or(Carrier::We), false);
     let p = ctx.p;
 
     let content: El<'_> = match app.current() {
         Some(account) => dashboard::view(&ctx, account),
-        None if !app.carrier.is_supported() => empty::coming_soon(&ctx, app.carrier),
-        None => empty::view(&ctx, app.carrier),
+        None => empty::view(&ctx),
     };
     let main = column![tabs(&ctx), content].width(Length::Fill).height(Length::Fill);
     let body = ctx.row(vec![rail(&ctx), vline(p.chdv, 2.0), main.into()]).height(Length::Fill).align_y(Alignment::Start);
@@ -172,30 +172,23 @@ fn rail<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let p = ctx.p;
     let s = ctx.s;
     let data = &ctx.app.snap.data;
+    // Only carriers with numbers: the rest (including those Klue can't sign in to yet)
+    // are reached through Add.
+    let shown = ctx.app.shown_carrier();
     let items: Vec<El<'a>> = Carrier::ALL
         .into_iter()
+        .filter(|carrier| data.accounts_for(*carrier).next().is_some())
         .map(|carrier| {
-            let on = carrier == ctx.app.carrier;
+            let on = Some(carrier) == shown;
             let count = data.accounts_for(carrier).count();
-            let soon = !carrier.is_supported();
             let t = crate::assets::tile(carrier);
             let tile_el = tile(carrier, 46.0, t.rail, 13.0, false);
-            let badge: Option<El<'a>> = if soon {
-                Some(badge(ctx, s.soon, 9.5))
-            } else if count > 0 {
-                Some(badge(ctx, &count.to_string(), 11.0))
-            } else {
-                None
-            };
-            let tile_with_badge: El<'a> = match badge {
-                Some(b) => stack([
-                    container(tile_el).padding([8, 12]).into(),
-                    container(b).width(Length::Fill).align_x(if ctx.rtl() { Horizontal::Left } else { Horizontal::Right }).into(),
-                ])
-                .width(70)
-                .into(),
-                None => container(tile_el).padding([8, 12]).into(),
-            };
+            let count_badge = badge(ctx, &count.to_string(), 11.0);
+            let tile_with_badge = stack([
+                container(tile_el).padding([8, 12]).into(),
+                container(count_badge).width(Length::Fill).align_x(if ctx.rtl() { Horizontal::Left } else { Horizontal::Right }).into(),
+            ])
+            .width(70);
             let label = ctx.text(i18n::carrier_name(carrier, ctx.lang), 12.0, Weight::Semibold, if on { p.cht } else { p.chm });
             let inner = column![tile_with_badge, label].align_x(Alignment::Center).spacing(2).width(Length::Fill);
             let indicator = container(Space::new()).width(4).height(52).style(move |_| theme::fill(if on { p.ch_bar } else { Color::TRANSPARENT }, 2.0));
@@ -238,10 +231,10 @@ fn tabs<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let p = ctx.p;
     let app = ctx.app;
     let current = app.current().map(|a| a.id.clone());
-    let mut items: Vec<El<'a>> = app
-        .snap
-        .data
-        .accounts_for(app.carrier)
+    let shown = app.shown_carrier();
+    let mut items: Vec<El<'a>> = shown
+        .into_iter()
+        .flat_map(|carrier| app.snap.data.accounts_for(carrier))
         .map(|account| {
             let on = current.as_deref() == Some(account.id.as_str());
             let icon = if account.line == LineType::Landline { Icon::Landline } else { Icon::Mobile };
@@ -274,13 +267,11 @@ fn tabs<'a>(ctx: &Ctx<'a>) -> El<'a> {
                 .into()
         })
         .collect();
-    if app.carrier.is_supported() {
-        let add = button(ctx.row(vec![ctx.icon(Icon::Plus, 15.0, p.mu), ctx.text(ctx.s.add_number, 13.0, Weight::Normal, p.mu).into()]).spacing(8))
-            .padding([8, 12])
-            .style(theme::ghost(p.mu, p.bg, 10.0))
-            .on_press(Message::OpenModal(ModalKind::Add));
-        items.push(container(add).padding(ctx.pad(0.0, 0.0, 6.0, 4.0)).into());
-    }
+    let add = button(ctx.row(vec![ctx.icon(Icon::Plus, 15.0, p.mu), ctx.text(ctx.s.add_number, 13.0, Weight::Normal, p.mu).into()]).spacing(8))
+        .padding([8, 12])
+        .style(theme::ghost(p.mu, p.bg, 10.0))
+        .on_press(Message::OpenModal(ModalKind::Add));
+    items.push(container(add).padding(ctx.pad(0.0, 0.0, 6.0, 4.0)).into());
     let strip = ctx.row(items).spacing(4).align_y(Alignment::End).height(58);
     let scroller = scrollable(container(strip).padding([0, 22])).direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::new().width(0).scroller_width(0)));
     container(scroller).width(Length::Fill).height(58).style(move |_| theme::fill(p.strip, 0.0)).into()

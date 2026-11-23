@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use iced::{
     Alignment, Color, Length, Task,
     font::Weight,
-    widget::{Space, button, column, container, image, row, scrollable, stack, text_input},
+    widget::{Space, button, column, container, image, row, scrollable, text_input},
 };
 use klue_core::{
     Carrier, FetchError, LineType, Unit, Usage, format,
@@ -348,18 +348,19 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
     let carrier_name = i18n::carrier_name(f.carrier, ctx.lang);
     let app_name = i18n::carrier_app(f.carrier, ctx.lang);
 
+    // Only carriers Klue can sign in to; the others aren't shown until they work.
     let carriers: Vec<El<'a>> = Carrier::ALL
         .into_iter()
+        .filter(|c| c.is_supported())
         .map(|c| {
             let on = c == f.carrier;
-            let soon = !c.is_supported();
             let t = crate::assets::tile(c);
-            let content = ctx.row(vec![tile(c, 24.0, t.small, 7.0, soon), ctx.text(i18n::carrier_name(c, ctx.lang), 13.0, Weight::Semibold, if soon { p.mu } else { p.tx }).into()]).spacing(8);
+            let content = ctx.row(vec![tile(c, 24.0, t.small, 7.0, false), ctx.text(i18n::carrier_name(c, ctx.lang), 13.0, Weight::Semibold, p.tx).into()]).spacing(8);
             let b = button(content)
                 .width(Length::Fill)
                 .padding([7, 8])
                 .style(move |_, status| {
-                    let hovered = matches!(status, button::Status::Hovered) && !soon;
+                    let hovered = matches!(status, button::Status::Hovered);
                     button::Style {
                         background: (on || hovered).then_some(iced::Background::Color(p.sf)),
                         border: theme::border(if on { p.ac } else { p.dv }, 2.0, 9.0),
@@ -367,14 +368,8 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
                         ..Default::default()
                     }
                 })
-                .on_press_maybe((!soon && !verifying).then_some(Message::Modal(Msg::AddCarrier(c))));
-            let el: El<'a> = if soon {
-                let badge = container(ctx.text(s.soon, 9.5, Weight::Semibold, p.bg)).padding([1, 6]).style(move |_| theme::fill(p.tx, 8.0));
-                stack([container(b).padding(super::pad4(8.0, 0.0, 0.0, 0.0)).into(), container(badge).width(Length::Fill).align_x(ctx.end()).into()]).into()
-            } else {
-                container(b).padding(super::pad4(8.0, 0.0, 0.0, 0.0)).into()
-            };
-            container(el).width(Length::FillPortion(1)).into()
+                .on_press_maybe((!verifying).then_some(Message::Modal(Msg::AddCarrier(c))));
+            container(container(b).padding(super::pad4(8.0, 0.0, 0.0, 0.0))).width(Length::FillPortion(1)).into()
         })
         .collect();
 

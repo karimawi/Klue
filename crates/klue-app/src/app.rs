@@ -173,11 +173,21 @@ impl App {
         self.snap.data.settings.lang
     }
 
-    /// The account shown for the selected carrier.
+    /// The carrier the main window shows: the one picked while it has numbers, else the
+    /// first that has any. `None` without any numbers. Carriers without numbers (and so
+    /// the ones Klue can't sign in to yet) aren't listed at all.
+    pub fn shown_carrier(&self) -> Option<Carrier> {
+        let data = &self.snap.data;
+        let has_numbers = |c: &Carrier| data.accounts_for(*c).next().is_some();
+        Some(self.carrier).filter(has_numbers).or_else(|| Carrier::ALL.into_iter().find(has_numbers))
+    }
+
+    /// The account shown for the shown carrier.
     pub fn current(&self) -> Option<&Account> {
         let data = &self.snap.data;
-        let picked = self.selected.get(&self.carrier).and_then(|id| data.account(id)).filter(|a| a.carrier == self.carrier);
-        picked.or_else(|| data.accounts_for(self.carrier).next())
+        let carrier = self.shown_carrier()?;
+        let picked = self.selected.get(&carrier).and_then(|id| data.account(id)).filter(|a| a.carrier == carrier);
+        picked.or_else(|| data.accounts_for(carrier).next())
     }
 
     fn title(&self, _window: window::Id) -> String {
@@ -303,7 +313,7 @@ impl App {
             }
             Message::PopupSettings => {
                 let show = self.update(Message::ShowMain(None));
-                self.modal = Modal::open(ModalKind::Settings, &self.snap, self.carrier);
+                self.modal = Modal::open(ModalKind::Settings, &self.snap, self.shown_carrier().unwrap_or(Carrier::We));
                 show
             }
             Message::SelectCarrier(carrier) => {
@@ -343,7 +353,7 @@ impl App {
                     ModalKind::Rename(_) => Some(ui::modals::RENAME_INPUT),
                     _ => None,
                 };
-                self.modal = Modal::open(kind, &self.snap, self.carrier);
+                self.modal = Modal::open(kind, &self.snap, self.shown_carrier().unwrap_or(Carrier::We));
                 first.map(operation::focus).unwrap_or_else(Task::none)
             }
             Message::CloseModal => {
