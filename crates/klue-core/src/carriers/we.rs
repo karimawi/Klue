@@ -47,7 +47,8 @@ pub const CAPTCHA_REROLLS: usize = 8;
 const REROLL_PAUSE: Duration = Duration::from_millis(600);
 
 /// How long WE keeps refusing captcha tokens after answering "Blocked"
-/// (about an hour).
+/// (about an hour), and refusing sign-ins after too
+/// many wrong ones ("try again after one hour").
 pub const BLOCK_BACKOFF: Duration = Duration::from_secs(3700);
 
 /// What `GenerateCaptcha` handed out.
@@ -412,8 +413,14 @@ fn missing(what: &str) -> FetchError {
     FetchError::Unexpected(format!("WE response has no {what}"))
 }
 
+/// WE's message in a failed reply: `retMsg`, or else `errorMsg` or `description`.
+fn message(v: &Value) -> Option<String> {
+    let header = &v["header"];
+    ["retMsg", "errorMsg", "description"].iter().find_map(|k| j::text(&header[*k]))
+}
+
 fn carrier_error(v: &Value, what: &str) -> FetchError {
-    match j::text(&v["header"]["retMsg"]) {
+    match message(v) {
         Some(msg) => FetchError::Carrier(msg),
         None => FetchError::Unexpected(format!(
             "WE {what} failed (retCode {})",
@@ -424,9 +431,15 @@ fn carrier_error(v: &Value, what: &str) -> FetchError {
 
 /// WE answers failed sign-ins with a non-zero `retCode` and a human message.
 fn classify_auth_failure(v: &Value, sent_code: bool) -> FetchError {
-    let msg = j::text(&v["header"]["retMsg"]).unwrap_or_default();
+    let msg = message(v).unwrap_or_default();
     let m = msg.to_lowercase();
     let mentions = |words: &[&str]| words.iter().any(|w| m.contains(w));
+    // After too many wrong sign-ins WE refuses every one for an hour ("You have reached
+    // the maximum number of incorrect attempts. Please try again after one hour."), and
+    // trying again within the hour can keep it refusing: wait it out.
+    if mentions(&["maximum number", "too many", "try again after", "الحد الأقصى"]) {
+        return FetchError::CaptchaBlocked(Utc::now() + chrono::Duration::from_std(BLOCK_BACKOFF).unwrap_or_default());
+    }
     if mentions(&["captcha", "verification code", "verify code", "image code", "imgcode", "check code"]) {
         return if sent_code { FetchError::CaptchaRejected } else { FetchError::Carrier(msg) };
     }
@@ -718,6 +731,21 @@ mod tests {
         assert_eq!(classify_auth_failure(&cap, true), FetchError::CaptchaRejected);
         let other = json!({"header": {"retCode": "9", "retMsg": "System busy"}});
         assert_eq!(classify_auth_failure(&other, false), FetchError::Carrier("System busy".into()));
+        // Messages can come as `errorMsg` instead of `retMsg`.
+        let busy = json!({"header": {"retCode": "9999", "errorMsg": "System busy"}});
+        assert_eq!(classify_auth_failure(&busy, false), FetchError::Carrier("System busy".into()));
+    }
+
+    #[test]
+    fn too_many_wrong_sign_ins_pause_them_for_an_hour() {
+        // Not a wrong password, though the message says "incorrect".
+        match classify_auth_failure(&fixture("we_auth_locked.json"), true) {
+            FetchError::CaptchaBlocked(until) => {
+                let wait = until - Utc::now();
+                assert!(wait > chrono::Duration::minutes(59) && wait < chrono::Duration::minutes(65), "{wait}");
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     /// Reads only the captcha whose image is `[sure_of]`.

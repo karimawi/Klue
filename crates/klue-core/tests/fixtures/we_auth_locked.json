@@ -1,0 +1,9 @@
+{
+  "header": {
+    "description": "You have reached the maximum number of incorrect attempts. Please try again after one hour.",
+    "errorMsg": "You have reached the maximum number of incorrect attempts. Please try again after one hour.",
+    "errorNo": "60301025072100002",
+    "retCode": "9999",
+    "solution": "You have reached the maximum number of incorrect attempts. Please try again after one hour."
+  }
+}

@@ -530,7 +530,8 @@ pub fn error_title(e: &FetchError, lang: Lang) -> &'static str {
     let ar = is_ar(lang);
     match e {
         FetchError::BadCredentials => strings(lang).err_title,
-        FetchError::CaptchaUnsolved | FetchError::CaptchaBlocked(_) => if ar { "مطلوب رمز تحقق" } else { "Captcha needed" },
+        FetchError::CaptchaUnsolved => if ar { "مطلوب رمز تحقق" } else { "Captcha needed" },
+        FetchError::CaptchaBlocked(_) => if ar { "تسجيل الدخول متوقف مؤقتاً" } else { "Sign-ins paused" },
         FetchError::CaptchaRejected => if ar { "لم يُقبل رمز التحقق" } else { "Captcha not accepted" },
         FetchError::InvalidNumber(_) => if ar { "رقم غير صحيح" } else { "Check the number" },
         FetchError::Network(_) => if ar { "لا يوجد اتصال" } else { "No connection" },
