@@ -41,6 +41,7 @@
 | WE | Home internet (DSL) | Mobile, OneHome, Ardy |
 | Vodafone | Mobile | DSL, USB |
 | Orange | | DSL, Mobile |
+| e& | | DSL, Mobile |
 
 Also on the way: Klue Server, a Docker container that keeps watch around the clock on your own VPS, linked to the app with a key, with a Telegram bot and phone widgets.
 
