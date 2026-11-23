@@ -295,7 +295,7 @@ fn dialog<'a>(ctx: &Ctx<'a>, width: f32, kicker: String, title: String, close: M
         ])
         .align_y(Alignment::Start)
         .spacing(16);
-    let body = scrollable(container(body).padding([18, 22])).style(theme::scroller(p)).height(Length::Shrink);
+    let body = super::smooth::smooth(scrollable(container(body).padding([18, 22])).style(theme::scroller(p)).height(Length::Shrink));
     container(column![container(head).padding(super::pad4(18.0, 22.0, 14.0, 22.0)), hline(p.dv, 2.0), body, hline(p.dv, 2.0), container(foot).padding([14, 22])])
         .width(width)
         .max_height(720)

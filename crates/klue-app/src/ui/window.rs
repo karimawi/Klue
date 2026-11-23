@@ -33,10 +33,8 @@ pub fn view(app: &App) -> El<'_> {
     };
     let main = column![tabs(&ctx), content].width(Length::Fill).height(Length::Fill);
     let body = ctx.row(vec![rail(&ctx), vline(p.chdv, 2.0), main.into()]).height(Length::Fill).align_y(Alignment::Start);
-    let page = container(column![titlebar(&ctx), hline(p.chdv, 2.0), body])
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .style(move |_| theme::fill(p.bg, 0.0));
+    // No background: the window is cleared to `p.bg` (see `App::theme`).
+    let page = container(column![titlebar(&ctx), hline(p.chdv, 2.0), body]).width(Length::Fill).height(Length::Fill);
 
     let mut layers: Vec<El<'_>> = vec![page.into()];
     if let Some(dialog) = modals::view(&ctx) {
@@ -274,7 +272,7 @@ fn tabs<'a>(ctx: &Ctx<'a>) -> El<'a> {
     items.push(container(add).padding(ctx.pad(0.0, 0.0, 6.0, 4.0)).into());
     let strip = ctx.row(items).spacing(4).align_y(Alignment::End).height(58);
     let scroller = scrollable(container(strip).padding([0, 22])).direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::new().width(0).scroller_width(0)));
-    container(scroller).width(Length::Fill).height(58).style(move |_| theme::fill(p.strip, 0.0)).into()
+    container(super::smooth::smooth(scroller)).width(Length::Fill).height(58).style(move |_| theme::fill(p.strip, 0.0)).into()
 }
 
 /// Shared by dialogs that need a text field in Klue's style.

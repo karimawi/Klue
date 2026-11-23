@@ -4,11 +4,11 @@
 use iced::{
     Alignment, Length,
     font::Weight,
-    widget::{button, column, container, scrollable},
+    widget::{button, column, container, row, scrollable},
 };
 use klue_core::{BundleState, Carrier, format};
 
-use super::{Ctx, El, hline, tile};
+use super::{Ctx, El, hline, tile, vline};
 use crate::{app::{App, Message}, assets::Icon, i18n, theme};
 
 pub fn view(app: &App) -> El<'_> {
@@ -78,20 +78,18 @@ pub fn view(app: &App) -> El<'_> {
     let list: El<'_> = if rows.is_empty() {
         container(ctx.muted(s.tray_empty, 13.0)).padding([24, 16]).into()
     } else {
-        scrollable(column(rows)).style(theme::scroller(p)).height(Length::Fill).into()
+        super::smooth::smooth(scrollable(column(rows)).style(theme::scroller(p)).height(Length::Fill))
     };
 
     let open = ctx.primary(s.open_app, Some(Message::ShowMain(None))).width(Length::Fill);
     let settings = ctx.tool(Icon::Sliders, s.settings, Some(Message::PopupSettings), false);
     let foot = ctx.row(vec![open.into(), settings]).spacing(8).align_y(Alignment::Center);
 
-    container(column![container(head).padding([12, 16]), hline(p.dv, 2.0), container(list).height(Length::Fill), hline(p.dv, 2.0), container(foot).padding([12, 16])])
+    let panel = column![container(head).padding([12, 16]), hline(p.dv, 2.0), container(list).height(Length::Fill), hline(p.dv, 2.0), container(foot).padding([12, 16])]
         .width(Length::Fill)
-        .height(Length::Fill)
-        .style(move |_| {
-            let mut st = theme::fill(p.bg, 0.0);
-            st.border = theme::border(p.dv, 1.0, 0.0);
-            st
-        })
-        .into()
+        .height(Length::Fill);
+    // The window is cleared to `p.bg` (see `App::theme`); the 1 px frame is four lines
+    // rather than a bordered window-sized quad, which would be slow to redraw while the
+    // list scrolls.
+    column![hline(p.dv, 1.0), row![vline(p.dv, 1.0), panel, vline(p.dv, 1.0)].height(Length::Fill), hline(p.dv, 1.0)].into()
 }

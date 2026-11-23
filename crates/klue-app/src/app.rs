@@ -194,11 +194,15 @@ impl App {
         "Klue".into()
     }
 
-    fn theme(&self, _window: window::Id) -> iced::Theme {
-        match self.snap.data.settings.theme {
-            Theme::Dark => iced::Theme::Dark,
-            _ => iced::Theme::Light,
-        }
+    /// The window's own palette background and text colour. The renderer clears every
+    /// redrawn area to that background, so no view paints a window-sized quad: tiny-skia
+    /// would redraw such a quad through a clip mask on every scroll frame, which is slow.
+    fn theme(&self, window: window::Id) -> iced::Theme {
+        let popup = Some(window) == self.popup;
+        let carrier = if popup { Carrier::We } else { self.shown_carrier().unwrap_or(Carrier::We) };
+        let p = crate::theme::palette(self.snap.data.settings.theme, carrier, popup);
+        let base = if p.bg.r + p.bg.g + p.bg.b < 1.5 { iced::Theme::Dark } else { iced::Theme::Light };
+        iced::Theme::custom("Klue", iced::theme::Palette { background: p.bg, text: p.tx, ..base.palette() })
     }
 
     fn view(&self, window: window::Id) -> ui::El<'_> {

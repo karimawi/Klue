@@ -53,11 +53,12 @@ pub fn view<'a>(ctx: &Ctx<'a>, account: &'a Account) -> El<'a> {
         }
     }
     // One scroll position per number.
-    scrollable(container(page).padding([22, 28]).width(Length::Fill))
-        .id(format!("dash-{}", account.id))
-        .style(theme::scroller(p))
-        .height(Length::Fill)
-        .into()
+    super::smooth::smooth(
+        scrollable(container(page).padding([22, 28]).width(Length::Fill))
+            .id(format!("dash-{}", account.id))
+            .style(theme::scroller(p))
+            .height(Length::Fill),
+    )
 }
 
 fn header<'a>(ctx: &Ctx<'a>, account: &'a Account, refreshing: bool) -> El<'a> {
