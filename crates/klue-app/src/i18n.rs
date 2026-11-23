@@ -131,6 +131,14 @@ pub struct Strings {
     pub main_quota: &'static str,
     pub prev_bundle: &'static str,
     pub next_bundle: &'static str,
+    /// Settings: alert settings for every number at once.
+    pub all_alerts: &'static str,
+    pub all_alerts_hint: &'static str,
+    pub all_low_quota: &'static str,
+    pub percent_left: &'static str,
+    pub all_other_bundles: &'static str,
+    pub apply_all: &'static str,
+    pub applied_all: &'static str,
 }
 
 pub static EN: Strings = Strings {
@@ -190,6 +198,13 @@ pub static EN: Strings = Strings {
     main_quota: "The main quota",
     prev_bundle: "Previous bundle",
     next_bundle: "Next bundle",
+    all_alerts: "Alerts for all numbers",
+    all_alerts_hint: "New numbers start with these. Apply them to give every number these settings now.",
+    all_low_quota: "Alert on each main quota at",
+    percent_left: "% left",
+    all_other_bundles: "Also alert on the other bundles",
+    apply_all: "Apply to all numbers",
+    applied_all: "Applied to every number.",
 };
 
 pub static AR: Strings = Strings {
@@ -250,6 +265,13 @@ pub static AR: Strings = Strings {
     main_quota: "الباقة الرئيسية",
     prev_bundle: "الباقة السابقة",
     next_bundle: "الباقة التالية",
+    all_alerts: "التنبيهات لكل الأرقام",
+    all_alerts_hint: "الأرقام الجديدة تبدأ بهذه الإعدادات. طبّقها لتصبح إعدادات كل الأرقام الآن.",
+    all_low_quota: "تنبيه للباقة الرئيسية عند",
+    percent_left: "% متبقية",
+    all_other_bundles: "وتنبيه للباقات الأخرى أيضاً",
+    apply_all: "تطبيق على كل الأرقام",
+    applied_all: "تم التطبيق على كل الأرقام.",
 };
 
 pub fn strings(lang: Lang) -> &'static Strings {

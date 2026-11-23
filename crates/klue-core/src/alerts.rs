@@ -107,7 +107,7 @@ mod tests {
             fetched_at: now,
             info: Default::default(),
             payments: None,
-        });
+        }, &Default::default());
         a
     }
 

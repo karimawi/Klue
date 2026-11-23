@@ -108,7 +108,7 @@ fn build(l: Line) -> Account {
                 })
                 .collect(),
         ),
-    });
+    }, &Default::default());
     a.last_attempt = Some(fetched_at);
     a
 }

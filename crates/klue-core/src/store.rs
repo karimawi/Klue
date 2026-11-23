@@ -76,11 +76,58 @@ pub struct Settings {
     pub refresh: RefreshEvery,
     pub launch_at_startup: bool,
     pub keep_in_tray: bool,
+    /// Alert settings for every number at once; new numbers start with them.
+    pub alerts: AlertDefaults,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { theme: Theme::Light, lang: Lang::En, refresh: RefreshEvery::Hour1, launch_at_startup: false, keep_in_tray: true }
+        Self {
+            theme: Theme::Light,
+            lang: Lang::En,
+            refresh: RefreshEvery::Hour1,
+            launch_at_startup: false,
+            keep_in_tray: true,
+            alerts: AlertDefaults::default(),
+        }
+    }
+}
+
+/// Alert settings for all numbers: applied to every one of them from Settings, and what a
+/// new number (or a new bundle on one) starts with.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AlertDefaults {
+    /// A low-quota alert on each number's main quota...
+    pub main_quota: bool,
+    /// ...and on its other bundles.
+    pub other_bundles: bool,
+    /// How low, as a share of the bundle (units differ between numbers). `None` until set:
+    /// 10% of each bundle, as an amount in its own unit.
+    pub percent: Option<f64>,
+    pub renewal: RenewalReminder,
+    pub renewal_day: bool,
+}
+
+impl Default for AlertDefaults {
+    fn default() -> Self {
+        Self { main_quota: true, other_bundles: false, percent: None, renewal: RenewalReminder::default(), renewal_day: false }
+    }
+}
+
+impl AlertDefaults {
+    /// The alert a bundle starts with.
+    pub fn bundle_alert(&self, bundle: &Bundle, is_main: bool) -> BundleAlert {
+        let enabled = if is_main { self.main_quota } else { self.other_bundles };
+        match self.percent {
+            Some(value) => BundleAlert { enabled, value, mode: ThresholdMode::Percent },
+            None => BundleAlert::default_for(bundle, enabled),
+        }
+    }
+
+    /// The share shown in Settings: the one set, else the 10% bundles start with.
+    pub fn percent_or_default(&self) -> f64 {
+        self.percent.unwrap_or(10.0)
     }
 }
 
@@ -248,20 +295,36 @@ impl Account {
         self.main_bundle().is_some_and(|b| self.alert_for(b, true).is_triggered(b))
     }
 
-    /// Record a successful refresh.
-    pub fn apply_usage(&mut self, usage: Usage) {
+    /// Record a successful refresh. Bundles seen for the first time get alerts from
+    /// `defaults`.
+    pub fn apply_usage(&mut self, usage: Usage, defaults: &AlertDefaults) {
         if let Some(name) = usage.owner_name.clone() {
             self.owner_name = Some(name);
         }
-        for (i, b) in usage.bundles.iter().enumerate() {
+        let main = usage.main_for(self.main_bundle.as_deref()).map(|m| m.key.clone());
+        for b in &usage.bundles {
             if !self.alerts.bundles.contains_key(&b.key) {
-                self.alerts.bundles.insert(b.key.clone(), BundleAlert::default_for(b, i == 0));
+                self.alerts.bundles.insert(b.key.clone(), defaults.bundle_alert(b, main.as_deref() == Some(b.key.as_str())));
             }
         }
         self.usage = Some(usage);
         self.last_error = None;
         self.blocked_until = None;
         self.last_attempt = Some(Utc::now());
+    }
+
+    /// Replace every alert setting with `defaults` (alerts that already fired this cycle
+    /// can fire again).
+    pub fn reset_alerts(&mut self, defaults: &AlertDefaults) {
+        self.alerts.renewal = defaults.renewal;
+        self.alerts.renewal_day = defaults.renewal_day;
+        self.alerts.bundles.clear();
+        if let Some(usage) = &self.usage {
+            for (i, b) in usage.ordered(self.main_bundle.as_deref()).into_iter().enumerate() {
+                self.alerts.bundles.insert(b.key.clone(), defaults.bundle_alert(b, i == 0));
+            }
+        }
+        self.fired.clear();
     }
 
     /// Record a failed refresh. The previous snapshot is kept.
@@ -300,6 +363,14 @@ impl Default for AppData {
 }
 
 impl AppData {
+    /// Give every number the alert settings for all numbers.
+    pub fn apply_alert_defaults(&mut self) {
+        let defaults = self.settings.alerts;
+        for account in &mut self.accounts {
+            account.reset_alerts(&defaults);
+        }
+    }
+
     pub fn accounts_for(&self, carrier: Carrier) -> impl Iterator<Item = &Account> {
         self.accounts.iter().filter(move |a| a.carrier == carrier)
     }
@@ -523,6 +594,60 @@ mod tests {
     fn default_alert_is_ten_percent() {
         assert_eq!(BundleAlert::default_for(&bundle(140.0, 10.0), true).value, 14.0);
         assert_eq!(BundleAlert::default_for(&bundle(5.0, 1.0), true).value, 1.0);
+    }
+
+    fn usage(bundles: Vec<Bundle>) -> Usage {
+        Usage {
+            owner_name: None,
+            package_name: None,
+            package_name_ar: None,
+            balance_egp: None,
+            owed_egp: None,
+            bundles,
+            subscribed_at: None,
+            renews_at: None,
+            fetched_at: Utc::now(),
+            info: Default::default(),
+            payments: None,
+        }
+    }
+
+    #[test]
+    fn alert_settings_for_all_numbers() {
+        let topup = Bundle { key: "topup".into(), kind: BundleKind::Addon, ..bundle(25.0, 20.0) };
+        let mut data = AppData::default();
+        for number in ["0223584417", "0348712290"] {
+            let mut a = Account::new(Carrier::We, LineType::Landline, number.into());
+            a.apply_usage(usage(vec![bundle(140.0, 60.0), topup.clone()]), &data.settings.alerts);
+            a.mark_fired("quota:data:-".into());
+            data.accounts.push(a);
+        }
+        // Until changed: the main quota at 10% of it in its unit, the others off.
+        let a = &data.accounts[0];
+        assert_eq!(a.alerts.bundles["data"], BundleAlert { enabled: true, value: 14.0, mode: ThresholdMode::Amount });
+        assert!(!a.alerts.bundles["topup"].enabled);
+
+        data.settings.alerts = AlertDefaults {
+            main_quota: true,
+            other_bundles: true,
+            percent: Some(20.0),
+            renewal: RenewalReminder { enabled: true, value: 12, unit: LeadUnit::Hours },
+            renewal_day: true,
+        };
+        data.apply_alert_defaults();
+        for a in &data.accounts {
+            assert_eq!(a.alerts.bundles["data"], BundleAlert { enabled: true, value: 20.0, mode: ThresholdMode::Percent });
+            assert!(a.alerts.bundles["topup"].enabled);
+            assert_eq!((a.alerts.renewal.value, a.alerts.renewal.unit, a.alerts.renewal_day), (12, LeadUnit::Hours, true));
+            assert!(a.fired.is_empty(), "re-armed");
+        }
+
+        // A new number, and a new bundle on an old one, start from them too.
+        let mut fresh = Account::new(Carrier::Vodafone, LineType::Mobile, "01000000000".into());
+        fresh.reset_alerts(&data.settings.alerts);
+        fresh.apply_usage(usage(vec![bundle(4750.0, 1310.0)]), &data.settings.alerts);
+        assert_eq!(fresh.alerts.bundles["data"].mode, ThresholdMode::Percent);
+        assert!(fresh.alerts.renewal_day);
     }
 
     #[test]

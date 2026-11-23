@@ -195,7 +195,10 @@ impl Shared {
         let number = format::normalize(number, line)?;
         let mut account = Account::new(carrier, line, number);
         account.nickname = nickname.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
-        account.apply_usage(usage);
+        // New numbers start with the alert settings for all numbers.
+        let defaults = self.settings().alerts;
+        account.reset_alerts(&defaults);
+        account.apply_usage(usage, &defaults);
         let id = account.id.clone();
         if !self.demo && !self.secrets.set(&account, password) {
             tracing::warn!("password for {id} is kept in memory only");
@@ -287,9 +290,10 @@ impl Shared {
             tracing::warn!("refreshing {} failed: {e}", account.id);
         }
         self.update(|d| {
+            let defaults = d.settings.alerts;
             if let Some(a) = d.account_mut(id) {
                 match result {
-                    Ok(usage) => a.apply_usage(usage),
+                    Ok(usage) => a.apply_usage(usage, &defaults),
                     Err(e) => a.apply_error(e),
                 }
             }

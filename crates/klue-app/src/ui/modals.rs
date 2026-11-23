@@ -33,7 +33,15 @@ pub enum Modal {
     Add(AddForm),
     Rename(RenameForm),
     Alerts(AlertsForm),
-    Settings,
+    Settings(SettingsForm),
+}
+
+pub struct SettingsForm {
+    /// What's typed in the all-numbers threshold and lead-time fields.
+    percent: String,
+    lead: String,
+    /// "Apply to all numbers" was pressed (and nothing changed since).
+    applied: bool,
 }
 
 pub struct AddForm {
@@ -98,6 +106,15 @@ pub enum Msg {
     Startup,
     KeepInTray,
     RefreshEvery(RefreshEvery),
+    /// Alerts for all numbers (saved as they change; applied to every number on AllApply).
+    AllMain,
+    AllOthers,
+    AllPercent(String),
+    AllReminder,
+    AllLead(String),
+    AllLeadUnit(LeadUnit),
+    AllRenewalDay,
+    AllApply,
 }
 
 impl Modal {
@@ -134,7 +151,14 @@ impl Modal {
                 }
                 None => Modal::None,
             },
-            ModalKind::Settings => Modal::Settings,
+            ModalKind::Settings => {
+                let alerts = snap.data.settings.alerts;
+                Modal::Settings(SettingsForm {
+                    percent: format::amount_short(alerts.percent_or_default(), Unit::Gb),
+                    lead: alerts.renewal.value.to_string(),
+                    applied: false,
+                })
+            }
         }
     }
 }
@@ -267,6 +291,42 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
         }
         (_, Msg::KeepInTray) => shared.update(|d| d.settings.keep_in_tray = !d.settings.keep_in_tray),
         (_, Msg::RefreshEvery(r)) => shared.update(|d| d.settings.refresh = r),
+
+        (Modal::Settings(f), msg @ (Msg::AllMain | Msg::AllOthers | Msg::AllPercent(_) | Msg::AllReminder | Msg::AllLead(_) | Msg::AllLeadUnit(_) | Msg::AllRenewalDay)) => {
+            f.applied = false;
+            let mut alerts = shared.settings().alerts;
+            match msg {
+                Msg::AllMain => alerts.main_quota = !alerts.main_quota,
+                Msg::AllOthers => alerts.other_bundles = !alerts.other_bundles,
+                Msg::AllPercent(text) => {
+                    let text: String = text.chars().filter(|c| c.is_ascii_digit() || *c == '.').take(5).collect();
+                    if let Ok(n) = text.parse::<f64>() {
+                        alerts.percent = Some(n.clamp(0.0, 100.0));
+                    }
+                    f.percent = text;
+                }
+                Msg::AllReminder => alerts.renewal.enabled = !alerts.renewal.enabled,
+                Msg::AllLead(text) => {
+                    let text: String = text.chars().filter(char::is_ascii_digit).take(3).collect();
+                    if let Ok(n) = text.parse::<u32>() {
+                        alerts.renewal.value = n.max(1);
+                    }
+                    f.lead = text;
+                }
+                Msg::AllLeadUnit(u) => alerts.renewal.unit = u,
+                Msg::AllRenewalDay => alerts.renewal_day = !alerts.renewal_day,
+                _ => {}
+            }
+            shared.update(|d| d.settings.alerts = alerts);
+        }
+        (Modal::Settings(f), Msg::AllApply) => {
+            shared.update(|d| {
+                // What the field shows is what every number gets.
+                d.settings.alerts.percent = Some(d.settings.alerts.percent_or_default());
+                d.apply_alert_defaults();
+            });
+            f.applied = true;
+        }
         _ => {}
     }
     Task::none()
@@ -278,7 +338,7 @@ pub fn view<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
         Modal::Add(f) => Some(add(ctx, f)),
         Modal::Rename(f) => ctx.app.snap.data.account(&f.id).map(|a| rename(ctx, f, a)),
         Modal::Alerts(f) => ctx.app.snap.data.account(&f.id).map(|a| alerts(ctx, f, a)),
-        Modal::Settings => Some(settings(ctx)),
+        Modal::Settings(f) => Some(settings(ctx, f)),
     }
 }
 
@@ -541,27 +601,31 @@ fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::A
 // ---------------------------------------------------------------------------------------
 // Alerts
 
+/// A small number field (thresholds, lead times), faded while what it sets is off.
+fn number_field<'a>(ctx: &Ctx<'a>, value: &str, on_input: impl Fn(String) -> Message + 'a, width: f32, dim: bool) -> El<'a> {
+    let p = ctx.p;
+    text_input("", value)
+        .on_input(on_input)
+        .padding([6, 8])
+        .size(14)
+        .width(width)
+        .font(crate::assets::numbers(Weight::Semibold))
+        .style(move |t, st| {
+            let mut style = theme::field(p, false)(t, st);
+            if dim {
+                style.value = theme::fade(p.tx, 0.4);
+            }
+            style
+        })
+        .into()
+}
+
 fn alerts<'a>(ctx: &Ctx<'a>, f: &'a AlertsForm, account: &'a klue_core::store::Account) -> El<'a> {
     let p = ctx.p;
     let s = ctx.s;
     let ar = ctx.rtl();
     let Some(usage) = &account.usage else { return Space::new().into() };
-    let small = |value: &str, on_input: Box<dyn Fn(String) -> Message + 'a>, width: f32, dim: bool| -> El<'a> {
-        text_input("", value)
-            .on_input(on_input)
-            .padding([6, 8])
-            .size(14)
-            .width(width)
-            .font(crate::assets::numbers(Weight::Semibold))
-            .style(move |t, st| {
-                let mut style = theme::field(p, false)(t, st);
-                if dim {
-                    style.value = theme::fade(p.tx, 0.4);
-                }
-                style
-            })
-            .into()
-    };
+    let small = |value: &str, on_input: Box<dyn Fn(String) -> Message + 'a>, width: f32, dim: bool| number_field(ctx, value, on_input, width, dim);
 
     let mut quota = column![ctx.caps(s.quota_alerts), gap(6.0), hline(p.dv, 2.0)].align_x(ctx.start());
     for bundle in usage.ordered(account.main_bundle.as_deref()) {
@@ -653,7 +717,7 @@ fn alerts<'a>(ctx: &Ctx<'a>, f: &'a AlertsForm, account: &'a klue_core::store::A
 // ---------------------------------------------------------------------------------------
 // Settings
 
-fn settings<'a>(ctx: &Ctx<'a>) -> El<'a> {
+fn settings<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
     let p = ctx.p;
     let s = ctx.s;
     let ar = ctx.rtl();
@@ -708,10 +772,53 @@ fn settings<'a>(ctx: &Ctx<'a>) -> El<'a> {
             sys(s.tray, settings.keep_in_tray, Msg::KeepInTray),
             hline(p.dvs, 1.0)
         ],
+        all_alerts(ctx, f),
     ]
     .spacing(16);
     let foot = ctx.row(vec![container(ctx.muted(s.disclaimer, 11.5)).width(Length::Fill).align_x(ctx.start()).into(), ctx.primary(s.done, Some(Message::CloseModal)).into()]).spacing(12);
     dialog(ctx, 540.0, s.app.to_string(), s.settings_title.to_string(), Message::CloseModal, body.into(), foot.into())
+}
+
+/// Alerts for all numbers: saved as they change (new numbers start with them), and given
+/// to every number with the Apply button.
+fn all_alerts<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
+    let p = ctx.p;
+    let s = ctx.s;
+    let a = ctx.app.snap.data.settings.alerts;
+    let line = |items: Vec<El<'a>>| -> El<'a> { container(ctx.row(items).spacing(10).align_y(Alignment::Center)).padding([10, 0]).into() };
+    let percent = number_field(ctx, &f.percent, |t| Message::Modal(Msg::AllPercent(t)), 52.0, !(a.main_quota || a.other_bundles));
+    let lead = number_field(ctx, &f.lead, |t| Message::Modal(Msg::AllLead(t)), 52.0, !a.renewal.enabled);
+    let units = ctx.segmented(
+        [(LeadUnit::Days, s.days), (LeadUnit::Hours, s.hours)]
+            .into_iter()
+            .map(|(u, label)| (label.to_string(), a.renewal.unit == u, Some(Message::Modal(Msg::AllLeadUnit(u)))))
+            .collect(),
+        32.0,
+        12.5,
+    );
+    let apply = ctx.row(vec![
+        container(ctx.muted(if f.applied { s.applied_all } else { s.all_alerts_hint }, 12.0)).width(Length::Fill).align_x(ctx.start()).into(),
+        ctx.outline(s.apply_all, (!ctx.app.snap.data.accounts.is_empty()).then_some(Message::Modal(Msg::AllApply))).into(),
+    ])
+    .spacing(12)
+    .align_y(Alignment::Center);
+    column![
+        ctx.caps(s.all_alerts),
+        gap(6.0),
+        hline(p.dv, 2.0),
+        line(vec![ctx.toggle(a.main_quota, Message::Modal(Msg::AllMain)), ctx.semi(s.all_low_quota, 13.5).into(), percent, ctx.muted(s.percent_left, 13.5).into()]),
+        hline(p.dvs, 1.0),
+        line(vec![ctx.toggle(a.other_bundles, Message::Modal(Msg::AllOthers)), ctx.body(s.all_other_bundles, 13.5).into()]),
+        hline(p.dvs, 1.0),
+        line(vec![ctx.toggle(a.renewal.enabled, Message::Modal(Msg::AllReminder)), ctx.semi(s.remind_me, 13.5).into(), lead, units, ctx.muted(s.before_renewal, 13.5).into()]),
+        hline(p.dvs, 1.0),
+        line(vec![ctx.toggle(a.renewal_day, Message::Modal(Msg::AllRenewalDay)), ctx.body(s.renew_day, 13.5).into()]),
+        hline(p.dvs, 1.0),
+        gap(10.0),
+        apply,
+    ]
+    .align_x(ctx.start())
+    .into()
 }
 
 // ---------------------------------------------------------------------------------------
