@@ -1,5 +1,5 @@
-//! State shared by the UI and background work: the data file, passwords, refreshes and
-//! alerts. The UI listens for revision bumps and re-reads a [`Snapshot`].
+//! State shared by the UI and background work: data file, passwords, refreshes, alerts.
+//! Windows watch a revision counter and re-read a [`Snapshot`].
 
 use std::{
     collections::BTreeSet,
@@ -30,7 +30,7 @@ pub struct Snapshot {
     pub data: AppData,
     /// Accounts with a refresh in flight.
     pub refreshing: BTreeSet<String>,
-    /// A Refresh all is going through the numbers (its own refreshes are in `refreshing`).
+    /// A Refresh all is running (its refreshes are also in `refreshing`).
     pub refreshing_all: bool,
     pub demo: bool,
 }
@@ -47,7 +47,7 @@ pub struct CaptchaRequest {
     pub reply: oneshot::Sender<Option<String>>,
 }
 
-/// Captcha "solver" that asks the person in front of the screen.
+/// Captcha "solver" that asks the user.
 struct PromptSolver {
     tx: mpsc::UnboundedSender<CaptchaRequest>,
 }
@@ -80,9 +80,9 @@ pub struct Shared {
     pub demo: bool,
 }
 
-/// How often the background loop wakes up to look for due refreshes and reminders.
+/// How often the background loop checks for due refreshes and reminders.
 pub const TICK: Duration = Duration::from_secs(60);
-/// Don't re-sign-in more often than this, even on demand (WE answers rapid sign-ins with captchas).
+/// Minimum time between sign-ins, even on demand (WE answers rapid ones with captchas).
 const MIN_INTERACTIVE_GAP: chrono::Duration = chrono::Duration::seconds(20);
 
 impl Shared {
@@ -92,8 +92,7 @@ impl Shared {
             demo::data()
         } else {
             let mut data = store.load();
-            // Accounts the OS vault remembers but this data file doesn't (a fresh install,
-            // or a file written by another Klue version) come back without their history.
+            // Accounts in the vault but not in the data file come back, without their history.
             let restored = data.restore(secrets.load_index());
             if restored > 0 {
                 tracing::info!("restored {restored} account(s) from the credential store");
@@ -137,7 +136,7 @@ impl Shared {
         self.revision.send_modify(|r| *r += 1);
     }
 
-    /// Change the data, save it and tell every window.
+    /// Changes the data, saves it and notifies the windows.
     pub fn update<R>(&self, f: impl FnOnce(&mut AppData) -> R) -> R {
         let (result, data) = {
             let mut data = self.data.lock().expect("data lock");
@@ -160,8 +159,8 @@ impl Shared {
         self.captcha_rx.lock().ok()?.take()
     }
 
-    /// Captchas go to the model; when it isn't sure of one, WE is asked for another. Only if
-    /// it declines all of them, and someone is at the screen (`interactive`), are they asked.
+    /// Captchas go to the model, and WE is asked for another when it isn't sure. The user is
+    /// only asked if the model declines them all and `interactive` is set.
     fn context(&self, interactive: bool) -> FetchContext<'_> {
         FetchContext {
             solver: self.ocr.as_deref(),
@@ -170,7 +169,7 @@ impl Shared {
         }
     }
 
-    /// Sign in with new credentials (the add-number flow).
+    /// Signs in with new credentials (Add a number).
     pub async fn verify(&self, carrier: Carrier, line: LineType, number: &str, password: &str) -> Result<Usage, FetchError> {
         let number = format::normalize(number, line)?;
         if self.data.lock().expect("data lock").accounts.iter().any(|a| a.carrier == carrier && a.number == number) {
@@ -182,7 +181,7 @@ impl Shared {
         carriers::fetch(carrier, line, &number, password, &self.context(true)).await
     }
 
-    /// Save a verified number. Returns the new account's id.
+    /// Saves a verified number. Returns its id.
     pub fn add_account(
         &self,
         carrier: Carrier,
@@ -208,7 +207,7 @@ impl Shared {
         Ok(id)
     }
 
-    /// Rename a number (an empty nickname clears it).
+    /// An empty nickname clears it.
     pub fn rename(&self, id: &str, nickname: &str) {
         let nickname = Some(nickname.trim().to_string()).filter(|n| !n.is_empty());
         self.update(|d| {
@@ -219,7 +218,7 @@ impl Shared {
         self.save_vault_index();
     }
 
-    /// Make `bundle` this number's main quota (`None` goes back to the default).
+    /// `None` resets to the default main quota.
     pub fn set_main_bundle(&self, id: &str, bundle: Option<String>) {
         self.update(|d| {
             if let Some(a) = d.account_mut(id) {
@@ -257,8 +256,8 @@ impl Shared {
         changed
     }
 
-    /// Refresh one account. `interactive` refreshes (the Refresh button) may ask the user
-    /// to type a captcha; background ones only use OCR.
+    /// `interactive` refreshes (the Refresh button) may ask the user for a captcha; background
+    /// ones don't.
     pub async fn refresh(&self, id: &str, interactive: bool) {
         let Some(account) = self.data.lock().expect("data lock").account(id).cloned() else { return };
         if !account.carrier.supports_line(account.line) {
@@ -301,7 +300,7 @@ impl Shared {
         self.set_refreshing(id, false);
     }
 
-    /// Refresh everything that's due, one account at a time.
+    /// Refreshes everything that's due, one at a time.
     pub async fn refresh_due(&self) {
         let (interval, due): (chrono::Duration, Vec<String>) = {
             let data = self.data.lock().expect("data lock");
@@ -311,8 +310,7 @@ impl Shared {
                 .accounts
                 .iter()
                 .filter(|a| a.carrier.supports_line(a.line))
-                // A rejected password stays rejected; retrying it in the background could
-                // get the account locked. The user retries with the Refresh button.
+                // A rejected password stays rejected: retrying in the background could lock the account.
                 .filter(|a| !matches!(a.last_error, Some(FetchError::BadCredentials)))
                 .filter(|a| a.last_attempt.is_none_or(|t| now - t >= interval))
                 .map(|a| a.id.clone())
@@ -325,8 +323,8 @@ impl Shared {
         }
     }
 
-    /// Refresh every number, one at a time. A number already refreshing on its own is
-    /// left to finish; a second Refresh all while one runs does nothing.
+    /// Refreshes every number in turn. Numbers already refreshing are skipped, and a second
+    /// Refresh all while one runs does nothing.
     pub async fn refresh_all(&self) {
         if self.refreshing_all.swap(true, Ordering::Relaxed) {
             return;
@@ -340,7 +338,7 @@ impl Shared {
         self.bump();
     }
 
-    /// Alerts that are due now; they're marked as shown.
+    /// Due alerts, marked as shown.
     pub fn take_due_alerts(&self, now: DateTime<Utc>) -> Vec<(Account, AlertEvent)> {
         let due: Vec<(Account, AlertEvent)> = {
             let data = self.data.lock().expect("data lock");

@@ -1,9 +1,8 @@
-//! Local persistence: one JSON file for settings and accounts, and the OS credential
-//! store (Windows Credential Manager, macOS Keychain, Secret Service) for passwords.
+//! Settings and accounts in one JSON file; passwords in the OS credential store.
 //!
-//! Credentials are stored under service `Klue` with the account's carrier and number as
-//! the user name (`we:0223584417`), and the vault also keeps a small list of the accounts
-//! (`Klue` / `accounts`), so any Klue version, or a fresh data file, finds them again.
+//! Passwords are saved under service `Klue`, user `<carrier>:<number>` (`we:0223584417`).
+//! The vault also keeps the account list (`Klue` / `accounts`), so a fresh data file can
+//! find them again.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -35,7 +34,7 @@ pub enum Theme {
     #[default]
     Light,
     Dark,
-    /// Recolour the app with the selected carrier's brand colours.
+    /// Recolour the app with the selected carrier's colours.
     Match,
 }
 
@@ -76,11 +75,11 @@ pub struct Settings {
     pub refresh: RefreshEvery,
     pub launch_at_startup: bool,
     pub keep_in_tray: bool,
-    /// Alert settings for every number at once; new numbers start with them.
+    /// Alert settings for all numbers; new numbers start with them.
     pub alerts: AlertDefaults,
-    /// A release the user chose to skip: not offered again on its own.
+    /// A release the user chose to skip.
     pub skipped_update: Option<String>,
-    /// The version of Klue whose disclaimer was accepted; each new version asks again.
+    /// The version whose disclaimer was accepted.
     pub accepted_disclaimer: Option<String>,
 }
 
@@ -99,17 +98,17 @@ impl Default for Settings {
     }
 }
 
-/// Alert settings for all numbers: applied to every one of them from Settings, and what a
-/// new number (or a new bundle on one) starts with.
+/// Alert settings applied to all numbers from Settings. New numbers and new bundles start
+/// with them.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AlertDefaults {
-    /// A low-quota alert on each number's main quota...
+    /// Low-quota alert on each number's main quota.
     pub main_quota: bool,
-    /// ...and on its other bundles.
+    /// Low-quota alerts on the other bundles.
     pub other_bundles: bool,
-    /// How low, as a share of the bundle (units differ between numbers). `None` until set:
-    /// 10% of each bundle, as an amount in its own unit.
+    /// Threshold as a share of the bundle, since units differ between numbers. `None` means
+    /// the default 10%.
     pub percent: Option<f64>,
     pub renewal: RenewalReminder,
     pub renewal_day: bool,
@@ -122,7 +121,7 @@ impl Default for AlertDefaults {
 }
 
 impl AlertDefaults {
-    /// The alert a bundle starts with.
+    /// The alert a new bundle gets.
     pub fn bundle_alert(&self, bundle: &Bundle, is_main: bool) -> BundleAlert {
         let enabled = if is_main { self.main_quota } else { self.other_bundles };
         match self.percent {
@@ -131,7 +130,7 @@ impl AlertDefaults {
         }
     }
 
-    /// The share shown in Settings: the one set, else the 10% bundles start with.
+    /// The share shown in Settings.
     pub fn percent_or_default(&self) -> f64 {
         self.percent.unwrap_or(10.0)
     }
@@ -237,17 +236,17 @@ pub struct Account {
     pub last_error: Option<FetchError>,
     #[serde(default)]
     pub last_attempt: Option<DateTime<Utc>>,
-    /// WE refuses sign-ins until then after too many captchas.
+    /// WE refuses sign-ins until this time.
     #[serde(default)]
     pub blocked_until: Option<DateTime<Utc>>,
-    /// Alerts already shown, so each fires once per cycle.
+    /// Alerts already sent this cycle.
     #[serde(default)]
     pub fired: Vec<String>,
     pub created_at: DateTime<Utc>,
-    /// Key of the bundle the user chose as this line's main quota.
+    /// The bundle the user picked as the main quota.
     #[serde(default)]
     pub main_bundle: Option<String>,
-    /// What each bundle had left at each refresh, for the usage graphs.
+    /// Usage samples for the graphs.
     #[serde(default)]
     pub history: crate::history::History,
 }
@@ -273,7 +272,7 @@ impl Account {
         }
     }
 
-    /// The vault user name for this account's password: carrier and number.
+    /// The vault user name: carrier and number.
     pub fn credential_user(&self) -> String {
         format!("{}:{}", self.carrier.id(), self.number)
     }
@@ -296,7 +295,7 @@ impl Account {
         self.alerts.bundles.get(&bundle.key).copied().unwrap_or_else(|| BundleAlert::default_for(bundle, is_main))
     }
 
-    /// The main quota, as the user chose it (or the default).
+    /// The main quota (the user's pick, or the default).
     pub fn main_bundle(&self) -> Option<&Bundle> {
         self.usage.as_ref().and_then(|u| u.main_for(self.main_bundle.as_deref()))
     }
@@ -305,8 +304,7 @@ impl Account {
         self.main_bundle().is_some_and(|b| self.alert_for(b, true).is_triggered(b))
     }
 
-    /// Record a successful refresh. Bundles seen for the first time get alerts from
-    /// `defaults`.
+    /// Records a successful refresh. New bundles get alerts from `defaults`.
     pub fn apply_usage(&mut self, usage: Usage, defaults: &AlertDefaults) {
         if let Some(name) = usage.owner_name.clone() {
             self.owner_name = Some(name);
@@ -324,8 +322,7 @@ impl Account {
         self.last_attempt = Some(Utc::now());
     }
 
-    /// Replace every alert setting with `defaults` (alerts that already fired this cycle
-    /// can fire again).
+    /// Resets every alert to `defaults`; alerts already sent can fire again.
     pub fn reset_alerts(&mut self, defaults: &AlertDefaults) {
         self.alerts.renewal = defaults.renewal;
         self.alerts.renewal_day = defaults.renewal_day;
@@ -338,7 +335,7 @@ impl Account {
         self.fired.clear();
     }
 
-    /// Record a failed refresh. The previous snapshot is kept.
+    /// Records a failed refresh, keeping the last good data.
     pub fn apply_error(&mut self, error: FetchError) {
         if let FetchError::CaptchaBlocked(until) = &error {
             self.blocked_until = Some(*until);
@@ -374,7 +371,7 @@ impl Default for AppData {
 }
 
 impl AppData {
-    /// Give every number the alert settings for all numbers.
+    /// Applies the all-numbers alert settings to every number.
     pub fn apply_alert_defaults(&mut self) {
         let defaults = self.settings.alerts;
         for account in &mut self.accounts {
@@ -422,7 +419,7 @@ impl Store {
         &self.dir
     }
 
-    /// Load the data file. A corrupt file is moved aside rather than overwritten.
+    /// A corrupt file is moved aside, not overwritten.
     pub fn load(&self) -> AppData {
         let path = self.dir.join(DATA_FILE);
         let Ok(text) = std::fs::read_to_string(&path) else { return AppData::default() };
@@ -449,15 +446,14 @@ impl Store {
 // ---------------------------------------------------------------------------------------
 // Passwords
 
-/// Account passwords, kept in the OS credential store. If no credential store is
-/// available (e.g. Linux without a Secret Service), passwords are kept in memory for
-/// this session only and never written to disk.
+/// Passwords in the OS credential store. Without one (Linux with no Secret Service) they
+/// only live in memory for the session.
 #[derive(Default)]
 pub struct Secrets {
     memory: Mutex<HashMap<String, String>>,
 }
 
-/// What the vault remembers about an account besides its password.
+/// What the vault keeps about an account besides its password.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VaultAccount {
     pub carrier: Carrier,
@@ -482,7 +478,7 @@ impl Secrets {
         match read_entry(&user) {
             Ok(p) => Some(p),
             Err(e) => {
-                // Klue 0.1 keyed passwords by the account's random id; move them over.
+                // 0.1 keyed passwords by the account's random id; move them.
                 if let Ok(p) = read_entry(&account.id) {
                     if write_entry(&user, &p).is_ok() {
                         let _ = keyring::Entry::new(KEYRING_SERVICE, &account.id).and_then(|e| e.delete_credential());
@@ -522,7 +518,7 @@ impl Secrets {
         }
     }
 
-    /// Record the account list in the vault (no passwords; those are separate entries).
+    /// Saves the account list in the vault (passwords are separate entries).
     pub fn save_index(&self, accounts: &[Account]) {
         let list: Vec<VaultAccount> = accounts
             .iter()
@@ -549,8 +545,7 @@ fn write_entry(user: &str, secret: &str) -> keyring::Result<()> {
 }
 
 impl AppData {
-    /// Add accounts the vault knows about but the data file doesn't (a new data file, or
-    /// one written by another Klue version). Returns how many were added.
+    /// Adds accounts the vault knows and the data file doesn't. Returns how many.
     pub fn restore(&mut self, from_vault: Vec<VaultAccount>) -> usize {
         let mut added = 0;
         for v in from_vault {
@@ -633,7 +628,7 @@ mod tests {
             a.mark_fired("quota:data:-".into());
             data.accounts.push(a);
         }
-        // Until changed: the main quota at 10% of it in its unit, the others off.
+        // Defaults: the main quota at 10%, the others off.
         let a = &data.accounts[0];
         assert_eq!(a.alerts.bundles["data"], BundleAlert { enabled: true, value: 14.0, mode: ThresholdMode::Amount });
         assert!(!a.alerts.bundles["topup"].enabled);
@@ -653,7 +648,7 @@ mod tests {
             assert!(a.fired.is_empty(), "re-armed");
         }
 
-        // A new number, and a new bundle on an old one, start from them too.
+        // New numbers and new bundles start from them too.
         let mut fresh = Account::new(Carrier::Vodafone, LineType::Mobile, "01000000000".into());
         fresh.reset_alerts(&data.settings.alerts);
         fresh.apply_usage(usage(vec![bundle(4750.0, 1310.0)]), &data.settings.alerts);

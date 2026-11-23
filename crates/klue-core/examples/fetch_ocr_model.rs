@@ -1,8 +1,7 @@
-//! Download ddddocr's `common_old.onnx` (the model Klue uses to read WE captchas) from
-//! the ddddocr wheel on PyPI, check it, and put it where Klue looks for it.
+//! Downloads ddddocr's `common_old.onnx` from its PyPI wheel into Klue's model folder.
 //!
 //! ```text
-//! cargo run -p klue-core --example fetch_ocr_model            # into Klue's data dir
+//! cargo run -p klue-core --example fetch_ocr_model
 //! cargo run -p klue-core --example fetch_ocr_model -- assets/models
 //! ```
 

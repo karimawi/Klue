@@ -1,6 +1,5 @@
 //! One Klue at a time. The first instance listens on a local socket (a named pipe on
-//! Windows); a second launch connects to it, asks it to show its window, and exits.
-//! A Klue started by an update waits for the old one to quit instead ([`wait_until_gone`]).
+//! Windows); a second launch asks it to show itself and exits.
 
 use std::{
     io::{BufRead, BufReader, Write},
@@ -36,7 +35,7 @@ pub fn claim(quick_view: bool) -> Start {
         let _ = stream.flush();
         return Start::Second;
     }
-    // Nobody answered, so a leftover socket file (after a crash) can be replaced.
+    // Nobody answered, so a stale socket file (after a crash) can be replaced.
     let listener = match ListenerOptions::new().name(name).try_overwrite(true).create_sync() {
         Ok(l) => l,
         Err(e) => {
@@ -54,7 +53,7 @@ pub fn claim(quick_view: bool) -> Start {
                 let _ = BufReader::new(conn).read_line(&mut line);
                 let request = match line.trim() {
                     "quick-view" => Request::QuickView,
-                    // Someone checking whether this Klue is still running.
+                    // A ping from an updated instance waiting for this one to exit.
                     "ping" => continue,
                     _ => Request::Show,
                 };
@@ -67,8 +66,8 @@ pub fn claim(quick_view: bool) -> Start {
     Start::First
 }
 
-/// Wait (up to `timeout`) until no other Klue answers on the socket: the one an update
-/// replaced, which is quitting. Returns whether it has gone.
+/// Waits up to `timeout` for the running Klue (the one being updated) to exit. Returns
+/// whether it did.
 pub fn wait_until_gone(timeout: std::time::Duration) -> bool {
     let Ok(name) = NAME.to_ns_name::<GenericNamespaced>() else { return true };
     let start = std::time::Instant::now();

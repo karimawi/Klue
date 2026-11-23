@@ -1,5 +1,5 @@
-//! The main window: title bar, carrier rail, number tabs, then the dashboard (or an
-//! empty state), with dialogs on top.
+//! The main window: title bar, carrier rail, number tabs and the dashboard, with dialogs
+//! on top.
 
 use iced::{
     Alignment, Color, Length,
@@ -30,7 +30,7 @@ pub fn view(app: &App) -> El<'_> {
     };
     let main = column![tabs(&ctx), content].width(Length::Fill).height(Length::Fill);
     let body = ctx.row(vec![rail(&ctx), vline(p.chdv, 2.0), main.into()]).height(Length::Fill).align_y(Alignment::Start);
-    // No background: the window is cleared to `p.bg` (see `App::theme`).
+    // No background; the window is cleared to `p.bg`.
     let page = container(column![titlebar(&ctx), hline(p.chdv, 2.0), body]).width(Length::Fill).height(Length::Fill);
 
     let mut layers: Vec<El<'_>> = vec![page.into()];
@@ -42,7 +42,7 @@ pub fn view(app: &App) -> El<'_> {
     {
         layers.push(overlay(dialog, Message::UpdateLater));
     }
-    // Over everything, and only accepting or quitting closes it.
+    // On top of everything; only Accept or Quit closes it.
     if app.disclaimer_due() {
         layers.push(overlay(modals::disclaimer(&ctx), Message::Done));
     }
@@ -55,7 +55,7 @@ pub fn view(app: &App) -> El<'_> {
     stack(layers).width(Length::Fill).height(Length::Fill).into()
 }
 
-/// A dimmed layer with `dialog` centred on it; clicking the dim area sends `dismiss`.
+/// Dims the window behind `dialog`; clicking the dim area sends `dismiss`.
 fn overlay<'a>(dialog: El<'a>, dismiss: Message) -> El<'a> {
     let dim = mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_| theme::fill(Color::from_rgba8(10, 9, 9, 0.52), 0.0)))
         .on_press(dismiss);
@@ -63,7 +63,7 @@ fn overlay<'a>(dialog: El<'a>, dismiss: Message) -> El<'a> {
     opaque(stack([dim.into(), centred.into()]))
 }
 
-/// Thin invisible handles along the edges: the window has no native frame to resize by.
+/// Invisible resize handles along the edges (there's no native frame).
 fn resize_edges<'a>() -> El<'a> {
     const T: f32 = 5.0;
     let edge = |w: Length, h: Length, dir: Direction, cursor: mouse::Interaction| -> El<'a> {
@@ -99,7 +99,7 @@ fn titlebar<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let s = ctx.s;
     let all = ctx.app.snap.refreshing_all;
     let synced = if all { s.syncing.to_string() } else { i18n::synced(ctx.app.snap.data.last_sync(), ctx.now, ctx.lang) };
-    // Refresh all, beside the sync time; each number has its own Refresh on its page.
+    // Refresh all; each number also has its own Refresh.
     let has_numbers = !ctx.app.snap.data.accounts.is_empty();
     let refresh_all = ctx.tip(
         button(container(ctx.icon(Icon::Refresh, 14.0, if all { p.chm } else { p.cht })).center(Length::Fill))
@@ -115,14 +115,13 @@ fn titlebar<'a>(ctx: &Ctx<'a>) -> El<'a> {
         .row(vec![super::logo(16.0), ctx.text("Klue", 14.0, Weight::ExtraBold, p.cht).into(), ctx.text(synced, 12.0, Weight::Normal, p.chm).into(), refresh_all])
         .spacing(10)
         .align_y(Alignment::Center);
-    // Dragging the empty part of the title bar moves the window.
+    // Drag the empty title bar to move the window.
     let handle = mouse_area(container(brand).width(Length::Fill).height(Length::Fill).align_x(ctx.start()).align_y(Alignment::Center))
         .on_press(Message::Drag)
         .on_double_click(Message::ToggleMaximize);
-    // Theme and language are in Settings.
     let middle = ctx.row(vec![handle.into()]).width(Length::Fill).height(Length::Fill);
 
-    // Started with --debug: a button for the debug console, beside the window buttons.
+    // --debug: console button next to the window buttons.
     let console: El<'a> = if ctx.app.debug {
         ctx.tip(
             button(container(ctx.icon(Icon::Terminal, 15.0, p.cht)).center(Length::Fill)).width(46).height(Length::Fill).padding(0).style(theme::window_button(p, false)).on_press(Message::OpenConsole),
@@ -132,8 +131,8 @@ fn titlebar<'a>(ctx: &Ctx<'a>) -> El<'a> {
         Space::new().into()
     };
 
-    // macOS draws its traffic lights at the top left; elsewhere Klue's window buttons
-    // sit at the right edge in both languages, where the OS puts them.
+    // macOS has its traffic lights at the top left; elsewhere the window buttons go on the
+    // right, in both languages.
     let bar = if cfg!(target_os = "macos") {
         row![Space::new().width(78), middle, console, Space::new().width(12)]
     } else {
@@ -166,8 +165,7 @@ fn rail<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let p = ctx.p;
     let s = ctx.s;
     let data = &ctx.app.snap.data;
-    // Only carriers with numbers: the rest (including those Klue can't sign in to yet)
-    // are reached through Add.
+    // Only carriers with numbers; the rest are reached through Add.
     let shown = ctx.app.shown_carrier();
     let items: Vec<El<'a>> = Carrier::ALL
         .into_iter()
@@ -264,7 +262,7 @@ fn tabs<'a>(ctx: &Ctx<'a>) -> El<'a> {
     container(super::smooth::smooth(scroller)).width(Length::Fill).height(58).style(move |_| theme::fill(p.strip, 0.0)).into()
 }
 
-/// Shared by dialogs that need a text field in Klue's style.
+/// Text field style for dialogs.
 pub fn field<'a>(ctx: &Ctx<'a>, placeholder: &str, value: &str, on_input: impl Fn(String) -> Message + 'a, error: bool) -> text_input::TextInput<'a, Message> {
     text_input(placeholder, value)
         .on_input(on_input)

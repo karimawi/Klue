@@ -1,6 +1,5 @@
-//! The number dashboard: quota hero, renewal column, balance and line details, the usage
-//! graph, the other bundles (any of which can be made the main quota) and the payment
-//! history.
+//! A number's dashboard: quota card, renewal, balance and line details, usage graph, other
+//! bundles and payments.
 
 use iced::{
     Alignment, Color, Length,
@@ -103,7 +102,7 @@ fn notice<'a>(ctx: &Ctx<'a>, icon: Icon, color: Color, title: impl iced::widget:
         .into()
 }
 
-/// A borrowed or frozen bundle (frozen first): what happened and what to pay.
+/// Notice for a borrowed or frozen bundle (frozen first).
 fn state_notice<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> Option<El<'a>> {
     let bundle = usage.bundles.iter().filter(|b| b.state != BundleState::Active).max_by_key(|b| b.state == BundleState::Frozen)?;
     let is_main = usage.main_for(account.main_bundle.as_deref()).is_some_and(|m| m.key == bundle.key);
@@ -112,7 +111,7 @@ fn state_notice<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> Op
     Some(notice(ctx, Icon::Clock, state_color(ctx, bundle.state), title, body))
 }
 
-/// Frozen bundles read like errors; borrowed ones in the accent.
+/// Frozen in the error colour, borrowed in the accent.
 fn state_color(ctx: &Ctx<'_>, state: BundleState) -> Color {
     match state {
         BundleState::Frozen => ctx.p.danger,
@@ -121,16 +120,14 @@ fn state_color(ctx: &Ctx<'_>, state: BundleState) -> Color {
     }
 }
 
-/// "Borrowed" / "Frozen" as a tinted label, next to the package or under a bundle.
+/// "Borrowed" / "Frozen" tag.
 fn state_pill<'a>(ctx: &Ctx<'a>, state: BundleState) -> Option<El<'a>> {
     let label = i18n::state_name(state, ctx.lang)?;
     let color = state_color(ctx, state);
     Some(container(ctx.text(label, 11.0, Weight::Semibold, color)).padding([3, 10]).style(move |_| theme::fill(theme::fade(color, 0.14), 10.0)).into())
 }
 
-/// "10 GB" or "20%" for a bundle alert.
-/// The quota card's bundle switcher: make the shown bundle the main one, and step through
-/// the number's bundles.
+/// The quota card's bundle switcher: make-main star and prev/next arrows.
 fn bundle_nav<'a>(ctx: &Ctx<'a>, account: &'a Account, shown: &'a Bundle, is_main: bool, index: usize, count: usize) -> El<'a> {
     let p = ctx.p;
     let s = ctx.s;
@@ -142,7 +139,7 @@ fn bundle_nav<'a>(ctx: &Ctx<'a>, account: &'a Account, shown: &'a Bundle, is_mai
     } else {
         ctx.tip(small(Icon::Star, p.mu, Some(Message::SetMain(account.id.clone(), Some(shown.key.clone())))), s.make_main)
     };
-    // The arrows point the way the bundles go: mirrored in Arabic.
+    // Arrows follow the bundle order, mirrored in Arabic.
     let (back, ahead) = if ctx.rtl() { (Icon::ChevronRight, Icon::ChevronLeft) } else { (Icon::ChevronLeft, Icon::ChevronRight) };
     let id = account.id.clone();
     ctx.row(vec![
@@ -169,13 +166,13 @@ fn overview<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a>
     let ar = ctx.rtl();
     let main = usage.main_for(account.main_bundle.as_deref());
     let picked = account.main_bundle.is_some() && main.is_some_and(|m| Some(&m.key) == account.main_bundle.as_ref());
-    // The quota card shows the main bundle, or another one the arrows rolled to.
+    // The main bundle, or whichever the arrows moved to.
     let ordered = usage.ordered(account.main_bundle.as_deref());
     let index = ctx.app.hero.get(&account.id).and_then(|k| ordered.iter().position(|b| &b.key == k)).unwrap_or(0);
     let shown = ordered.get(index).copied();
     let is_main = index == 0;
 
-    // Quota hero.
+    // Quota card.
     let package = usage.package_in(ctx.lang).or_else(|| main.map(|m| m.name_in(ctx.lang))).unwrap_or_default().to_string();
     let mut quota = column![].spacing(0);
     let mut quota_foot: El<'a> = Space::new().into();
@@ -194,8 +191,7 @@ fn overview<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a>
     };
     quota = quota.push(ctx.bold(title, 21.0));
     if let Some(m) = shown {
-        // Under the name: the main bundle's own name (when it isn't the package's) and the
-        // line speed, or another bundle's kind.
+        // Under the name: the bundle's own name and the speed, or another bundle's kind.
         let mut line: Vec<El<'a>> = Vec::new();
         let push = |line: &mut Vec<El<'a>>, el: El<'a>| {
             if !line.is_empty() {
@@ -224,7 +220,7 @@ fn overview<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a>
         let unit = i18n::unit_name(m.unit, ctx.lang);
         let pct = (m.remaining_pct() * 10.0).round() / 10.0;
         let low = alert.is_triggered(m);
-        // Frozen flexes can't be used: greyed out, as on Vodafone's own Flex page.
+        // Frozen flexes can't be used, so they're greyed out (like Vodafone's Flex page).
         let frozen = m.state == BundleState::Frozen;
         let total = format::amount_short(m.total, m.unit);
         let used = format::amount(m.used(), m.unit);
@@ -322,9 +318,8 @@ fn overview<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a>
         foot(ctx, ctx.toggle(reminder.enabled, Message::Modal(super::modals::Msg::ToggleReminder(id.clone()))), remind_text, Message::OpenModal(ModalKind::Alerts(id))),
     ];
 
-    // Bodies and footers go in separate rows so the footers line up. (A Fill-height
-    // spacer can't push them down: iced sizes a row's children in order, so in Arabic,
-    // where the renewal column comes first, it would get no height at all.)
+    // Bodies and footers in separate rows so the footers line up. A Fill spacer won't do: in
+    // Arabic the renewal column comes first and would get no height.
     let body = ctx
         .row(vec![
             container(quota.align_x(ctx.start())).padding(ctx.pad(22.0, 28.0, 16.0, 0.0)).width(Length::FillPortion(165)).into(),
@@ -342,7 +337,7 @@ fn overview<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a>
     column![body, feet].into()
 }
 
-/// The row under a card: an icon (or switch), a sentence and a "Change" link.
+/// The row under a card: icon or switch, text, and a "Change" link.
 fn foot<'a>(ctx: &Ctx<'a>, lead: El<'a>, text: String, change: Message) -> El<'a> {
     container(
         ctx.row(vec![lead, container(ctx.body(text, 13.5)).width(Length::Fill).align_x(ctx.start()).into(), ctx.link(ctx.s.change, change).into()])
@@ -413,15 +408,15 @@ fn money_and_line<'a>(ctx: &Ctx<'a>, usage: &'a Usage) -> El<'a> {
     ctx.row(vec![left.into(), vline(p.dv, 2.0), right.into()]).align_y(Alignment::Start).into()
 }
 
-/// The usage graph of the bundle on the quota card, with averages over it; just the
-/// averages, as estimates, while there are too few refreshes to draw.
+/// Usage graph for the bundle on the quota card, with averages; just estimates while
+/// there's too little history.
 fn usage_graph<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a> {
     let p = ctx.p;
     let s = ctx.s;
     let ordered = usage.ordered(account.main_bundle.as_deref());
     let index = ctx.app.hero.get(&account.id).and_then(|k| ordered.iter().position(|b| &b.key == k)).unwrap_or(0);
     let Some(bundle) = ordered.get(index).copied().filter(|b| b.total > 0.0) else { return Space::new().into() };
-    // The package's own quota runs with the package's cycle.
+    // The package quota follows the package's cycle.
     let (since, until) = if index == 0 {
         (bundle.starts_at.or(usage.cycle_start()), bundle.expires_at.or(usage.renews_at))
     } else {
@@ -470,7 +465,7 @@ fn usage_graph<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<
     container(section).padding(super::pad4(22.0, 0.0, 6.0, 0.0)).into()
 }
 
-/// Today's usage, the averages and when the bundle runs out at that rate.
+/// Today, the averages, and when it runs out at this rate.
 fn usage_figures<'a>(ctx: &Ctx<'a>, a: &Analysis, bundle: &Bundle, until: Option<chrono::DateTime<chrono::Utc>>) -> Option<El<'a>> {
     let p = ctx.p;
     let s = ctx.s;

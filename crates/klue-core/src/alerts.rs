@@ -1,5 +1,5 @@
-//! Which notifications are due. The UI formats and shows them, then calls
-//! [`Account::mark_fired`] with the event's key so each fires once per billing cycle.
+//! Which notifications are due. The app shows them and calls [`Account::mark_fired`] so
+//! each fires once per cycle.
 
 use chrono::{DateTime, Local, Utc};
 
@@ -16,7 +16,7 @@ pub enum AlertEvent {
 }
 
 impl AlertEvent {
-    /// Identifies the event within its billing cycle.
+    /// Unique within the billing cycle.
     pub fn key(&self) -> String {
         match self {
             AlertEvent::QuotaLow { bundle, .. } => format!(
@@ -38,7 +38,7 @@ impl AlertEvent {
     }
 }
 
-/// Alerts that are due for `account` at `now` and haven't fired yet.
+/// Alerts due for `account` at `now` that haven't fired yet.
 pub fn due(account: &Account, now: DateTime<Utc>) -> Vec<AlertEvent> {
     let Some(usage) = &account.usage else { return Vec::new() };
     let mut events = Vec::new();
@@ -141,18 +141,18 @@ mod tests {
 
     #[test]
     fn what_came_due_while_klue_was_off_goes_out_once_it_runs() {
-        // Klue last ran a week ago, when the renewal was 9 days out; the 2-day reminder
-        // window opened while it wasn't running. Seen at the next launch, it's due.
+        // Last run a week ago with the renewal 9 days out; the 2-day window opened while it
+        // was closed, so it's due now.
         let mut a = account(10.0, Duration::days(1));
         let events = due(&a, Utc::now());
         assert!(events.iter().any(|e| matches!(e, AlertEvent::RenewalSoon { .. })));
-        // Sent then, it isn't sent again after another restart (fired keys are saved).
+        // Fired keys are saved, so it isn't sent again after a restart.
         for e in &events {
             a.mark_fired(e.key());
         }
         let saved: Account = serde_json::from_str(&serde_json::to_string(&a).unwrap()).unwrap();
         assert!(due(&saved, Utc::now()).is_empty());
-        // A renewal that already happened while Klue was off isn't announced late.
+        // A renewal that already passed while closed isn't announced late.
         let past = account(10.0, -Duration::hours(3));
         assert!(!due(&past, Utc::now()).iter().any(|e| matches!(e, AlertEvent::RenewalSoon { .. })));
     }

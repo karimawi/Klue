@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::store::Lang;
 
-/// The four Egyptian carriers Klue knows about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Carrier {
@@ -16,7 +15,7 @@ pub enum Carrier {
 impl Carrier {
     pub const ALL: [Carrier; 4] = [Carrier::We, Carrier::Vodafone, Carrier::Orange, Carrier::Etisalat];
 
-    /// Short stable id, also used for theme lookup.
+    /// Short id, also used to pick the theme.
     pub fn id(self) -> &'static str {
         match self {
             Carrier::We => "we",
@@ -31,8 +30,7 @@ impl Carrier {
         matches!(self, Carrier::We | Carrier::Vodafone)
     }
 
-    /// Line types with a working client. WE is home internet (landline) only and
-    /// Vodafone is mobile only.
+    /// Line types with a working client: WE home internet and Vodafone mobile.
     pub fn supports_line(self, line: LineType) -> bool {
         matches!((self, line), (Carrier::We, LineType::Landline) | (Carrier::Vodafone, LineType::Mobile))
     }
@@ -52,8 +50,8 @@ pub enum LineType {
     Landline,
 }
 
-/// The unit a carrier states for a bucket. Amounts are kept in it as reported (Vodafone
-/// counts mobile data in MB, WE home internet in GB), so "992 MB" never turns into "1.0 GB".
+/// The unit the carrier uses for a bucket. Amounts stay in it, so "992 MB" doesn't turn
+/// into "1.0 GB".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Unit {
@@ -78,29 +76,27 @@ pub enum BundleKind {
     Other,
 }
 
-/// Whether a bundle can be used right now. Vodafone lets a Flex bundle renew on credit
-/// (a "borrowed" bundle): it works until a settle-by date, then it's frozen until it's
-/// paid for. The next recharge pays it first.
+/// Vodafone can renew a Flex bundle on credit ("borrowed"). It works until a settle-by
+/// date, then it's frozen until paid. The next recharge pays it first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BundleState {
     #[default]
     Active,
-    /// Renewed on credit and usable until [`Bundle::settle_by`].
+    /// Renewed on credit, usable until [`Bundle::settle_by`].
     Borrowed,
-    /// Renewed on credit and not paid for in time: unusable until it is.
+    /// Not paid in time; unusable until it is.
     Frozen,
 }
 
-/// One quota bucket: the main internet quota, an add-on, minutes, flexes...
+/// One quota bucket: internet, an add-on, minutes, flexes...
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Bundle {
-    /// Stable identifier used to remember alert settings across refreshes.
+    /// Stable id, so alert settings survive refreshes.
     pub key: String,
     pub kind: BundleKind,
-    /// Name as reported by the carrier.
     pub name: String,
-    /// The carrier's Arabic name for it, when it has one.
+    /// Arabic name, if the carrier has one.
     #[serde(default)]
     pub name_ar: Option<String>,
     pub unit: Unit,
@@ -112,13 +108,13 @@ pub struct Bundle {
     pub expires_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub state: BundleState,
-    /// For a borrowed bundle: when it freezes unless it's paid for.
+    /// For a borrowed bundle: when it freezes unless paid.
     #[serde(default)]
     pub settle_by: Option<DateTime<Utc>>,
 }
 
 impl Bundle {
-    /// The name to show in `lang`: the Arabic one in Arabic, when the carrier has one.
+    /// The Arabic name in Arabic, when there is one.
     pub fn name_in(&self, lang: Lang) -> &str {
         self.name_ar.as_deref().filter(|_| lang == Lang::Ar).unwrap_or(&self.name)
     }
@@ -127,7 +123,7 @@ impl Bundle {
         (self.total - self.remaining).max(0.0)
     }
 
-    /// Remaining share of the bundle, 0–100.
+    /// Remaining share, 0-100.
     pub fn remaining_pct(&self) -> f64 {
         if self.total <= 0.0 {
             return 0.0;
@@ -135,7 +131,7 @@ impl Bundle {
         (self.remaining / self.total * 100.0).clamp(0.0, 100.0)
     }
 
-    /// Size used to rank bundles: data in MB, everything else in its own unit.
+    /// For ranking bundles: data in MB, everything else in its own unit.
     pub fn size(&self) -> f64 {
         match self.unit {
             Unit::Gb => self.total * 1024.0,
@@ -144,8 +140,7 @@ impl Bundle {
     }
 }
 
-/// Default display order: the largest bundle that still has something left first (the
-/// main one), then the rest, largest first.
+/// The largest bundle with something left first, then the rest by size.
 pub(crate) fn order_bundles(bundles: &mut [Bundle]) {
     bundles.sort_by(|a, b| b.size().total_cmp(&a.size()));
     if let Some(pos) = bundles.iter().position(|b| b.remaining > 0.0) {
@@ -161,35 +156,35 @@ pub enum PaymentKind {
     Postpaid,
 }
 
-/// A DSL package's speeds as the carrier configures them, in kbit/s.
+/// DSL speeds, in kbit/s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Speed {
     pub down_kbps: u32,
     #[serde(default)]
     pub up_kbps: Option<u32>,
-    /// The download speed once the quota is used up.
+    /// Download speed after the quota runs out.
     #[serde(default)]
     pub throttled_kbps: Option<u32>,
 }
 
-/// What the carrier says about the line itself, besides its quotas.
+/// What the carrier says about the line itself.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct LineInfo {
-    /// Rate plan / tariff, e.g. "Worry Free 14 PT" or "WE IOE VDSL Primary Prepaid".
+    /// Rate plan, e.g. "Worry Free 14 PT" or "WE IOE VDSL Primary Prepaid".
     #[serde(default)]
     pub plan: Option<String>,
-    /// The plan's Arabic name, when the carrier has one.
+    /// Arabic plan name, if any.
     #[serde(default)]
     pub plan_ar: Option<String>,
-    /// The package's speed (WE home internet).
+    /// Package speed (WE home internet).
     #[serde(default)]
     pub speed: Option<Speed>,
     #[serde(default)]
     pub payment: Option<PaymentKind>,
-    /// Line status as the carrier words it, e.g. "Active".
+    /// Line status in the carrier's words, e.g. "Active".
     #[serde(default)]
     pub status: Option<String>,
-    /// The number the carrier has on file for this account.
+    /// The number on file with the carrier.
     #[serde(default)]
     pub number: Option<String>,
     #[serde(default)]
@@ -197,60 +192,56 @@ pub struct LineInfo {
 }
 
 impl LineInfo {
-    /// The plan's name in `lang` (see [`Bundle::name_in`]).
     pub fn plan_in(&self, lang: Lang) -> Option<&str> {
         self.plan_ar.as_deref().filter(|_| lang == Lang::Ar).or(self.plan.as_deref())
     }
 }
 
-/// A top-up or bill payment.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Payment {
     pub at: DateTime<Utc>,
     pub amount_egp: f64,
-    /// How it was paid, e.g. "Card •••• 0485" or "Cash".
+    /// e.g. "Card •••• 0485" or "Cash".
     #[serde(default)]
     pub method: Option<String>,
     #[serde(default)]
     pub reference: Option<String>,
-    /// Balance right after the payment, when the carrier says.
+    /// Balance after the payment, if the carrier says.
     #[serde(default)]
     pub balance_after: Option<f64>,
 }
 
-/// A snapshot of one line's account, as read from the carrier.
+/// One line's account, as read from the carrier.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
     pub owner_name: Option<String>,
     pub package_name: Option<String>,
-    /// The package's Arabic name, when the carrier has one.
+    /// Arabic package name, if any.
     #[serde(default)]
     pub package_name_ar: Option<String>,
     #[serde(default)]
     pub balance_egp: Option<f64>,
-    /// Money the line owes the carrier, e.g. for a borrowed bundle; the next recharge pays
-    /// it first. `None` when nothing is owed.
+    /// Money owed, e.g. for a borrowed bundle. The next recharge pays it first.
     #[serde(default)]
     pub owed_egp: Option<f64>,
-    /// In default display order (see [`Usage::ordered`]): the first is the main quota.
+    /// In display order: the first is the main quota.
     pub bundles: Vec<Bundle>,
     pub subscribed_at: Option<DateTime<Utc>>,
     pub renews_at: Option<DateTime<Utc>>,
     pub fetched_at: DateTime<Utc>,
     #[serde(default)]
     pub info: LineInfo,
-    /// Recent payments, newest first. `None` when the carrier's history couldn't be read.
+    /// Newest first. `None` if the history couldn't be read.
     #[serde(default)]
     pub payments: Option<Vec<Payment>>,
 }
 
 impl Usage {
-    /// The package's name in `lang` (see [`Bundle::name_in`]).
     pub fn package_in(&self, lang: Lang) -> Option<&str> {
         self.package_name_ar.as_deref().filter(|_| lang == Lang::Ar).or(self.package_name.as_deref())
     }
 
-    /// The main quota by default: the largest bundle with something left.
+    /// Default main quota: the largest bundle with something left.
     pub fn main(&self) -> Option<&Bundle> {
         self.bundles.first()
     }
@@ -259,14 +250,14 @@ impl Usage {
         self.bundles.get(1..).unwrap_or(&[])
     }
 
-    /// The main quota, honouring the bundle the user picked (by key) while it exists.
+    /// The main quota, preferring the user's pick while it exists.
     pub fn main_for(&self, preferred: Option<&str>) -> Option<&Bundle> {
         preferred
             .and_then(|key| self.bundles.iter().find(|b| b.key == key))
             .or_else(|| self.main())
     }
 
-    /// All bundles in display order: the main one (see [`Usage::main_for`]) first.
+    /// All bundles, main quota first.
     pub fn ordered(&self, preferred: Option<&str>) -> Vec<&Bundle> {
         let main = self.main_for(preferred);
         main.into_iter()
@@ -274,15 +265,14 @@ impl Usage {
             .collect()
     }
 
-    /// Start of the current billing cycle. Falls back to one month before renewal
-    /// when the carrier doesn't report it.
+    /// Start of the billing cycle, or a month before renewal if the carrier doesn't say.
     pub fn cycle_start(&self) -> Option<DateTime<Utc>> {
         self.subscribed_at
             .or_else(|| self.renews_at.and_then(|r| r.checked_sub_months(Months::new(1))))
     }
 }
 
-/// Turn a carrier-provided name into a key fragment: lowercase ASCII alphanumerics.
+/// Lowercase ASCII alphanumerics, for keys.
 pub(crate) fn slug(s: &str) -> String {
     let mut out = String::new();
     let mut dash = false;
@@ -301,8 +291,8 @@ pub(crate) fn slug(s: &str) -> String {
     out
 }
 
-/// Give every bundle a unique key based on its name (falling back to its kind), so
-/// alert settings survive refreshes even when the carrier reorders bundles.
+/// Gives each bundle a unique key from its name (or kind), so alerts survive the carrier
+/// reordering bundles.
 pub(crate) fn assign_keys(bundles: &mut [Bundle]) {
     let mut seen = std::collections::HashMap::<String, usize>::new();
     for b in bundles.iter_mut() {

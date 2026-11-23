@@ -1,5 +1,4 @@
-//! The empty state: no numbers yet. (Carriers without numbers aren't listed, so there's
-//! no per-carrier empty page.)
+//! Empty state: no numbers yet.
 
 use iced::{
     Alignment, Length,

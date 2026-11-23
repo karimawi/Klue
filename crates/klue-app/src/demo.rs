@@ -1,6 +1,5 @@
-//! Demo mode (`klue --demo` or `KLUE_DEMO=1`): the numbers from the mockup, kept in
-//! memory only, with simulated sign-ins. Useful for trying the UI without accounts.
-//! Every name, number, amount and card here is made up.
+//! Demo mode (`klue --demo` or `KLUE_DEMO=1`): made-up numbers in memory and simulated
+//! sign-ins. All names, numbers and amounts are invented.
 
 use std::time::Duration;
 
@@ -11,7 +10,7 @@ use klue_core::{
     store::{Account, AppData, BundleAlert, LeadUnit, RenewalReminder, ThresholdMode},
 };
 
-/// The mockup is drawn at 2026-11-21 10:00; demo dates keep the same distance from now.
+/// Demo dates relative to now, as if today were 21 Nov 2026 10:00.
 fn at(m: u32, d: u32) -> DateTime<Utc> {
     let mock_now = Local.with_ymd_and_hms(2026, 11, 21, 10, 0, 0).unwrap();
     let date = Local.with_ymd_and_hms(2026, m, d, 0, 0, 0).unwrap();
@@ -21,13 +20,13 @@ fn at(m: u32, d: u32) -> DateTime<Utc> {
 /// kind, name, total, remaining, unit, alert threshold.
 struct B(BundleKind, &'static str, f64, f64, Unit, Option<f64>);
 
-/// How much made-up usage history a demo number has.
+/// How much fake history a demo number has.
 enum Kept {
-    /// Refreshes all through the cycle so far.
+    /// The whole cycle so far.
     Cycle,
-    /// Klue was added this many hours ago.
+    /// Added this many hours ago.
     Hours(i64),
-    /// Only the refresh just now.
+    /// Just the latest refresh.
     Nothing,
 }
 
@@ -38,15 +37,14 @@ struct Line {
     owner: &'static str,
     nick: Option<&'static str>,
     pkg: &'static str,
-    /// The package's Arabic name, as the carrier gives it (WE's `offerArName`, Vodafone's
-    /// plan record in Arabic). The package's own quota takes it too.
+    /// Arabic package name, as the carrier gives it. The package quota uses it too.
     pkg_ar: Option<&'static str>,
     sub: (u32, u32),
     renew: (u32, u32),
     remind: (u32, LeadUnit),
     bundles: Vec<B>,
     balance: f64,
-    /// The Flex bundle was renewed on credit: settle-by (month, day) and what's owed.
+    /// Borrowed Flex bundle: settle-by (month, day) and the amount owed.
     borrowed: Option<((u32, u32), f64)>,
     plan: &'static str,
     plan_ar: Option<&'static str>,
@@ -130,11 +128,9 @@ fn build(l: Line) -> Account {
     a
 }
 
-/// Made-up refreshes from `from` to just before `to`, at the uneven times a real computer
-/// gives: every 20 to 50 minutes while it's on and, if it `sleeps`, none at night (from
-/// 01:00 to some time after 08:00) or on the day it stayed off. Usage follows the hour,
-/// light at night and heaviest in the evening, from the full bundle at `cycle` down to
-/// what's left now.
+/// Fake refreshes between `from` and `to`, every 20-50 minutes while the computer is on.
+/// If it `sleeps`, there are none at night (01:00 to after 08:00) or on one day it's off.
+/// Usage is light at night and heaviest in the evening.
 #[allow(clippy::too_many_arguments)]
 fn history(a: &mut Account, bundles: &[Bundle], cycle: DateTime<Utc>, from: DateTime<Utc>, to: DateTime<Utc>, sleeps: bool, seed: u64) {
     use chrono::Duration as D;
@@ -145,8 +141,7 @@ fn history(a: &mut Account, bundles: &[Bundle], cycle: DateTime<Utc>, from: Date
         state ^= state << 17;
         (state % 10_000) as f64 / 10_000.0
     };
-    // How hard the line is used in each hour, from the cycle's start: by the hour of the
-    // day, times a mood for each day.
+    // Hourly usage weight: by time of day, times a random factor per day.
     let hours = ((to - cycle).num_minutes() as f64 / 60.0).ceil().max(1.0) as usize;
     let moods: Vec<f64> = (0..hours / 24 + 2).map(|_| 0.55 + random()).collect();
     let weight = |i: usize| {
@@ -176,7 +171,7 @@ fn history(a: &mut Account, bundles: &[Bundle], cycle: DateTime<Utc>, from: Date
         let local = t.with_timezone(&Local);
         let day = (t - from).num_days();
         if sleeps && ((1..8).contains(&local.hour()) || (off_day >= 3 && day == off_day)) {
-            // Asleep (or off for the day): back after 08:00 the next morning that isn't off.
+            // Asleep or off: resume after 08:00 the next morning that isn't off.
             let mut wake = local.date_naive().and_hms_opt(8, 0, 0).and_then(|n| Local.from_local_datetime(&n).earliest()).map_or(t, |w| w.with_timezone(&Utc));
             while wake <= t || (off_day >= 3 && (wake - from).num_days() == off_day) {
                 wake += D::days(1);
@@ -199,9 +194,8 @@ fn history(a: &mut Account, bundles: &[Bundle], cycle: DateTime<Utc>, from: Date
     a.history.record_all(refreshes.iter().map(|(t, b)| (*t, b.as_slice())));
 }
 
-/// A demo bundle's Arabic name, the way the carriers give them: the package's own quota
-/// (the first, if it's data or Flex) has the package's; Vodafone's unnamed data bucket is
-/// "موبايل انترنت" in its Arabic pages; bundles the carrier names have no Arabic name.
+/// Arabic names like the carriers give them: the package quota has the package's name,
+/// Vodafone's unnamed data is "موبايل انترنت", named bundles have none.
 fn bundle_ar(index: usize, kind: BundleKind, name: &str, pkg_ar: Option<&str>) -> Option<String> {
     match (index, kind) {
         (0, BundleKind::Data | BundleKind::Flex) => pkg_ar.map(String::from),
@@ -255,7 +249,7 @@ pub fn data() -> AppData {
     AppData { accounts: lines.into_iter().map(build).collect(), ..AppData::default() }
 }
 
-/// Simulated sign-in, like the mockup's Verify button. A password containing "wrong" fails.
+/// Fake sign-in. A password containing "wrong" fails.
 pub async fn verify(carrier: Carrier, number: &str, password: &str) -> Result<Usage, FetchError> {
     tokio::time::sleep(Duration::from_millis(1700)).await;
     if password.to_lowercase().contains("wrong") {
@@ -301,7 +295,7 @@ pub async fn verify(carrier: Carrier, number: &str, password: &str) -> Result<Us
     })
 }
 
-/// Simulated refresh: same numbers, new timestamp.
+/// Fake refresh: same numbers, new time.
 pub async fn refresh(account: &Account) -> Result<Usage, FetchError> {
     tokio::time::sleep(Duration::from_millis(1200)).await;
     let mut usage = account.usage.clone().ok_or(FetchError::Unsupported)?;
@@ -309,7 +303,7 @@ pub async fn refresh(account: &Account) -> Result<Usage, FetchError> {
     Ok(usage)
 }
 
-/// A made-up update for "Check for updates" in demo mode.
+/// A fake update for "Check for updates" in demo mode.
 pub fn update() -> klue_core::update::Release {
     klue_core::update::Release {
         version: klue_core::update::Version { major: 9, minor: 9, patch: 0, pre: None },

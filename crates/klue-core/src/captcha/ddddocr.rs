@@ -1,10 +1,5 @@
-//! ddddocr in Rust: the same ONNX model and preprocessing as the Python package
-//! (`ddddocr.DdddOcr()`, which loads `common_old.onnx`), run through ONNX Runtime.
-//!
-//! Preprocessing follows ddddocr 1.4/1.5 and the `ddddocr` crate: resize to 64 px high,
-//! keep the aspect ratio (Lanczos), convert to 8-bit grey with PIL's weights, then
-//! scale to [-1, 1]. The output is CTC-decoded against the model's charset, and only
-//! ASCII letters and digits are kept since that's all WE's captchas contain.
+//! ddddocr's `common_old.onnx` on ONNX Runtime, with the Python package's preprocessing
+//! (64 px high, Lanczos, PIL greyscale), CTC-decoded and limited to ASCII alphanumerics.
 
 use std::{
     path::Path,
@@ -16,7 +11,7 @@ use ort::{session::Session, value::Tensor};
 
 use super::{BoxFuture, CaptchaSolver, find_model, model_search_paths};
 
-/// Charset of `common_old.onnx`, extracted from the Python package (MIT).
+/// Charset of `common_old.onnx`, from the Python package (MIT).
 const CHARSET_JSON: &str = include_str!("../../assets/ddddocr_charset_old.json");
 
 /// How pixel values are scaled before inference.
@@ -34,11 +29,11 @@ pub struct DdddOcr {
     opts: Options,
 }
 
-/// Tuning knobs, for experiments.
+/// For experiments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Options {
     pub normalization: Normalization,
-    /// Keep only A–Z, a–z and 0–9 (WE's alphabet). Off reads the full ddddocr charset.
+    /// Keep only A-Z, a-z and 0-9.
     pub alnum_only: bool,
 }
 
@@ -57,7 +52,7 @@ struct Inner {
 }
 
 impl DdddOcr {
-    /// Load the model from the first of [`model_search_paths`] that exists.
+    /// Loads the model from the first of [`model_search_paths`] that exists.
     pub fn load_default() -> Result<Self, String> {
         let path = find_model().ok_or_else(|| {
             format!(
@@ -93,7 +88,7 @@ impl DdddOcr {
         self
     }
 
-    /// Read the text in a captcha image (PNG, JPEG, GIF, BMP or WebP bytes).
+    /// Reads the text in a captcha image.
     pub fn classify(&self, image: &[u8]) -> Result<String, String> {
         self.inner.classify(image, self.opts)
     }
@@ -172,8 +167,7 @@ impl Inner {
         Ok(self.decode(&indices, opts.alnum_only))
     }
 
-    /// CTC decode: collapse repeats and drop blanks (0), and optionally anything
-    /// outside A–Z, a–z, 0–9.
+    /// CTC decode: collapse repeats, drop blanks, optionally keep only ASCII alphanumerics.
     fn decode(&self, indices: &[i64], alnum_only: bool) -> String {
         let mut out = String::new();
         let mut prev = -1_i64;

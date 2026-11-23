@@ -1,5 +1,4 @@
-//! Lenient helpers for poking at carrier JSON, which is loosely typed
-//! (numbers arrive as strings, keys vary between API versions).
+//! Lenient helpers for carrier JSON (numbers as strings, keys that vary).
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use serde_json::Value;
@@ -32,8 +31,8 @@ pub(crate) fn truthy(v: &Value) -> bool {
     }
 }
 
-/// First non-empty string found under any of `keys` (case-insensitive), searching
-/// `v` depth-first. Keys earlier in the list win over later ones.
+/// First non-empty string under any of `keys` (case-insensitive), depth-first. Earlier keys
+/// win.
 pub(crate) fn find_text(v: &Value, keys: &[&str]) -> Option<String> {
     keys.iter().find_map(|k| find_key(v, k, 0).and_then(text))
 }
@@ -65,8 +64,7 @@ pub(crate) fn epoch_ms(v: &Value) -> Option<DateTime<Utc>> {
     Utc.timestamp_millis_opt(ms).single()
 }
 
-/// RFC 3339 / ISO 8601 date-time, tolerating a missing offset (taken as Cairo time)
-/// or a bare date.
+/// RFC 3339 / ISO 8601, allowing a missing offset (Cairo time) or a bare date.
 pub(crate) fn iso_datetime(v: &Value) -> Option<DateTime<Utc>> {
     let s = v.as_str()?.trim();
     if s.is_empty() {
@@ -91,9 +89,8 @@ pub(crate) fn iso_datetime(v: &Value) -> Option<DateTime<Utc>> {
         .and_then(cairo)
 }
 
-/// Interpret a naive timestamp as Egypt local time (UTC+2 standard, UTC+3 in summer).
-/// Using the machine's local zone is the closest we can get without a tz database,
-/// and Klue users are in Egypt.
+/// A naive timestamp as Egypt local time. Uses the machine's zone: no tz database, and
+/// users are in Egypt.
 fn cairo(naive: NaiveDateTime) -> Option<DateTime<Utc>> {
     chrono::Local
         .from_local_datetime(&naive)

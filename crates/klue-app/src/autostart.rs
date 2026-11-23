@@ -1,5 +1,5 @@
-//! "Launch at startup": registers Klue with the OS (Run key on Windows, LaunchAgent on
-//! macOS, XDG autostart on Linux) to start minimised in the tray.
+//! Launch at startup (minimised to the tray): Run key on Windows, LaunchAgent on macOS,
+//! XDG autostart on Linux.
 
 pub fn apply(enabled: bool) {
     let Some(exe) = std::env::current_exe().ok().and_then(|p| p.to_str().map(String::from)) else { return };

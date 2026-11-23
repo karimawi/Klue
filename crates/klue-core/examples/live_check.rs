@@ -1,18 +1,12 @@
-//! Signs in to the accounts listed in an env file and prints what Klue would show for
-//! each, to check the carrier clients against real accounts.
+//! Signs in to the accounts in an env file and prints what Klue would show.
 //!
 //! ```text
-//! cargo run --release -p klue-core --example live_check -- path/to/accounts.env
-//! cargo run --release -p klue-core --example live_check -- path/to/accounts.env --only vf2
+//! cargo run --release -p klue-core --example live_check -- accounts.env [--only vf2]
 //! ```
 //!
-//! The file holds `TENUMBER`/`TEPASSWORD` (WE landlines) and `VFNUMBER`/`VFPWD`
-//! (Vodafone) pairs; further accounts add a suffix: `TENUMBER2`, `VFPWD2`, ... They are
-//! labelled `we1`, `we2`, `vf1`, ... for `--only` (which can be given more than once).
-//! Passwords are never printed and numbers are shortened. Set `KLUE_DEBUG_DIR` to also
-//! keep every raw response (secrets redacted), one folder per account.
-//!
-//! Each WE sign-in counts towards WE's limit of failed attempts, so don't run it in a loop.
+//! Keys: `TENUMBER`/`TEPASSWORD` (WE) and `VFNUMBER`/`VFPWD` (Vodafone), with suffixes 2, 3...
+//! for more accounts (`we1`, `we2`, `vf1`... for `--only`). Passwords aren't printed.
+//! `KLUE_DEBUG_DIR` also saves the raw responses. WE counts failed sign-ins, so don't loop it.
 
 use std::{collections::BTreeMap, path::PathBuf, time::Instant};
 

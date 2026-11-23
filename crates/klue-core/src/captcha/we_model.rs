@@ -1,9 +1,6 @@
-//! Klue's own model for WE's captchas (red Arial text, blue strike line, 180x50 JPEG).
-//!
-//! Trained by `tools/captcha-model` (a small CNN with a CTC head) and embedded in the
-//! binary, so it needs no download. Runs on tract, a pure-Rust ONNX runtime.
-//! Unlike general OCR it keeps the image's real scale, which is what separates
-//! W from w or Z from z in this font.
+//! Klue's model for WE captchas (red Arial text, blue strike line, 180x50 JPEG): a small
+//! CNN with a CTC head, trained in `tools/captcha-model`, embedded and run with tract.
+//! It keeps the image's real scale, which is what tells W from w in this font.
 
 use std::{io::Cursor, sync::Arc};
 
@@ -17,18 +14,15 @@ const MODEL: &[u8] = include_bytes!("../../assets/we_captcha.onnx");
 const CHARSET: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const WIDTH: u32 = 180;
 const HEIGHT: u32 = 50;
-/// Below this confidence the solver declines to answer. A wrong answer costs one of the
-/// few sign-in attempts WE allows before blocking, while a fresh captcha costs nothing,
-/// so Klue asks WE for another one instead of guessing. At 0.95 the model answers ~85%
-/// of captchas (so ~1.2 per sign-in) and is wrong on ~0.2% of its answers (synthetic
-/// test set; 0.7 would be ~95% and ~1.6%).
+/// Below this the solver declines. A wrong code costs one of WE's few attempts and a new
+/// captcha costs nothing. At 0.95 it answers ~85% of captchas and is wrong on ~0.2%.
 pub const MIN_CONFIDENCE: f32 = 0.95;
 
-/// A reading and how sure the model is of it.
+/// Text and confidence.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Reading {
     pub text: String,
-    /// Lowest per-character probability, 0–1.
+    /// Lowest per-character probability.
     pub confidence: f32,
 }
 
@@ -48,12 +42,12 @@ impl WeCaptchaModel {
         Ok(Self { plan })
     }
 
-    /// Read a WE captcha (JPEG/PNG bytes). Returns the characters, case-sensitive.
+    /// Reads a WE captcha (JPEG or PNG).
     pub fn classify(&self, image: &[u8]) -> Result<String, String> {
         self.read(image).map(|r| r.text)
     }
 
-    /// Read a WE captcha and report the model's confidence.
+    /// Same, with the confidence.
     pub fn read(&self, image: &[u8]) -> Result<Reading, String> {
         let img = image::load_from_memory(image).map_err(|e| format!("unreadable image: {e}"))?.to_rgb8();
         let img = if img.dimensions() == (WIDTH, HEIGHT) {
@@ -72,8 +66,8 @@ impl WeCaptchaModel {
     }
 }
 
-/// Greedy CTC decoding of `[T, classes]` logits. A character's probability is the best
-/// softmax score over the frames it spans; the reading's confidence is the lowest of those.
+/// Greedy CTC decode of `[T, classes]` logits. Confidence is the lowest per-character
+/// softmax peak.
 fn decode(flat: &[f32], classes: usize) -> Reading {
     let mut text = String::new();
     let mut confidence = 1.0_f32;
@@ -157,8 +151,7 @@ mod tests {
         assert_eq!(decode(&frame(0, 3.0), c), Reading { text: String::new(), confidence: 0.0 });
     }
 
-    /// Real captchas from WE, named after their answer. The model must never be confidently
-    /// wrong (that would burn one of WE's few attempts), and should read most of them.
+    /// Real WE captchas, named after their answer. The model must never be confidently wrong.
     #[test]
     fn reads_real_we_captchas() {
         let model = WeCaptchaModel::load().unwrap();

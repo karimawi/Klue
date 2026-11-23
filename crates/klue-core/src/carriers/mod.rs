@@ -1,5 +1,5 @@
-//! Carrier clients. Each one signs in with the same credentials the carrier's own app
-//! uses and returns a normalised [`Usage`] snapshot.
+//! Carrier clients. Each signs in with the account's own credentials and returns a
+//! [`Usage`].
 
 pub mod vodafone;
 pub mod we;
@@ -10,17 +10,14 @@ use serde_json::Value;
 
 use crate::{Carrier, FetchError, LineType, Usage, captcha::CaptchaSolver};
 
-/// Everything a client needs besides the credentials.
 #[derive(Default)]
 pub struct FetchContext<'a> {
-    /// Reads WE's captchas. It may decline one it isn't sure of; WE is then asked for
-    /// another (see [`we::CAPTCHA_REROLLS`]).
+    /// Reads WE captchas. It can decline one it isn't sure of; WE is then asked for another
+    /// (see [`we::CAPTCHA_REROLLS`]).
     pub solver: Option<&'a dyn CaptchaSolver>,
-    /// A person, asked only when `solver` declined every captcha. Without either, such
-    /// sign-ins fail with [`FetchError::CaptchaUnsolved`].
+    /// Asks the user, only after `solver` declined every captcha.
     pub ask: Option<&'a dyn CaptchaSolver>,
-    /// When set, raw carrier responses (with secrets redacted) are written here so
-    /// parsers can be checked against real data. Enabled with `KLUE_DEBUG_DIR`.
+    /// Raw responses (secrets redacted) are saved here when set. `KLUE_DEBUG_DIR`.
     pub debug_dir: Option<PathBuf>,
 }
 
@@ -37,9 +34,8 @@ impl FetchContext<'_> {
     }
 }
 
-/// Blank out anything secret-looking before a response is written to disk: any key
-/// containing one of `SECRET` (WE's sign-in alone returns `token`, `uToken` and `utoken`),
-/// and personal identifiers Klue never reads (SIM serial, ID number, e-mail, birthday).
+/// Blanks secrets before a response is saved: keys containing one of `SECRET`, and personal
+/// ids that are never read (SIM serial, national ID, email, birthday).
 fn redact(v: &mut Value) {
     const SECRET: [&str; 6] = ["password", "pwd", "token", "secret", "captcha", "imgcode"];
     const PERSONAL: [&str; 6] = ["sim", "idnumber", "iccid", "imsi", "email", "birthday"];
@@ -59,7 +55,6 @@ fn redact(v: &mut Value) {
     }
 }
 
-/// Sign in and read the account.
 pub async fn fetch(
     carrier: Carrier,
     line: LineType,

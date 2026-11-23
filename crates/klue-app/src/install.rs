@@ -1,9 +1,8 @@
-//! Windows: make Klue findable like an installed app. Klue ships as a folder with
-//! Klue.exe (no installer), so on launch it adds a Start menu shortcut (what Start's
-//! search looks through) and an "App Paths" entry (so Run and `start klue` find it).
-//! Both are per user and are redone only when Klue was moved since.
+//! Windows: Klue ships as a folder (no installer), so on launch it adds a Start menu
+//! shortcut and an App Paths entry for search and `start klue`. Per user, and redone only
+//! if Klue moved.
 
-/// Register Klue with Windows; a no-op elsewhere.
+/// No-op outside Windows.
 pub fn register() {
     #[cfg(windows)]
     if let Err(e) = windows::register() {

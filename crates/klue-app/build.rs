@@ -1,5 +1,5 @@
-//! Windows: embeds the app icon, the publisher and the version in klue.exe. Release
-//! builds take their version from `KLUE_VERSION` (set from the tag by the workflow).
+//! Windows: embeds the icon, publisher and version in klue.exe. Release builds take the
+//! version from `KLUE_VERSION`.
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -8,7 +8,7 @@ fn main() {
     windows_resources();
 }
 
-/// Icon and version info for klue.exe (Explorer, taskbar, Alt+Tab, Task Manager).
+/// Icon and version info for klue.exe.
 #[cfg(windows)]
 fn windows_resources() {
     println!("cargo:rerun-if-changed=icons/klue.ico");

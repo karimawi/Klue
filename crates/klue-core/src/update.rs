@@ -1,5 +1,4 @@
-//! Updates: Klue's releases on GitHub. Only releases built from a commit on the main
-//! branch count (the dev branch has its own pre-releases); none there yet means no update.
+//! Updates from GitHub releases. Only releases built from a commit on `main` count.
 
 use std::{
     cmp::Ordering,
@@ -17,11 +16,10 @@ use wreq::header::{ACCEPT, USER_AGENT};
 use crate::{FetchError, http, json as j};
 
 const API: &str = "https://api.github.com/repos/karimawi/Klue";
-/// Releases count only when built from a commit on this branch.
 pub const BRANCH: &str = "main";
 
-/// A release version: `major.minor.patch`, optionally with a pre-release part
-/// (`0.3.0-beta.1`), which comes before the release itself.
+/// `major.minor.patch`, optionally with a pre-release part (`0.3.0-beta.1`) that sorts
+/// before the release.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Version {
     pub major: u64,
@@ -66,7 +64,7 @@ impl PartialOrd for Version {
     }
 }
 
-/// Pre-release parts compare field by field, numbers as numbers (`beta.2 < beta.10`).
+/// Pre-release parts compare field by field, numbers numerically (`beta.2 < beta.10`).
 fn compare_pre(a: &str, b: &str) -> Ordering {
     let mut a = a.split('.');
     let mut b = b.split('.');
@@ -100,7 +98,6 @@ impl fmt::Display for Version {
     }
 }
 
-/// A downloadable file of a release.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asset {
     pub name: String,
@@ -113,25 +110,25 @@ pub struct Release {
     pub version: Version,
     pub tag: String,
     pub title: String,
-    /// The release notes, in Markdown.
+    /// Markdown.
     pub notes: String,
     /// The release's page on GitHub.
     pub page: String,
     pub published: Option<DateTime<Utc>>,
     pub prerelease: bool,
     pub assets: Vec<Asset>,
-    /// The commit (or branch) it was built from.
+    /// Commit (or branch) it was built from.
     pub target: String,
 }
 
 impl Release {
-    /// The first asset whose name ends with one of `suffixes`, in their order.
+    /// First asset whose name ends with one of `suffixes`, in that order.
     pub fn asset(&self, suffixes: &[&str]) -> Option<&Asset> {
         suffixes.iter().find_map(|s| self.assets.iter().find(|a| a.name.ends_with(s)))
     }
 }
 
-/// GitHub's release list, newest first, without drafts or tags that aren't versions.
+/// Newest first, without drafts or tags that aren't versions.
 pub(crate) fn parse_releases(v: &Value) -> Vec<Release> {
     v.as_array()
         .into_iter()
@@ -144,7 +141,7 @@ pub(crate) fn parse_releases(v: &Value) -> Vec<Release> {
                 .into_iter()
                 .flatten()
                 .filter_map(|a| {
-                    // Only a plain file name: it becomes a path on disk.
+                    // The name becomes a file path, so no directories.
                     let name = j::text(&a["name"]).filter(|n| !n.contains(['/', '\\']) && !n.starts_with('.'))?;
                     Some(Asset { name, url: j::text(&a["browser_download_url"])?, size: j::num(&a["size"]).unwrap_or(0.0) as u64 })
                 })
@@ -164,7 +161,7 @@ pub(crate) fn parse_releases(v: &Value) -> Vec<Release> {
         .collect()
 }
 
-/// Whether GitHub's compare of `main...<commit>` says the commit is in main's history.
+/// Whether `compare/main...<commit>` puts the commit in main's history.
 pub(crate) fn in_branch(compare: &Value) -> bool {
     matches!(j::text(&compare["status"]).as_deref(), Some("behind" | "identical"))
 }
@@ -188,7 +185,7 @@ async fn get_json(client: &wreq::Client, url: &str) -> Result<Value, FetchError>
     http::json_body(resp, "GitHub").await
 }
 
-/// The newest release from the main branch that's newer than `current`, if any.
+/// The newest release from `main` that's newer than `current`.
 pub async fn newer_than(current: &Version) -> Result<Option<Release>, FetchError> {
     let client = http::plain_client(Duration::from_secs(30))?;
     let list = get_json(&client, &format!("{API}/releases?per_page=30")).await?;
@@ -210,7 +207,7 @@ pub async fn newer_than(current: &Version) -> Result<Option<Release>, FetchError
     Ok(None)
 }
 
-/// Download `asset` into `dir`, reporting progress as (bytes so far, total).
+/// Downloads `asset` into `dir`, reporting (bytes so far, total).
 pub async fn download(asset: &Asset, dir: &Path, mut progress: impl FnMut(u64, Option<u64>)) -> Result<PathBuf, FetchError> {
     let client = http::plain_client(Duration::from_secs(15 * 60))?;
     let resp = client.get(&asset.url).header(USER_AGENT, "Klue-updater").send().await?;
@@ -287,7 +284,7 @@ mod tests {
         assert_eq!(r.asset(&["-linux-x64.tar.gz"]), None);
     }
 
-    /// Against GitHub: `cargo test -p klue-core --no-default-features update -- --ignored`.
+    /// `cargo test -p klue-core --no-default-features update -- --ignored`
     #[tokio::test]
     #[ignore = "needs the network"]
     async fn live_releases_count_only_from_main() {

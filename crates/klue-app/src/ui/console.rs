@@ -1,5 +1,4 @@
-//! The debug console window (`--debug`): Klue's log as it happens, with a level filter,
-//! a search, and buttons to copy or clear it.
+//! The debug console window: the live log, with a level filter, search, copy and clear.
 
 use iced::{
     Alignment, Color, Font, Length,
@@ -69,7 +68,7 @@ pub fn view(app: &App) -> El<'_> {
     column![container(bar).padding([10, 16]), hline(p.dv, 1.0), container(body).height(Length::Fill)].into()
 }
 
-/// `winit::platform_impl::linux::x11` as `linux::x11`: the end says where.
+/// `winit::platform_impl::linux::x11` -> `linux::x11`.
 fn short_target(target: &str) -> String {
     let parts: Vec<&str> = target.split("::").collect();
     parts[parts.len().saturating_sub(2)..].join("::")

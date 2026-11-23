@@ -21,7 +21,7 @@ use crate::{
     theme,
 };
 
-/// Fields that take the focus when their dialog opens.
+/// Fields focused when their dialog opens.
 pub const ADD_NUMBER: &str = "add-number";
 const ADD_PASSWORD: &str = "add-password";
 const ADD_NICKNAME: &str = "add-nickname";
@@ -37,10 +37,10 @@ pub enum Modal {
 }
 
 pub struct SettingsForm {
-    /// What's typed in the all-numbers threshold and lead-time fields.
+    /// Text in the all-numbers threshold and lead-time fields.
     percent: String,
     lead: String,
-    /// "Apply to all numbers" was pressed (and nothing changed since).
+    /// "Apply to all numbers" was pressed and nothing changed since.
     applied: bool,
 }
 
@@ -71,7 +71,7 @@ pub struct RenameForm {
 pub struct AlertsForm {
     id: String,
     draft: AlertPrefs,
-    /// What's typed in each threshold field, by bundle key.
+    /// Text in each threshold field, by bundle key.
     values: BTreeMap<String, String>,
     lead: String,
 }
@@ -100,13 +100,13 @@ pub enum Msg {
     ReminderUnit(LeadUnit),
     RenewalDay,
     AlertsSave,
-    /// The switch on the dashboard: saved right away.
+    /// The dashboard switch; saved right away.
     ToggleReminder(String),
 
     Startup,
     KeepInTray,
     RefreshEvery(RefreshEvery),
-    /// Alerts for all numbers (saved as they change; applied to every number on AllApply).
+    /// Alerts for all numbers: saved as they change, applied to every number on AllApply.
     AllMain,
     AllOthers,
     AllPercent(String),
@@ -209,7 +209,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
             }
         },
         (Modal::Add(f), Msg::AddResult(result)) => {
-            // Carry on typing where it makes sense: a nickname, or the password again.
+            // Move on to the nickname, or back to the password.
             let next = match &result {
                 Ok(_) => Some(ADD_NICKNAME),
                 Err(FetchError::BadCredentials) => Some(ADD_PASSWORD),
@@ -273,7 +273,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
             shared.update(|d| {
                 if let Some(a) = d.account_mut(&id) {
                     a.alerts = prefs;
-                    // New thresholds re-arm alerts that already fired this cycle.
+                    // New thresholds re-arm alerts that already fired.
                     a.fired.clear();
                 }
             });
@@ -321,7 +321,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
         }
         (Modal::Settings(f), Msg::AllApply) => {
             shared.update(|d| {
-                // What the field shows is what every number gets.
+                // Every number gets what the field shows.
                 d.settings.alerts.percent = Some(d.settings.alerts.percent_or_default());
                 d.apply_alert_defaults();
             });
@@ -358,8 +358,7 @@ fn dialog<'a>(ctx: &Ctx<'a>, width: f32, kicker: String, title: String, close: O
         )
         .align_y(Alignment::Start)
         .spacing(16);
-    // The body scrolls within what the window leaves (the overlay's margins, the title
-    // bar, this dialog's head and foot), so the foot stays in view.
+    // The body scrolls so the footer stays visible.
     let room = (ctx.app.main_size.height - 48.0 - 40.0 - 150.0).max(160.0);
     let body = container(super::smooth::smooth(scrollable(container(body).padding([18, 22])).style(theme::scroller(p)).height(Length::Shrink))).max_height(room);
     container(column![container(head).padding(super::pad4(18.0, 22.0, 14.0, 22.0)), hline(p.dv, 2.0), body, hline(p.dv, 2.0), container(foot).padding([14, 22])])
@@ -383,7 +382,7 @@ fn notice<'a>(ctx: &Ctx<'a>, e: &FetchError, carrier: Carrier) -> El<'a> {
         .into()
 }
 
-/// A read-only box in the shape of a field (the owner name).
+/// A read-only box shaped like a field (owner name).
 fn readout<'a>(ctx: &Ctx<'a>, text: String, highlight: bool, check: bool) -> El<'a> {
     let p = ctx.p;
     let mut items = vec![container(ctx.text(text, 14.0, if highlight { Weight::Semibold } else { Weight::Normal }, if highlight { p.tx } else { p.mu })).width(Length::Fill).align_x(ctx.start()).into()];
@@ -414,7 +413,7 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
     let carrier_name = i18n::carrier_name(f.carrier, ctx.lang);
     let app_name = i18n::carrier_app(f.carrier, ctx.lang);
 
-    // Only carriers Klue can sign in to; the others aren't shown until they work.
+    // Only carriers that work.
     let carriers: Vec<El<'a>> = Carrier::ALL
         .into_iter()
         .filter(|c| c.is_supported())
@@ -439,7 +438,7 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
         })
         .collect();
 
-    // Line types a carrier has but Klue can't read yet say so.
+    // Unsupported line types are disabled, with a tooltip.
     let soon = |l: LineType| match (f.carrier, l) {
         (Carrier::We, LineType::Mobile) => Some(s.we_mobile_soon),
         (Carrier::Vodafone, LineType::Landline) => Some(s.vf_dsl_soon),
@@ -607,7 +606,7 @@ fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::A
 // ---------------------------------------------------------------------------------------
 // Alerts
 
-/// A small number field (thresholds, lead times), faded while what it sets is off.
+/// A small number field, faded while its setting is off.
 fn number_field<'a>(ctx: &Ctx<'a>, value: &str, on_input: impl Fn(String) -> Message + 'a, width: f32, dim: bool) -> El<'a> {
     let p = ctx.p;
     text_input("", value)
@@ -786,8 +785,7 @@ fn settings<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
     dialog(ctx, 540.0, s.app.to_string(), s.settings_title.to_string(), Some(Message::CloseModal), body.into(), foot.into())
 }
 
-/// Alerts for all numbers: saved as they change (new numbers start with them), and given
-/// to every number with the Apply button.
+/// Alerts for all numbers. Saved as they change; Apply gives them to every number.
 fn all_alerts<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
     let p = ctx.p;
     let s = ctx.s;
@@ -828,7 +826,7 @@ fn all_alerts<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
     .into()
 }
 
-/// About Klue: version, author, links, and the update check.
+/// Version, author, links and the update check.
 fn about<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let p = ctx.p;
     let s = ctx.s;
@@ -872,7 +870,7 @@ fn about<'a>(ctx: &Ctx<'a>) -> El<'a> {
 // ---------------------------------------------------------------------------------------
 // Disclaimer
 
-/// The disclaimer: accepted once per version of Klue, before it signs in anywhere.
+/// Accepted once per version, before any sign-in.
 pub fn disclaimer<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let p = ctx.p;
     let s = ctx.s;
@@ -891,7 +889,7 @@ pub fn disclaimer<'a>(ctx: &Ctx<'a>) -> El<'a> {
         point(Icon::Warning, s.disc_risk_title, s.disc_risk),
     ]
     .spacing(18);
-    // It comes before Settings can be reached, so it has its own language switch.
+    // Settings isn't reachable yet, so it has its own language switch.
     let lang = ctx.app.snap.data.settings.lang;
     let langs = ctx.segmented(
         vec![
@@ -916,7 +914,7 @@ pub fn disclaimer<'a>(ctx: &Ctx<'a>) -> El<'a> {
 // ---------------------------------------------------------------------------------------
 // Update
 
-/// The update dialog: what's new, and getting it.
+/// What's new, and the install button.
 pub fn update_dialog<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
     let p = ctx.p;
     let s = ctx.s;
@@ -938,7 +936,7 @@ pub fn update_dialog<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
         _ => Space::new().into(),
     };
     let busy = matches!(state, app::UpdateState::Downloading { .. } | app::UpdateState::Installing { .. });
-    // A disk image or a package is downloaded and handed to the system; the rest installs itself.
+    // Disk images and packages go to the system installer; the rest installs itself.
     let installs_itself = release.asset(crate::updater::suffixes()).is_some_and(|a| a.name.ends_with(".zip") || a.name.ends_with(".tar.gz"));
     let mut foot = vec![container(foot_status).width(Length::Fill).align_x(ctx.start()).into()];
     if !busy {
@@ -955,12 +953,12 @@ pub fn update_dialog<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
     Some(dialog(ctx, 560.0, s.update_kicker.to_string(), i18n::update_available(&version, ctx.lang), Some(Message::UpdateLater), body.into(), foot.into()))
 }
 
-/// Release notes in Markdown, shown simply: headings in bold, list items with a bullet,
-/// other lines as text; at most 40 lines.
+/// Minimal Markdown: bold headings, bulleted list items, plain text; up to 40 lines.
 fn notes<'a>(ctx: &Ctx<'a>, markdown: &str) -> El<'a> {
     let clean = |t: &str| t.replace("**", "").replace("__", "").replace('`', "");
     let mut col = column![].spacing(4).align_x(ctx.start());
-    for line in markdown.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with("<!--")).take(40) {
+    // An HTML comment ends the part shown here (download tables and such are for GitHub).
+    for line in markdown.lines().map(str::trim).take_while(|l| !l.starts_with("<!--")).filter(|l| !l.is_empty()).take(40) {
         col = col.push(if let Some(heading) = line.strip_prefix('#') {
             Element::from(ctx.bold(clean(heading.trim_start_matches('#').trim()), 14.0))
         } else if let Some(item) = line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")) {

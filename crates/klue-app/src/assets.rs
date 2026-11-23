@@ -1,4 +1,4 @@
-//! Fonts, logos and icons, embedded in the binary so Klue works offline.
+//! Fonts, logos and icons, embedded so Klue works offline.
 
 use std::sync::LazyLock;
 
@@ -9,8 +9,8 @@ use iced::{
 };
 use klue_core::{Carrier, store::Lang};
 
-/// DM Sans for Latin text and numbers, Google Sans for Arabic (both SIL OFL 1.1), as
-/// static instances made from the variable fonts by tools/fonts/make_static.py.
+/// DM Sans for Latin text and numbers, Google Sans for Arabic (both OFL), static instances
+/// made by tools/fonts/make_static.py.
 pub const FONTS: [&[u8]; 12] = [
     include_bytes!("../assets/fonts/dm-sans-latin-400.ttf"),
     include_bytes!("../assets/fonts/dm-sans-latin-600.ttf"),
@@ -35,7 +35,7 @@ pub fn font(lang: Lang, weight: Weight) -> Font {
     Font { family: Family::Name(family), weight, ..Font::DEFAULT }
 }
 
-/// Big figures stay in DM Sans in both languages, as in the design.
+/// Figures stay in DM Sans in both languages.
 pub fn numbers(weight: Weight) -> Font {
     Font { family: Family::Name(DM_SANS), weight, ..Font::DEFAULT }
 }
@@ -48,9 +48,9 @@ pub static LOGO: LazyLock<svg::Handle> = LazyLock::new(|| svg::Handle::from_memo
 /// How a carrier's logo sits on its icon tile.
 pub struct Tile {
     pub logo: svg::Handle,
-    /// Tile background (the logo files are white artwork, except e&'s).
+    /// Tile background (the logos are white, except e&'s).
     pub background: iced::Color,
-    /// Logo size inside the 46 px rail tile, the 24 px picker tile and the 34 px tray tile.
+    /// Logo size in the 46 px rail tile, the 24 px picker tile and the 34 px tray tile.
     pub rail: f32,
     pub small: f32,
     pub tray: f32,
@@ -81,7 +81,7 @@ pub fn tile(carrier: Carrier) -> &'static Tile {
     }]
 }
 
-/// Line icons (Lucide shapes, ISC licence). Drawn in black and tinted where used.
+/// Line icons (Lucide, ISC), drawn black and tinted where used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Icon {
     Refresh,

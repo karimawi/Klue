@@ -1,8 +1,8 @@
-//! Phone number and name normalisation shared by the clients and the UI.
+//! Number and name formatting shared by the clients and the UI.
 
 use crate::{FetchError, LineType, Unit};
 
-/// ASCII digits from `input`, converting Arabic-Indic digits (٠–٩, ۰–۹) as well.
+/// ASCII digits from `input`, including Arabic-Indic ones.
 pub fn digits(input: &str) -> String {
     input
         .chars()
@@ -15,8 +15,8 @@ pub fn digits(input: &str) -> String {
         .collect()
 }
 
-/// Normalise a user-typed number to the local format the carriers expect
-/// (`01xxxxxxxxx` for mobiles, `0` + area code + number for landlines).
+/// A typed number in the local format carriers expect (`01xxxxxxxxx`, or `0` + area code
+/// + number for landlines).
 pub fn normalize(input: &str, line: LineType) -> Result<String, FetchError> {
     let mut d = digits(input);
     if let Some(rest) = d.strip_prefix("0020") {
@@ -33,7 +33,7 @@ pub fn normalize(input: &str, line: LineType) -> Result<String, FetchError> {
     if ok { Ok(d) } else { Err(FetchError::InvalidNumber(input.trim().to_string())) }
 }
 
-/// Group a normalised number for display: `010 0128 5532`, `02 2358 4417`.
+/// `010 0128 5532`, `02 2358 4417`.
 pub fn pretty_number(number: &str) -> String {
     let d = digits(number);
     let groups: &[usize] = match d.len() {
@@ -55,9 +55,8 @@ pub fn pretty_number(number: &str) -> String {
     out
 }
 
-/// Clean up a registrant name from a carrier: collapse whitespace and turn SHOUTING
-/// Latin words into Title Case, whether the whole name shouts ("MOSTAFA HASSAN") or one
-/// word does ("Samia NAGUIB"). Returns `None` for values that aren't names.
+/// Collapses whitespace and title-cases SHOUTING Latin words ("MOSTAFA HASSAN",
+/// "Samia NAGUIB"). `None` if it isn't a name.
 pub fn tidy_name(raw: &str) -> Option<String> {
     let collapsed = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     if !collapsed.chars().any(char::is_alphabetic) || collapsed.contains('@') {
@@ -66,7 +65,7 @@ pub fn tidy_name(raw: &str) -> Option<String> {
     let shouting = |w: &str| {
         w.is_ascii() && w.chars().filter(char::is_ascii_alphabetic).count() >= 2 && !w.chars().any(|c| c.is_ascii_lowercase())
     };
-    // "EL-SAYED" → "El-Sayed": a capital after each hyphen or apostrophe too.
+    // "EL-SAYED" -> "El-Sayed".
     let title = |w: &str| {
         let mut out = String::with_capacity(w.len());
         let mut start = true;
@@ -79,8 +78,7 @@ pub fn tidy_name(raw: &str) -> Option<String> {
     Some(collapsed.split(' ').map(|w| if shouting(w) { title(w) } else { w.to_string() }).collect::<Vec<_>>().join(" "))
 }
 
-/// A line speed as a number and whether it's in Mbit/s (else kbit/s): WE counts
-/// 1024 kbit/s to the Mbit/s (30720 is "30").
+/// A speed as a number, and whether it's Mbit/s. WE uses 1024 kbit/s per Mbit/s.
 pub fn speed(kbps: u32) -> (String, bool) {
     if kbps >= 1024 {
         let mbps = f64::from(kbps) / 1024.0;
@@ -91,15 +89,14 @@ pub fn speed(kbps: u32) -> (String, bool) {
     }
 }
 
-/// `name` tidied, if it's written in Arabic. Asked for Arabic, carriers still answer in
-/// English for names they haven't translated, and those aren't Arabic names.
+/// `name`, tidied, if it's actually Arabic. Carriers return English for names they
+/// haven't translated.
 pub fn arabic(name: &str) -> Option<String> {
     let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
     name.chars().any(|c| matches!(c, '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}' | '\u{FB50}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}')).then_some(name)
 }
 
-/// Amount without its unit, in the unit the carrier stated: one decimal for GB, two for
-/// money, whole numbers otherwise (MB, minutes, units), with thousands separators.
+/// Without the unit: one decimal for GB, two for money, whole numbers otherwise.
 pub fn amount(v: f64, unit: Unit) -> String {
     match unit {
         Unit::Gb => grouped(v, 1),
@@ -108,7 +105,7 @@ pub fn amount(v: f64, unit: Unit) -> String {
     }
 }
 
-/// Money as shown in the app: "1,685.96".
+/// "1,685.96".
 pub fn money(v: f64) -> String {
     grouped(v, 2)
 }
@@ -121,7 +118,7 @@ fn grouped(v: f64, decimals: usize) -> String {
     if frac.is_empty() { format!("{sign}{}", thousands(int)) } else { format!("{sign}{}.{frac}", thousands(int)) }
 }
 
-/// Like [`amount`] but drops a trailing `.0` (used for totals: "of 140 GB").
+/// [`amount`] without a trailing `.0` ("of 140 GB").
 pub fn amount_short(v: f64, unit: Unit) -> String {
     let s = amount(v, unit);
     s.strip_suffix(".0").map(str::to_string).unwrap_or(s)

@@ -1,16 +1,14 @@
-//! Notification sounds: `negative.wav` for warnings (a quota running low) and
-//! `notification.wav` for everything else (renewals). Klue plays them itself rather than
-//! through the notification, which can't carry a custom sound everywhere (Windows doesn't
-//! let an unpackaged app give its toasts one), and the notifications are sent silent.
+//! Notification sounds: `negative.wav` for warnings, `notification.wav` for the rest.
+//! Klue plays them itself because unpackaged Windows apps can't give toasts a custom sound.
 
 static NOTIFICATION: &[u8] = include_bytes!("../assets/sounds/notification.wav");
 static NEGATIVE: &[u8] = include_bytes!("../assets/sounds/negative.wav");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
-    /// Something needs attention: a quota is running low.
+    /// A quota running low.
     Warning,
-    /// Everything else: renewals, reminders.
+    /// Renewals and everything else.
     Notice,
 }
 
@@ -30,12 +28,12 @@ impl Tone {
     }
 }
 
-/// The tone for several notifications sent together: one sound, a warning if any is one.
+/// One sound for several notifications: a warning if any of them is one.
 pub fn for_all(tones: impl IntoIterator<Item = Tone>) -> Option<Tone> {
     tones.into_iter().reduce(|a, b| if a == Tone::Warning || b == Tone::Warning { Tone::Warning } else { Tone::Notice })
 }
 
-/// Play `tone` without waiting for it to finish.
+/// Plays `tone` without blocking.
 pub fn play(tone: Tone) {
     #[cfg(windows)]
     windows::play(tone);
@@ -47,8 +45,8 @@ pub fn play(tone: Tone) {
     });
 }
 
-/// macOS and Linux play a file with the system's player: the sounds are written next to
-/// each other in the temp folder once per run.
+/// macOS and Linux play a file with the system player; the sounds are written to the temp
+/// folder once per run.
 #[cfg(not(windows))]
 fn play_file(tone: Tone) -> std::io::Result<()> {
     use std::{
@@ -83,7 +81,7 @@ fn play_file(tone: Tone) -> std::io::Result<()> {
     Err(last)
 }
 
-/// Remove this run's copies of the sounds (on quit).
+/// Removes this run's sound files (on quit).
 pub fn cleanup() {
     #[cfg(not(windows))]
     let _ = std::fs::remove_dir_all(std::env::temp_dir().join(format!("klue-sounds-{}", std::process::id())));
@@ -95,10 +93,9 @@ mod windows {
 
     use super::Tone;
 
-    /// Plays from memory and returns at once; a new sound stops the one playing.
+    /// Plays from memory and returns immediately; a new sound stops the current one.
     pub fn play(tone: Tone) {
-        // With SND_MEMORY the "name" is the WAV image itself, which must outlive the
-        // sound: it's static.
+        // With SND_MEMORY the "name" is the WAV data itself, so it has to be static.
         let wav = tone.wav();
         let ok = unsafe { PlaySoundW(wav.as_ptr().cast(), std::ptr::null_mut(), SND_MEMORY | SND_ASYNC | SND_NODEFAULT) };
         if ok == 0 {

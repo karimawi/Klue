@@ -1,5 +1,5 @@
-//! The debug console's log (`--debug`): every event tracing sees, kept in memory for the
-//! console window. Capped, oldest lines dropped first.
+//! The debug console's log (`--debug`): every tracing event, kept in memory, oldest
+//! dropped first.
 
 use std::{
     collections::VecDeque,
@@ -14,13 +14,13 @@ use chrono::{DateTime, Local};
 use tracing::{Level, field::Field};
 use tracing_subscriber::layer::Context;
 
-/// How many lines the console keeps.
+/// Lines kept.
 const CAP: usize = 20_000;
-/// The longest message kept whole; longer ones (a dump of some big value) are cut.
+/// Longer messages are cut.
 const MAX_TEXT: usize = 4_000;
 
 static LINES: Mutex<VecDeque<Line>> = Mutex::new(VecDeque::new());
-/// Bumped for every line, so the console knows when to look again.
+/// Bumped on every change, so the console knows when to re-read.
 static REVISION: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,7 +38,7 @@ impl Line {
     }
 }
 
-/// A tracing layer that records every event it's given.
+/// A tracing layer that records every event.
 pub struct Capture;
 
 impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Capture {
@@ -69,7 +69,6 @@ fn push(line: Line) {
     REVISION.fetch_add(1, Ordering::Relaxed);
 }
 
-/// Changes whenever a line is added or the log is cleared.
 pub fn revision() -> u64 {
     REVISION.load(Ordering::Relaxed)
 }
@@ -146,7 +145,7 @@ mod tests {
         let texts: Vec<_> = mine.iter().map(|l| (l.level, l.text.as_str())).collect();
         assert!(texts.contains(&(Level::INFO, "background refresh count=3")));
         assert!(texts.contains(&(Level::WARN, "couldn't play negative.wav")));
-        // The log is shared with the other test here, which may add its line after these.
+        // The other test shares the log and may add its line after these.
         let warning = mine.iter().find(|l| l.text.starts_with("couldn't play")).unwrap();
         assert!(warning.plain().contains(" WARN "));
     }

@@ -1,7 +1,5 @@
-//! The usage graph, drawn on a canvas: what a bundle had left at each refresh (a line with
-//! a dot for every refresh) above what it used per day or per hour (columns), on one time
-//! axis. Hovering near a dot gives the minute of that refresh; hovering a column gives that
-//! day's or hour's usage. Time runs right to left in Arabic, like the meters.
+//! The usage graph: what was left at each refresh, over usage per day or per hour.
+//! Time runs right to left in Arabic.
 
 use chrono::{DateTime, Datelike, Duration, Local, Timelike, Utc};
 use iced::{
@@ -28,10 +26,10 @@ use crate::{
     theme::{self, Palette},
 };
 
-/// The graph's height, its time axis included.
+/// Graph height, axis labels included.
 pub const HEIGHT: f32 = 290.0;
 
-// Top to bottom: a caption, the line panel, a caption, the column panel, the time axis.
+// Layout, top to bottom.
 const CAPTION_LINE: f32 = 0.0;
 const LINE: (f32, f32) = (26.0, 150.0);
 const CAPTION_COLUMNS: f32 = 168.0;
@@ -40,7 +38,7 @@ const AXIS: f32 = 270.0;
 
 const LABEL: f32 = 11.0;
 const DOT: f32 = 4.0;
-/// Columns are never wider than this, however wide their day or hour is.
+/// Max column width.
 const COLUMN_MAX: f32 = 24.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,17 +49,16 @@ pub enum Span {
 
 pub struct Chart {
     pub span: Span,
-    /// The bundle's readings since it last renewed, oldest first. Those before the first
-    /// period are cut off at its start.
+    /// Readings since the last renewal, oldest first.
     pub readings: Vec<Reading>,
-    /// The days or hours to draw, oldest first.
+    /// Days or hours to draw, oldest first.
     pub periods: Vec<Period>,
     pub unit: Unit,
     pub p: Palette,
     pub lang: Lang,
 }
 
-/// Whether the pointer was over the graph at the last move, so leaving it redraws once.
+/// Whether the pointer was over the graph, so leaving it redraws once.
 #[derive(Default)]
 pub struct State {
     over: bool,
@@ -89,26 +86,26 @@ impl canvas::Program<Message> for Chart {
     }
 }
 
-/// A point of the line: a reading, or where the line enters the graph at its start.
+/// A point on the line: a reading, or where the line enters at the left edge.
 #[derive(Clone, Copy)]
 struct Node {
     at: DateTime<Utc>,
     remaining: f64,
-    /// The reading this is, for its dot and tooltip; `None` where the line is cut off.
+    /// Index into `readings`; `None` for the edge point.
     reading: Option<usize>,
-    /// The wait from the reading before was long: that stretch of the line is a guess.
+    /// A long wait since the previous reading: drawn dashed.
     after_gap: bool,
 }
 
-/// Values shown in `unit`, `factor` times the bundle's own (a GB bundle's small amounts in MB).
+/// Display unit and factor (a GB bundle's small amounts in MB).
 #[derive(Clone, Copy)]
 struct Scale {
     factor: f64,
     unit: Unit,
-    /// Tick values, lowest first, in the shown unit.
+    /// Ticks in the display unit, lowest first.
     ticks: [f64; 8],
     count: usize,
-    /// Whether the ticks have fractions, so they're all written with one decimal.
+    /// Ticks with fractions all get one decimal.
     fractions: bool,
 }
 
@@ -149,7 +146,7 @@ impl Scale {
         self.ticks[self.count - 1].max(self.ticks[0] + 1e-9)
     }
 
-    /// Where `v` (in the bundle's unit) falls between `bottom` and `top`.
+    /// Y position of `v` (in the bundle's unit).
     fn y(&self, v: f64, (top, bottom): (f32, f32)) -> f32 {
         let f = ((v * self.factor - self.lo()) / (self.hi() - self.lo())) as f32;
         bottom - f * (bottom - top)
@@ -160,7 +157,7 @@ impl Scale {
     }
 }
 
-/// The horizontal extent of the panels and the time they show.
+/// Horizontal extent and time range.
 struct Axis {
     left: f32,
     right: f32,
@@ -175,7 +172,7 @@ impl Axis {
         if self.rtl { self.right - f * (self.right - self.left) } else { self.left + f * (self.right - self.left) }
     }
 
-    /// The left and right edges of a period.
+    /// A period's left and right edges.
     fn span(&self, period: &Period) -> (f32, f32) {
         let (a, b) = (self.x(period.start), self.x(period.end));
         (a.min(b), a.max(b))
@@ -183,7 +180,7 @@ impl Axis {
 }
 
 impl Chart {
-    /// How long a wait between readings makes that stretch of the line a guess.
+    /// Waits longer than this are drawn dashed.
     fn long_wait(&self) -> Duration {
         match self.span {
             Span::Days => Duration::hours(3),
@@ -191,8 +188,7 @@ impl Chart {
         }
     }
 
-    /// The line from the graph's start: the readings in it, after where the line crosses
-    /// the start if it began earlier.
+    /// The line's points, starting where it crosses the left edge if it began earlier.
     fn nodes(&self) -> Vec<Node> {
         let (Some(first), Some(last)) = (self.periods.first(), self.periods.last()) else { return Vec::new() };
         let (from, to) = (first.start, last.end);
@@ -214,7 +210,7 @@ impl Chart {
         nodes
     }
 
-    /// Whether part of the graph is spread over a long wait (for the note under it).
+    /// Whether any part is spread over a long wait (for the note).
     pub fn has_gaps(&self) -> bool {
         self.periods.iter().any(Period::rough) || self.nodes().iter().any(|n| n.after_gap)
     }
@@ -235,7 +231,7 @@ impl Chart {
         let most = self.periods.iter().map(|p| p.used).fold(0.0, f64::max);
         let used = Scale::new(0.0, most, self.unit, 2);
 
-        // The value labels go in a gutter on the start side, as wide as the widest.
+        // Value labels go in a gutter on the start side.
         let numbers = assets::numbers(Weight::Normal);
         let gutter = left.ticks().iter().map(|v| left.label(*v)).chain(used.ticks().iter().map(|v| used.label(*v))).map(|l| measure(&l, LABEL, numbers).width).fold(0.0, f32::max) + 10.0;
         let axis = if rtl {
@@ -248,14 +244,13 @@ impl Chart {
             return;
         }
 
-        // Captions, gridlines and value labels.
         let per = if self.span == Span::Days { i18n::strings(self.lang).chart_per_day } else { i18n::strings(self.lang).chart_per_hour };
         self.caption(frame, &axis, CAPTION_LINE, i18n::strings(self.lang).chart_left, left.unit);
         self.caption(frame, &axis, CAPTION_COLUMNS, per, used.unit);
         for (scale, panel, columns) in [(&left, LINE, false), (&used, COLUMNS, true)] {
             for (i, v) in scale.ticks().iter().enumerate() {
                 let y = panel.1 - (v - scale.lo()) as f32 / (scale.hi() - scale.lo()) as f32 * (panel.1 - panel.0);
-                // The columns stand on a firmer baseline.
+                // Stronger baseline for the columns.
                 let color = if columns && i == 0 { p.dv } else { p.dvs };
                 frame.fill_rectangle(Point::new(axis.left, y - 0.5), Size::new(width, 1.0), color);
                 let label = scale.label(*v);
@@ -265,7 +260,7 @@ impl Chart {
             }
         }
 
-        // Midnights, in the hours view.
+        // Midnight lines in the hours view.
         if self.span == Span::Hours {
             for period in self.periods.iter().skip(1).filter(|q| q.start.with_timezone(&Local).hour() == 0) {
                 let x = axis.x(period.start);
@@ -273,7 +268,7 @@ impl Chart {
             }
         }
 
-        // What the pointer is on: a reading (upper panel) or a period (lower panel).
+        // Hovered reading (upper panel) or period (lower panel).
         let hovered = hover.filter(|h| h.x >= axis.left - 12.0 && h.x <= axis.right + 12.0 && h.y <= AXIS + 18.0);
         let split = (LINE.1 + COLUMNS.0) / 2.0;
         let hovered_node = hovered.filter(|h| h.y < split).and_then(|h| {
@@ -286,13 +281,13 @@ impl Chart {
             })
         });
 
-        // The hovered period's slot, behind its column.
+        // Highlight behind the hovered column.
         if let Some((_, period)) = hovered_period {
             let (l, r) = axis.span(period);
             frame.fill(&Path::rounded_rectangle(Point::new(l + 1.0, COLUMNS.0 - 6.0), Size::new((r - l - 2.0).max(1.0), COLUMNS.1 - COLUMNS.0 + 6.0), Radius::from(5.0)), theme::fade(p.tx, 0.06));
         }
 
-        // The line, over a wash that fades towards the bottom of its panel.
+        // Line over a fading wash.
         let at = |n: &Node| Point::new(axis.x(n.at), left.y(n.remaining, LINE));
         let area = Path::new(|b| {
             b.move_to(Point::new(axis.x(nodes[0].at), LINE.1));
@@ -327,8 +322,7 @@ impl Chart {
         frame.stroke(&solid, stroke(mark));
         frame.stroke(&dashed, Stroke { line_dash: LineDash { segments: &[2.0, 5.0], offset: 0 }, ..stroke(theme::fade(mark, 0.7)) });
 
-        // A dot for every reading, smaller where they're close together; where they'd run
-        // into each other, only the latest (hovering finds the others).
+        // A dot per reading, smaller when crowded; only the latest when they'd overlap.
         let dots: Vec<&Node> = nodes.iter().filter(|n| n.reading.is_some()).collect();
         let room = width / dots.len().max(1) as f32;
         for (i, n) in dots.iter().enumerate() {
@@ -340,7 +334,7 @@ impl Chart {
             }
         }
 
-        // Columns: a lighter one is spread over a long wait.
+        // Columns spread over a long wait are fainter.
         for period in &self.periods {
             let (l, r) = axis.span(period);
             let slot = r - l;
@@ -356,7 +350,7 @@ impl Chart {
 
         self.time_labels(frame, &axis);
 
-        // The hovered reading: a crosshair, its dot, and when it was.
+        // Hovered reading: crosshair, dot, tooltip.
         if let Some(n) = hovered_node
             && let Some(j) = n.reading
         {
@@ -374,7 +368,7 @@ impl Chart {
             self.tooltip(frame, point, &lines);
         }
 
-        // The hovered period: when, how much, and how sure.
+        // Hovered period tooltip.
         if let Some((i, period)) = hovered_period {
             let (l, r) = axis.span(period);
             let h = (period.used * used.factor - used.lo()) as f32 / (used.hi() - used.lo()) as f32 * (COLUMNS.1 - COLUMNS.0);
@@ -398,7 +392,7 @@ impl Chart {
         }
     }
 
-    /// "WHAT WAS LEFT · GB" over a panel, at its start.
+    /// Panel caption ("WHAT WAS LEFT · GB").
     fn caption(&self, frame: &mut Frame, axis: &Axis, y: f32, title: &str, unit: Unit) {
         let content = format!("{} · {}", title, i18n::unit_name(unit, self.lang));
         let content = if self.lang == Lang::Ar { content } else { content.to_uppercase() };
@@ -408,8 +402,8 @@ impl Chart {
         text(frame, content, Point::new(x, y), LABEL, font, self.p.mu);
     }
 
-    /// Dates or hours under the columns, as many as fit without touching, always the latest.
-    /// A date names its month where the labels start and on the 1st.
+    /// Labels under the columns, skipping some so they don't touch; the latest is always
+    /// shown. Dates show the month on the first label and on the 1st.
     fn time_labels(&self, frame: &mut Frame, axis: &Axis) {
         let n = self.periods.len();
         if n == 0 {
@@ -450,7 +444,7 @@ impl Chart {
         }
     }
 
-    /// A tooltip by `anchor`: above it where there's room, else below, inside the graph.
+    /// Tooltip above `anchor` if there's room, else below.
     fn tooltip(&self, frame: &mut Frame, anchor: Point, lines: &[(String, f32, Weight, bool)]) {
         let (pad_x, pad_y, gap) = (10.0, 8.0, 2.0);
         let fonts: Vec<Font> = lines.iter().map(|(_, _, w, _)| assets::font(self.lang, *w)).collect();
@@ -472,14 +466,14 @@ impl Chart {
     }
 }
 
-/// A reading's dot, ringed in the page colour so it stands off the line.
+/// A dot with a ring in the page colour.
 fn dot(frame: &mut Frame, at: Point, radius: f32, color: Color, ring: Color) {
     frame.fill(&Path::circle(at, radius + 2.0), ring);
     frame.fill(&Path::circle(at, radius), color);
 }
 
-/// The accent, or a darker step of it where the accent is too light to see on the page
-/// (the light theme's yellow): marks need 3:1 against the background.
+/// The accent, or a darker step of it if it's under 3:1 against the background (the
+/// light theme's yellow).
 fn mark_color(p: Palette) -> Color {
     (0..=10).map(|i| theme::mix(p.ac, p.ac_tx, i as f32 / 10.0)).find(|c| contrast(*c, p.bg) >= 3.0).unwrap_or(p.ac_tx)
 }
@@ -495,9 +489,8 @@ fn contrast(a: Color, b: Color) -> f32 {
 }
 
 fn text(frame: &mut Frame, content: String, position: Point, size: f32, font: Font, color: Color) {
-    // Laid out in a box as wide as the text itself. Right-to-left text starts from the right
-    // of its box, so an endless one would put Arabic at an endless distance (and crash the
-    // renderer).
+    // A finite width: RTL text is laid out from the right of its box, and an infinite box
+    // crashes tiny-skia.
     let width = measure(&content, size, font).width.ceil() + 1.0;
     frame.fill_text(canvas::Text {
         content,
@@ -513,7 +506,7 @@ fn text(frame: &mut Frame, content: String, position: Point, size: f32, font: Fo
     });
 }
 
-/// The size `content` takes on one line.
+/// Size of `content` on one line.
 fn measure(content: &str, size: f32, font: Font) -> Size {
     Paragraph::with_text(iced::advanced::Text {
         content,
@@ -558,7 +551,7 @@ mod tests {
         for p in [theme::LIGHT, theme::DARK] {
             assert!(contrast(mark_color(p), p.bg) >= 3.0);
         }
-        // The light theme's yellow is too pale for a line; its darker step is used.
+        // The light theme's yellow is too pale; a darker step is used.
         assert_ne!(mark_color(theme::LIGHT), theme::LIGHT.ac);
         assert_eq!(mark_color(theme::DARK), theme::DARK.ac);
     }

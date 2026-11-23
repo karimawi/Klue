@@ -1,24 +1,13 @@
-//! Experiment harness for WE's captcha and the captcha readers.
+//! Fetches WE captchas and shows what the readers make of them.
 //!
 //! ```text
-//! # Ask WE for captchas for a landline, save them and show the model's reading:
 //! cargo run -p klue-core --example we_captcha -- 0223584417 --count 5
-//!
-//! # Also sign in with each reading, to see whether WE accepts it
-//! # (every attempt counts towards WE's limit, so keep --count small):
-//! cargo run -p klue-core --example we_captcha -- 0223584417 --password '...'
-//!
-//! # Read saved images, offline:
-//! cargo run -p klue-core --example we_captcha -- --image captchas/a.jpg --image captchas/b.jpg
+//! cargo run -p klue-core --example we_captcha -- 0223584417 --password '...'   # also sign in
+//! cargo run -p klue-core --example we_captcha -- --image a.jpg --image b.jpg   # offline
 //! ```
 //!
-//! With `--password`, every captcha WE accepts is also saved as `<out>/labeled/<code>.jpg`:
-//! a verified dataset for retraining the model (tools/captcha-model).
-//!
-//! Flags: `--out <dir>` (default `captchas/`), `--dump <dir>` (write raw WE responses,
-//! secrets redacted), `--ddddocr` (read with ddddocr instead of Klue's model; needs the
-//! `ocr` feature), `--raw` (ddddocr: keep its full charset), `--centered` (ddddocr: the
-//! 1.4/1.5 pixel scaling instead of 1.6's).
+//! With `--password`, accepted captchas are saved as `<out>/labeled/<code>.jpg` for training.
+//! Other flags: `--out <dir>`, `--dump <dir>`, `--ddddocr`, `--raw`, `--centered`.
 
 use std::{path::PathBuf, time::Duration};
 

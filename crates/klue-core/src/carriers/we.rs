@@ -1,22 +1,11 @@
-//! WE (Telecom Egypt) home internet, via the my.te.eg self-care API.
+//! WE (Telecom Egypt) home internet, through the my.te.eg self-care API.
 //!
-//! Flow:
-//! 1. seed cookies from the portal and call `querySysParams`, like the website does;
-//! 2. `GenerateCaptcha` returns a token, and an image when WE wants proof of a human
-//!    (after a few sign-ins). `status: "Blocked"` means it stopped handing out tokens;
-//!    Each call replaces the previous captcha, so when the solver isn't sure of an image
-//!    Klue asks for another one rather than guess;
-//! 3. `userAuthenticate` with the token (and the solved code, if any);
-//! 4. `queryBalance`, `getSubscribedOfferings` and `queryFreeUnit` with the CSRF token;
-//!    best-effort, `queryRechargeLogCz` (payment history) and `querySubscribers` (plan).
+//! Sign-in is `GenerateCaptcha` (a token, plus an image once WE wants a human) and then
+//! `userAuthenticate`. After that: `queryBalance`, `getSubscribedOfferings`, `queryFreeUnit`,
+//! and when they work, `queryRechargeLogCz` and `querySubscribers`.
 //!
-//! All requests go out with Chrome's TLS fingerprint (`curl_cffi`'s `chrome131` in the
-//! Python original), since WE's edge rejects obvious non-browser clients.
-//!
-//! WE's own web app now calls the same API paths on `my.te.eg` and signs every request
-//! (`whiteReqBodySign`/`whiteReqHeaderSign` before sign-in, `reqBodySign`/`reqHeaderSign`
-//! after, from obfuscated JS). `api-my.te.eg` still accepts unsigned requests (checked
-//! against live accounts on 2026-11-22), so Klue keeps using it.
+//! WE's edge drops clients that don't look like a browser, hence Chrome's TLS fingerprint.
+//! The web app on my.te.eg signs its requests; api-my.te.eg still takes unsigned ones.
 
 use std::time::Duration;
 
@@ -40,22 +29,19 @@ const SITE: &str = "https://my.te.eg";
 const API: &str = "https://api-my.te.eg/echannel/service/besapp/base/rest/busiservice";
 const CAPTCHA_URL: &str = "https://captcha.te.eg/api/Captcha/GenerateCaptcha";
 
-/// How many more captchas to ask WE for when the solver isn't sure of one. Fetching a
-/// captcha doesn't count as a sign-in attempt; sending a wrong code does.
+/// Extra captchas to try when the solver isn't sure. Fetching one is free; a wrong code
+/// costs a sign-in attempt.
 pub const CAPTCHA_REROLLS: usize = 8;
-/// Pause before each reroll, so they don't arrive as a burst.
+/// Delay between rerolls.
 const REROLL_PAUSE: Duration = Duration::from_millis(600);
 
-/// How long WE keeps refusing captcha tokens after answering "Blocked"
-/// (about an hour), and refusing sign-ins after too
-/// many wrong ones ("try again after one hour").
+/// How long WE blocks captchas, or sign-ins after too many wrong ones.
 pub const BLOCK_BACKOFF: Duration = Duration::from_secs(3700);
 
-/// What `GenerateCaptcha` handed out.
 #[derive(Debug, Clone)]
 pub struct CaptchaChallenge {
     pub token: String,
-    /// Raw image bytes (usually JPEG) when WE wants the code typed in.
+    /// JPEG bytes, when WE wants the code typed.
     pub image: Option<Vec<u8>>,
     pub status: Option<String>,
 }
@@ -76,7 +62,7 @@ pub struct Authenticated {
     status: Option<String>,
 }
 
-/// One sign-in attempt against WE, with its own cookie jar.
+/// One sign-in, with its own cookie jar.
 pub struct WeSession {
     client: wreq::Client,
     number: String,
@@ -91,8 +77,7 @@ impl WeSession {
         Ok(Self { client: http::browser_client()?, number, fbb_id })
     }
 
-    /// Load the portal and the system parameters, as the website does before signing in.
-    /// Failures are ignored: these calls only seed cookies.
+    /// Seeds cookies like the website does. Errors don't matter here.
     pub async fn warm_up(&self) {
         if let Err(e) = self.client.get(PORTAL).send().await {
             tracing::debug!("WE portal seed failed: {e}");
@@ -103,7 +88,6 @@ impl WeSession {
         }
     }
 
-    /// Ask for a captcha token for this number.
     pub async fn captcha(&self, ctx: &FetchContext<'_>) -> Result<CaptchaChallenge, FetchError> {
         let mut headers = cors_headers();
         headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.9"));
@@ -136,7 +120,7 @@ impl WeSession {
         Ok(CaptchaChallenge { token, image, status })
     }
 
-    /// Sign in. `code` is the solved captcha text when the challenge carried an image.
+    /// `code` is the captcha answer, when the challenge had an image.
     pub async fn sign_in(
         &self,
         password: &str,
@@ -182,16 +166,15 @@ impl WeSession {
                 Some("1") => Some(PaymentKind::Postpaid),
                 _ => None,
             },
-            // Huawei BES subscriber status 2 is "active"; other codes aren't shown.
+            // BES status 2 is active; other codes aren't shown.
             status: (j::text(&subscriber["status"]).as_deref() == Some("2")).then(|| "Active".to_string()),
         })
     }
 
-    /// Read balance, package and quotas.
     pub async fn read_usage(&self, auth: &Authenticated, ctx: &FetchContext<'_>) -> Result<Usage, FetchError> {
         let headers = api_headers(Some(&auth.csrf_token));
 
-        // Balance is nice-to-have; don't fail the refresh over it.
+        // Balance is optional.
         let balance_egp = match self
             .client
             .post(format!("{API}/cbs/ar/queryBalance"))
@@ -247,14 +230,14 @@ impl WeSession {
         }
         let mut usage = build_usage(&units, Some(&package), balance_egp, auth.owner_name.clone())?;
 
-        // Extras. Neither is essential, so failures only leave them out.
+        // Optional extras.
         let (plan, since) = self.line_product(auth, &headers, ctx).await.unwrap_or_default();
         usage.info = LineInfo { plan, plan_ar: None, speed: package.speed, payment: auth.payment, status: auth.status.clone(), number: None, since };
         usage.payments = self.recharges(auth, &headers, ctx).await;
         Ok(usage)
     }
 
-    /// The line's product ("WE IOE VDSL Primary Prepaid") and activation date.
+    /// Product ("WE IOE VDSL Primary Prepaid") and activation date.
     async fn line_product(
         &self,
         auth: &Authenticated,
@@ -276,7 +259,7 @@ impl WeSession {
         Some((j::text(&line["primaryOfferingName"]), j::epoch_ms(&line["activeDate"])))
     }
 
-    /// Recharges over the last 90 days (30 if WE refuses the longer window).
+    /// Recharges in the last 90 days (30 if WE refuses 90).
     async fn recharges(&self, auth: &Authenticated, headers: &HeaderMap, ctx: &FetchContext<'_>) -> Option<Vec<Payment>> {
         let now = Utc::now().timestamp_millis();
         for days in [90i64, 30] {
@@ -299,11 +282,11 @@ impl WeSession {
     }
 }
 
-/// Channels the website asks `queryRechargeLogCz` about (all of them).
+/// The channels the website sends to `queryRechargeLogCz`.
 const RECHARGE_CHANNELS: [&str; 15] = ["A", "0", "1", "2", "3", "4", "5", "6", "7", "11", "12", "13", "601", "702", "704"];
 
-/// `queryRechargeLogCz` entries. Amounts use the same 1/10000 EGP scale as `queryBalance`;
-/// `rechargeMethod` codes come from WE's `CZ_TRANSACTION_TYPE` dictionary.
+/// Amounts are in 1/10000 EGP, like `queryBalance`; `rechargeMethod` codes are from WE's
+/// `CZ_TRANSACTION_TYPE` dictionary.
 pub(crate) fn parse_recharges(v: &Value) -> Option<Vec<Payment>> {
     if !ret_ok(v) {
         return None;
@@ -332,12 +315,11 @@ pub(crate) fn parse_recharges(v: &Value) -> Option<Vec<Payment>> {
     Some(out)
 }
 
-/// WE's money amounts are in 1/10000 EGP.
+/// WE amounts are in 1/10000 EGP.
 fn egp(amount: f64) -> f64 {
     (amount / 10_000.0 * 100.0).round() / 100.0
 }
 
-/// Full refresh: warm up, captcha, sign in, read.
 pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Result<Usage, FetchError> {
     let session = WeSession::new(number)?;
     session.warm_up().await;
@@ -352,9 +334,8 @@ pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Resu
     session.read_usage(&auth, ctx).await
 }
 
-/// Get a code for WE's captcha. The solver sees up to 1 + [`CAPTCHA_REROLLS`] captchas and
-/// answers the first one it's sure of; a person is asked only if it declines them all.
-/// Returns the challenge to sign in with (the latest one: WE only honours that).
+/// Up to 1 + [`CAPTCHA_REROLLS`] captchas go to the solver before the user is asked.
+/// Returns the latest challenge, the only one WE accepts.
 async fn solve_captcha<F, Fut>(
     mut challenge: CaptchaChallenge,
     mut reroll: F,
@@ -413,7 +394,7 @@ fn missing(what: &str) -> FetchError {
     FetchError::Unexpected(format!("WE response has no {what}"))
 }
 
-/// WE's message in a failed reply: `retMsg`, or else `errorMsg` or `description`.
+/// `retMsg`, else `errorMsg` or `description`.
 fn message(v: &Value) -> Option<String> {
     let header = &v["header"];
     ["retMsg", "errorMsg", "description"].iter().find_map(|k| j::text(&header[*k]))
@@ -429,14 +410,12 @@ fn carrier_error(v: &Value, what: &str) -> FetchError {
     }
 }
 
-/// WE answers failed sign-ins with a non-zero `retCode` and a human message.
 fn classify_auth_failure(v: &Value, sent_code: bool) -> FetchError {
     let msg = message(v).unwrap_or_default();
     let m = msg.to_lowercase();
     let mentions = |words: &[&str]| words.iter().any(|w| m.contains(w));
-    // After too many wrong sign-ins WE refuses every one for an hour ("You have reached
-    // the maximum number of incorrect attempts. Please try again after one hour."), and
-    // trying again within the hour can keep it refusing: wait it out.
+    // Too many wrong sign-ins lock the line for an hour, and retrying inside that hour can
+    // keep it locked.
     if mentions(&["maximum number", "too many", "try again after", "الحد الأقصى"]) {
         return FetchError::CaptchaBlocked(Utc::now() + chrono::Duration::from_std(BLOCK_BACKOFF).unwrap_or_default());
     }
@@ -449,8 +428,8 @@ fn classify_auth_failure(v: &Value, sent_code: bool) -> FetchError {
     carrier_error(v, "sign-in")
 }
 
-/// Registrant name from the sign-in response. WE's field names aren't documented; these
-/// follow Huawei BES conventions. Run with `KLUE_DEBUG_DIR` to see what your account returns.
+/// WE's field names aren't documented; these are the usual Huawei BES ones. Set
+/// `KLUE_DEBUG_DIR` to see what an account returns.
 fn owner_name(body: &Value, number: &str) -> Option<String> {
     let candidates = [
         j::find_text(&body["customer"], &["custName", "customerName", "name"]),
@@ -469,17 +448,15 @@ fn owner_name(body: &Value, number: &str) -> Option<String> {
         .find_map(|n| tidy_name(&n))
 }
 
-/// The subscribed package, from `getSubscribedOfferings`. The list also holds add-ons
-/// (top-ups, router rental, gifts) and the line's primary offering, in no fixed order;
-/// the package is the entry flagged `main` (each entry names it in `mainOfferingId`).
+/// The package from `getSubscribedOfferings`: the entry flagged `main`. The list also has
+/// add-ons, in no particular order.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct MainOffering {
     /// What `queryFreeUnit` wants as `mainOfferId`.
     pub id: String,
     pub name: Option<String>,
-    /// `offerArName`, when it's in Arabic (WE leaves some offerings' in English).
+    /// `offerArName`, if it's actually Arabic.
     pub name_ar: Option<String>,
-    /// From the offering's properties, when it has them.
     pub speed: Option<Speed>,
     pub subscribed_at: Option<chrono::DateTime<Utc>>,
     pub renews_at: Option<chrono::DateTime<Utc>>,
@@ -502,8 +479,8 @@ pub(crate) fn main_offering(v: &Value) -> Option<MainOffering> {
     })
 }
 
-/// An offering's speeds: `C_O_DOWNLOAD_RATE_NORMAL` (30720 for 30 Mbit/s),
-/// `C_O_UPLOAD_RATE_NORMAL` and `C_O_DOWNLOAD_RATE_DEGRADE` (after the quota), in kbit/s.
+/// Speeds in kbit/s: `C_O_DOWNLOAD_RATE_NORMAL` (30720 = 30 Mbit/s), `C_O_UPLOAD_RATE_NORMAL`
+/// and `C_O_DOWNLOAD_RATE_DEGRADE` (after the quota).
 fn offering_speed(offering: &Value) -> Option<Speed> {
     let properties = offering["property"].as_array()?;
     let rate = |id: &str| {
@@ -527,8 +504,7 @@ fn free_unit_details(v: &Value) -> impl Iterator<Item = (&Value, &Value)> {
     })
 }
 
-/// The package's own quota: WE marks it `originType: "Main Quota"` (item
-/// `C_TED_Primary_Fixed_Data`); top-ups say `"WE TOPUP"` (item `C_TED_Topup_Fixed_Data`).
+/// The package quota has `originType: "Main Quota"`; top-ups have `"WE TOPUP"`.
 fn is_main_quota(detail: &Value) -> bool {
     match shallow_text(detail, &["originType"]) {
         Some(origin) => origin.eq_ignore_ascii_case("main quota"),
@@ -536,9 +512,8 @@ fn is_main_quota(detail: &Value) -> bool {
     }
 }
 
-/// Parse `queryFreeUnit` into bundles, largest with something left first. The package's
-/// own quota is [`BundleKind::Data`], top-ups and gifts are add-ons; when WE doesn't say
-/// which is which, the first bundle counts as the package's.
+/// Bundles from `queryFreeUnit`, largest with something left first. If WE doesn't mark the
+/// package quota, the first bundle is taken as it.
 pub(crate) fn parse_free_units(v: &Value) -> Vec<Bundle> {
     let mut out: Vec<Bundle> = Vec::new();
     for (group, detail) in free_unit_details(v) {
@@ -549,8 +524,7 @@ pub(crate) fn parse_free_units(v: &Value) -> Vec<Bundle> {
             .or_else(|| shallow_text(group, &["measureUnit"]))
             .unwrap_or_default();
         let (unit, factor) = unit_of(&unit_label);
-        // Top-ups can come without a name; their origin ("WE TOPUP") says more than the
-        // group's label ("Home Internet"), which is also the package quota's.
+        // Unnamed top-ups are named after their origin; the group label belongs to the package.
         let name = shallow_text(detail, &["offeringName", "freeUnitTypeName", "freeUnitName"])
             .or_else(|| shallow_text(detail, &["originType"]).filter(|_| !is_main_quota(detail)).map(|o| tidy_label(&o)))
             .or_else(|| shallow_text(group, &["offeringName", "freeUnitTypeName", "freeUnitName", "freeUnitType"]))
@@ -579,7 +553,7 @@ pub(crate) fn parse_free_units(v: &Value) -> Vec<Bundle> {
     out
 }
 
-/// "WE TOPUP " → "WE Topup": shouting words of three letters or more in title case.
+/// "WE TOPUP " -> "WE Topup".
 fn tidy_label(raw: &str) -> String {
     raw.split_whitespace()
         .map(|w| {
@@ -594,7 +568,7 @@ fn tidy_label(raw: &str) -> String {
         .join(" ")
 }
 
-/// WE's measure units, as names or Huawei CBS codes (1109 GB, 1106 MB, 1108 KB).
+/// Unit names, or CBS codes (1109 GB, 1106 MB, 1108 KB).
 fn unit_of(label: &str) -> (Unit, f64) {
     match label.trim().to_ascii_uppercase().as_str() {
         "MB" | "1106" => (Unit::Mb, 1.0),
@@ -609,11 +583,8 @@ fn shallow_text(v: &Value, keys: &[&str]) -> Option<String> {
     keys.iter().find_map(|k| j::text(&v[*k]))
 }
 
-/// Package name and cycle dates come from the package's own quota, not from a bigger
-/// top-up that may lead the list; without one, from the subscribed offering.
-///
-/// The only Arabic name WE gives is the package's (`offerArName`; top-ups and gifts keep
-/// their English names there too), and the package's quota takes it as well.
+/// Name and cycle dates come from the package quota, not a bigger top-up. Only the package
+/// has an Arabic name.
 pub(crate) fn build_usage(
     units: &Value,
     package: Option<&MainOffering>,
@@ -677,7 +648,7 @@ mod tests {
         assert_eq!(p.renews_at.unwrap().to_rfc3339(), "2026-12-12T22:00:00+00:00");
         assert_eq!(p.subscribed_at.unwrap().to_rfc3339(), "2026-11-12T22:00:00+00:00");
 
-        // Without the flag, the entry whose id every entry names as `mainOfferingId`.
+        // No flag: use the id every entry gives as `mainOfferingId`.
         let mut unflagged = offers.clone();
         for o in unflagged["body"]["offeringList"].as_array_mut().unwrap() {
             o.as_object_mut().unwrap().remove("main");
@@ -691,8 +662,7 @@ mod tests {
         let package = main_offering(&fixture("we_offerings.json"));
         let usage = build_usage(&fixture("we_free_units_topups.json"), package.as_ref(), None, None).unwrap();
         let rows: Vec<_> = usage.bundles.iter().map(|b| (b.name.as_str(), b.kind, b.key.as_str())).collect();
-        // Largest with something left first (the 400 GB top-up); the package's own quota is
-        // the Data one, and the unnamed top-up is named after its origin, not "Home Internet".
+        // Largest first (the 400 GB top-up); the unnamed top-up is named after its origin.
         assert_eq!(
             rows,
             [
@@ -781,8 +751,7 @@ mod tests {
 
     #[test]
     fn reads_the_package_speed() {
-        // As WE sends it for "Super speed 2-(400GB)": 30 Mbit/s down, 3 up, 256 kbit/s
-        // once the quota is used up.
+        // "Super speed 2-(400GB)": 30 Mbit/s down, 3 up, 256 kbit/s after the quota.
         let package = main_offering(&fixture("we_offerings.json")).unwrap();
         assert_eq!(package.speed, Some(Speed { down_kbps: 30720, up_kbps: Some(3072), throttled_kbps: Some(256) }));
         // Packages without the properties have no speed.
@@ -800,7 +769,7 @@ mod tests {
         assert_eq!(usage.package_in(crate::store::Lang::En), Some("Super 3 speed (250 GB)"));
         let quota = usage.bundles.iter().find(|b| b.kind == BundleKind::Data).unwrap();
         assert_eq!(quota.name_in(crate::store::Lang::Ar), "سرعة سوبر 3-(250 جيجابايت)");
-        // Top-ups have no Arabic names: WE's own "Arabic" names for them are English.
+        // WE's "Arabic" names for top-ups are English.
         let topup = usage.bundles.iter().find(|b| b.name == "Giga Tank - 400 GB").unwrap();
         assert_eq!((topup.name_ar.as_deref(), topup.name_in(crate::store::Lang::Ar)), (None, "Giga Tank - 400 GB"));
     }
@@ -829,7 +798,7 @@ mod tests {
         CaptchaChallenge { token: format!("t{n}"), image: image.then(|| vec![n]), status: None }
     }
 
-    /// Run `solve_captcha` where WE hands out captchas 0, 1, 2, … (`image: false` from `plain_from` on).
+    /// Runs `solve_captcha` on fake captchas 0, 1, 2...; from `plain_from` on they have no image.
     fn run(solver: Option<&Picky>, ask: Option<&Picky>, plain_from: u8) -> (Result<(CaptchaChallenge, Option<String>), FetchError>, u8) {
         let ctx = FetchContext {
             solver: solver.map(|s| s as &dyn crate::captcha::CaptchaSolver),

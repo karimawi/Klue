@@ -1,24 +1,20 @@
-//! Installing an update.
-//!
-//! Klue never kills a process to replace its own program file. On Windows and with the
-//! Linux archive it moves the running program aside (Windows allows renaming a running
-//! .exe), puts the new one at the same path, starts it with `--after-update`, and quits
-//! normally. The new Klue waits until the old one has gone
-//! ([`crate::instance::wait_until_gone`]) before it takes over, then deletes the old file
-//! ([`cleanup`]). A macOS disk image or a Linux package is handed to the system instead.
+//! Installing an update. Nothing gets killed: the running program is renamed aside (Windows
+//! allows that), the new one is copied to its path and started with `--after-update`, and
+//! this one quits. The new one waits for it to exit, then deletes the old file. Disk images
+//! and packages go to the system installer instead.
 
 use std::path::{Path, PathBuf};
 
 /// What [`install`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
-    /// The new version is in place and starting: quit now.
+    /// The new version is starting; quit now.
     Restart,
-    /// The download was opened for the system to install (a disk image or a package).
+    /// Opened in the system installer.
     Opened,
 }
 
-/// The release file this build installs from, in order of preference.
+/// Release file suffixes for this build, best first.
 pub fn suffixes() -> &'static [&'static str] {
     if cfg!(windows) {
         &["-windows-x64.zip"]
@@ -33,12 +29,12 @@ pub fn suffixes() -> &'static [&'static str] {
     }
 }
 
-/// Where downloads go: a folder of their own in the temp folder.
+/// Download folder in the temp dir.
 pub fn download_dir(version: &str) -> PathBuf {
     std::env::temp_dir().join(format!("klue-update-{version}"))
 }
 
-/// Install a downloaded release file.
+/// Installs a downloaded release file.
 pub fn install(file: &Path) -> Result<Outcome, String> {
     let name = file.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_ascii_lowercase();
     if name.ends_with(".zip") {
@@ -59,7 +55,7 @@ pub fn install(file: &Path) -> Result<Outcome, String> {
     }
 }
 
-/// The program file an update moved aside: `Klue.exe.old` next to `Klue.exe`.
+/// Where an update moves the running program: `Klue.exe.old`.
 fn old_path(exe: &Path) -> PathBuf {
     let mut s = exe.as_os_str().to_owned();
     s.push(".old");
@@ -68,7 +64,7 @@ fn old_path(exe: &Path) -> PathBuf {
 
 fn current_exe() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| format!("can't find Klue's program file: {e}"))?;
-    // Replace the file itself, not a link to it.
+    // Replace the file, not a link to it.
     Ok(std::fs::canonicalize(&exe).map(strip_verbatim).unwrap_or(exe))
 }
 
@@ -80,7 +76,7 @@ fn strip_verbatim(path: PathBuf) -> PathBuf {
     }
 }
 
-/// Whether Klue's own folder can be written, so its program can be replaced in place.
+/// Whether the program's folder is writable.
 fn replaceable() -> bool {
     let Some(dir) = current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) else { return false };
     let probe = dir.join(format!(".klue-write-test-{}", std::process::id()));
@@ -89,12 +85,11 @@ fn replaceable() -> bool {
     ok
 }
 
-/// Move the running program aside and copy `new` to its path.
 fn replace_running(new: &Path) -> Result<(), String> {
     replace(&current_exe()?, new)
 }
 
-/// Move `exe` aside (to [`old_path`]) and copy `new` to its path; on failure put it back.
+/// Moves `exe` to [`old_path`] and copies `new` in its place; puts it back on failure.
 fn replace(exe: &Path, new: &Path) -> Result<(), String> {
     let exe = exe.to_path_buf();
     let old = old_path(&exe);
@@ -113,7 +108,7 @@ fn replace(exe: &Path, new: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Start the new Klue. It waits for this one to quit before it takes over.
+/// Starts the new version, which waits for this one to quit.
 fn relaunch() -> Result<(), String> {
     let exe = current_exe()?;
     let mut command = std::process::Command::new(&exe);
@@ -128,8 +123,7 @@ fn relaunch() -> Result<(), String> {
     command.spawn().map(|_| ()).map_err(|e| format!("couldn't start the new Klue: {e}"))
 }
 
-/// After an update: delete the old program file it left. Klue waited for the old
-/// process to quit first, so the file is free.
+/// After an update: delete the old program file (its process has exited by now).
 pub fn cleanup() {
     let Ok(exe) = current_exe() else { return };
     let old = old_path(&exe);
@@ -141,7 +135,7 @@ pub fn cleanup() {
     }
 }
 
-/// `Klue/Klue.exe` from the Windows release archive, next to the archive.
+/// `Klue/Klue.exe` from the Windows zip, extracted next to it.
 fn extract_exe_from_zip(zip_path: &Path) -> Result<PathBuf, String> {
     let file = std::fs::File::open(zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("the download isn't a zip archive: {e}"))?;
@@ -155,7 +149,7 @@ fn extract_exe_from_zip(zip_path: &Path) -> Result<PathBuf, String> {
     Ok(out)
 }
 
-/// `klue-<version>/klue` from the Linux archive, unpacked next to it with `tar`.
+/// `klue-<version>/klue` from the Linux tarball, extracted next to it.
 fn extract_from_tarball(tarball: &Path) -> Result<PathBuf, String> {
     let dir = tarball.parent().ok_or("no folder for the download")?.join("unpacked");
     let _ = std::fs::remove_dir_all(&dir);
@@ -172,7 +166,7 @@ fn extract_from_tarball(tarball: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| "the archive has no klue program".into())
 }
 
-/// Hand a disk image or package to the system.
+/// Opens a disk image or package.
 fn open_file(file: &Path) -> Result<(), String> {
     let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
     std::process::Command::new(opener).arg(file).spawn().map(|_| ()).map_err(|e| format!("couldn't open {}: {e}", file.display()))

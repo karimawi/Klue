@@ -1,23 +1,23 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// Why reading an account failed. Serializable so the last error can be shown after a restart.
+/// Why a refresh failed. Serializable so it can be shown after a restart.
 #[derive(Debug, Clone, PartialEq, thiserror::Error, Serialize, Deserialize)]
 #[serde(tag = "type", content = "detail", rename_all = "snake_case")]
 pub enum FetchError {
-    /// The carrier rejected the number/password pair.
+    /// Wrong number or password.
     #[error("the carrier rejected this number and password")]
     BadCredentials,
-    /// The carrier asked for a captcha and no solver could read any of the ones it handed out.
+    /// The captcha couldn't be read.
     #[error("the carrier asked for a captcha that couldn't be read")]
     CaptchaUnsolved,
-    /// The carrier didn't accept the captcha code that was sent.
+    /// The carrier rejected the captcha code.
     #[error("the carrier didn't accept the captcha code")]
     CaptchaRejected,
-    /// Too many sign-ins: the carrier refuses to hand out captchas until this time.
+    /// Too many sign-ins; no captchas until this time.
     #[error("the carrier is blocking sign-ins until {0}")]
     CaptchaBlocked(DateTime<Utc>),
-    /// The carrier returned an error message we don't recognise.
+    /// A carrier error message we don't recognise.
     #[error("the carrier said: {0}")]
     Carrier(String),
     #[error("couldn't reach the carrier: {0}")]
@@ -31,7 +31,7 @@ pub enum FetchError {
 }
 
 impl FetchError {
-    /// Errors that mean retrying soon is pointless or harmful.
+    /// Errors where retrying soon won't help.
     pub fn is_auth_problem(&self) -> bool {
         matches!(self, FetchError::BadCredentials)
     }

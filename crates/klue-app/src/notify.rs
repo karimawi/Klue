@@ -1,4 +1,4 @@
-//! Desktop notifications for quota and renewal alerts, shown as coming from Klue.
+//! Desktop notifications for quota and renewal alerts.
 
 use std::path::Path;
 
@@ -10,12 +10,11 @@ use crate::{
     sound::{self, Tone},
 };
 
-/// Klue's identity for the OS: the macOS bundle identifier and the Windows
-/// AppUserModelID that toasts are filed under.
+/// The macOS bundle id and the Windows AppUserModelID toasts are filed under.
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 pub const APP_ID: &str = "io.github.karimawi.klue";
 
-/// Notification title and body, like the preview card in the Alerts dialog.
+/// Title and body, matching the preview in the Alerts dialog.
 pub fn describe(account: &Account, event: &AlertEvent, lang: Lang) -> (String, String) {
     let title = format!("{} · {}", carrier_name(account.carrier, lang), account.display_name());
     let package = account
@@ -43,11 +42,10 @@ pub fn describe(account: &Account, event: &AlertEvent, lang: Lang) -> (String, S
     (title, body)
 }
 
-/// Make notifications appear as Klue's. `data_dir` gets a copy of the icon on Windows.
+/// Makes notifications show as Klue's. On Windows `data_dir` gets a copy of the icon.
 #[allow(unused_variables)]
 pub fn init(data_dir: &Path) {
-    // macOS files a notification under whichever app bundle it names (Finder by
-    // default); name Klue's own when running from Klue.app.
+    // macOS shows notifications under the bundle they name (Finder by default).
     #[cfg(target_os = "macos")]
     {
         let in_bundle = std::env::current_exe().is_ok_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"));
@@ -55,9 +53,8 @@ pub fn init(data_dir: &Path) {
             let _ = notify_rust::set_application(APP_ID);
         }
     }
-    // Windows only shows a toast's sender as an app if its AppUserModelID is known to the
-    // shell; unpackaged apps can register theirs (name + icon) under HKCU. Without this,
-    // toasts are sent as Windows PowerShell.
+    // Windows shows a toast's sender as an app only if its AppUserModelID is registered (name
+    // and icon under HKCU); otherwise toasts come from Windows PowerShell.
     #[cfg(windows)]
     if let Err(e) = windows::register(data_dir) {
         tracing::warn!("couldn't register Klue for notifications: {e}");
@@ -79,7 +76,7 @@ mod windows {
         key.set_string("DisplayName", "Klue")?;
         key.set_string("IconUri", icon.to_string_lossy().as_ref())?;
         key.set_string("IconBackgroundColor", "FFFFBE32")?;
-        // Also file this process's windows and taskbar button under the same id.
+        // Group this process's windows and taskbar button under the same id.
         let wide: Vec<u16> = APP_ID.encode_utf16().chain(std::iter::once(0)).collect();
         unsafe {
             windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(wide.as_ptr());
@@ -88,15 +85,14 @@ mod windows {
     }
 }
 
-/// Show a notification. It's silent: [`send`] plays Klue's own sound.
+/// Shows a notification without sound; [`send`] plays Klue's own.
 fn show(title: String, body: String) {
     std::thread::spawn(move || {
         let mut n = notify_rust::Notification::new();
         n.appname("Klue").summary(&title).body(&body);
         #[cfg(windows)]
         n.app_id(APP_ID);
-        // Without a sound name notify-rust sends Windows toasts silent and macOS ones
-        // without a sound; Linux notification servers are asked not to play theirs.
+        // No sound name: Windows and macOS stay silent; Linux servers are asked not to play one.
         #[cfg(all(unix, not(target_os = "macos")))]
         n.hint(notify_rust::Hint::SuppressSound(true));
         if let Err(e) = n.show() {
@@ -105,13 +101,13 @@ fn show(title: String, body: String) {
     });
 }
 
-/// A notification about Klue itself (an update), with the notice sound.
+/// A notification about Klue itself (an update).
 pub fn notice(title: String, body: String) {
     show(title, body);
     sound::play(Tone::Notice);
 }
 
-/// The sound an alert plays: a low quota is a warning, renewals are notices.
+/// Low quota is a warning; renewals are notices.
 pub fn tone(event: &AlertEvent) -> Tone {
     match event {
         AlertEvent::QuotaLow { .. } => Tone::Warning,
@@ -119,7 +115,7 @@ pub fn tone(event: &AlertEvent) -> Tone {
     }
 }
 
-/// Show these alerts, with one sound for all of them.
+/// Shows these alerts with one sound for all.
 pub fn send(alerts: &[(Account, AlertEvent)], lang: Lang) {
     for (account, event) in alerts {
         let (title, body) = describe(account, event, lang);

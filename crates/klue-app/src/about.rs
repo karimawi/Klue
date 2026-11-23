@@ -1,7 +1,6 @@
-//! Who makes Klue and where to find it, and this build's version.
+//! Version, author and links.
 
-/// This build's version. Release builds take it from their tag (the release workflow
-/// sets `KLUE_VERSION`); other builds use the version in Cargo.toml.
+/// Release builds get it from the tag (`KLUE_VERSION`); others from Cargo.toml.
 pub const VERSION: &str = match option_env!("KLUE_VERSION") {
     Some(v) => v,
     None => env!("CARGO_PKG_VERSION"),
@@ -10,12 +9,12 @@ pub const AUTHOR: &str = "Karim W. Almorsi";
 pub const REPO: &str = "https://github.com/karimawi/Klue";
 pub const WEBSITE: &str = "https://wkar.im";
 
-/// Open an https link in the default browser.
+/// Opens an https link in the default browser.
 pub fn open_url(url: &'static str) {
     open_url_owned(url);
 }
 
-/// [`open_url`] for a link that isn't a constant (a release page from GitHub).
+/// [`open_url`] for a link that isn't a constant.
 pub fn open_url_owned(url: &str) {
     if !url.starts_with("https://") {
         return;

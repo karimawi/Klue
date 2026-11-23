@@ -1,15 +1,9 @@
-//! Smooth wheel scrolling. For each wheel notch (a "line" delta, which is what Windows
-//! mice send) iced moves a scrollable 60 px in one go, which reads as jitter. [`smooth`]
-//! wraps a scrollable, takes those notches itself and hands the scrollable the same
-//! distance as pixel deltas over the next few frames, easing out. Touchpads already
-//! send pixel deltas and pass straight through.
+//! Smooth wheel scrolling. iced jumps 60 px per wheel notch (what Windows mice send),
+//! which looks jittery; this spreads each notch over a few frames with an ease-out.
+//! Touchpads send pixel deltas and pass straight through.
 //!
-//! It also keeps those frames cheap. tiny-skia redraws only what changed, as a list of
-//! rectangles, and when a page scrolls that list is every moved line of text and every
-//! moved box, merged only where they nearly touch. Each rectangle is its own pass over
-//! every layer, which made a scrolling frame several times slower than redrawing the
-//! whole window. While the content moves, [`Smooth`] adds an empty layer that makes the
-//! frame one pass over the window.
+//! While scrolling it also adds an empty layer that makes tiny-skia redraw the window in
+//! one pass instead of one pass per moved rectangle, which was much slower.
 
 use std::time::{Duration, Instant};
 
@@ -27,9 +21,9 @@ use crate::app::Message;
 
 /// How far iced scrolls for one line.
 const LINE: f32 = 60.0;
-/// Time constant of the ease-out, in seconds: a notch is 95% done after 3τ (≈165 ms).
+/// Ease-out time constant in seconds: a notch is 95% done after 3τ (~165 ms).
 const TAU: f32 = 0.055;
-/// When to draw the next step: about 60 times a second.
+/// About 60 fps.
 const FRAME: Duration = Duration::from_millis(16);
 
 /// `content` (a scrollable) with eased wheel scrolling.
@@ -43,9 +37,9 @@ struct Smooth<'a> {
 
 #[derive(Default)]
 struct State {
-    /// Distance still to scroll, as a wheel delta in pixels.
+    /// Distance left to scroll, in pixels.
     pending: Vector,
-    /// Where the wheel turned: the steps go to whatever scrolls under that point.
+    /// Where the wheel turned; steps go to whatever scrolls under it.
     anchor: Option<Point>,
     last_frame: Option<Instant>,
     modifiers: keyboard::Modifiers,
@@ -56,7 +50,7 @@ struct State {
     frame: u8,
 }
 
-/// The part of `pending` to scroll in a frame `dt` long; the rest once under half a pixel.
+/// How much of `pending` to scroll in a frame of `dt`; all of it once under half a pixel.
 fn step(pending: Vector, dt: Duration) -> Vector {
     let k = 1.0 - (-dt.as_secs_f32() / TAU).exp();
     let step = pending * k;
@@ -64,22 +58,18 @@ fn step(pending: Vector, dt: Duration) -> Vector {
     if rest.x.abs() < 0.5 && rest.y.abs() < 0.5 { pending } else { step }
 }
 
-/// The bounds of an empty layer that makes tiny-skia redraw the whole window in one pass.
+/// Bounds of an empty layer that makes tiny-skia redraw the whole window in one pass.
 ///
-/// A layer whose bounds changed since the frame being drawn over counts as changed all
-/// over, so it adds its bounds to the list of areas to redraw. The renderer sorts that
-/// list by how close each area's centre is to the window's top left, clips it to the
-/// window, and merges each area into the one before it unless that adds a lot of
-/// untouched space. A huge area centred on the top left therefore comes first, becomes
-/// the whole window, and swallows the rest. Its width changes every frame (8 widths in
-/// turn, so a frame two or three back counts as changed too).
+/// A layer whose bounds changed counts as fully damaged. The renderer sorts damaged areas
+/// by distance from the top left and merges each into the previous one, so a huge area
+/// centred there swallows the rest. The width cycles through 8 values so it also differs
+/// from the last few frames.
 fn redraw_all(frame: u8) -> Rectangle {
     const HALF: f32 = 100_000.0;
     Rectangle { x: -HALF, y: -HALF, width: 2.0 * HALF + f32::from(frame % 8), height: 2.0 * HALF }
 }
 
-/// iced's own mapping of a line delta to a movement: Shift scrolls sideways (macOS
-/// already swaps the axes itself).
+/// iced's line-to-pixel mapping: Shift scrolls sideways (macOS swaps the axes itself).
 fn lines_to_pixels(x: f32, y: f32, shift: bool) -> Vector {
     let (x, y) = if cfg!(target_os = "macos") && shift { (y, x) } else { (x, y) };
     let movement = if shift { Vector::new(y, x) } else { Vector::new(x, y) };
@@ -182,8 +172,8 @@ impl Widget<Message, iced::Theme, iced::Renderer> for Smooth<'_> {
                 }
                 let wheel = Event::Mouse(mouse::Event::WheelScrolled { delta: mouse::ScrollDelta::Pixels { x: delta.x, y: delta.y } });
                 let at = state.anchor.map_or(cursor, mouse::Cursor::Available);
-                // A shell of its own: the step is captured by the scrollable, and that mustn't
-                // stop this frame's redraw event from reaching the rest of the window.
+                // Own shell: the scrollable captures the step, but the redraw event still has to reach
+                // the rest of the window.
                 let mut messages = Vec::new();
                 let mut local = Shell::new(&mut messages);
                 self.content.as_widget_mut().update(&mut tree.children[0], &wheel, layout, at, renderer, clipboard, &mut local, viewport);
@@ -240,8 +230,7 @@ mod tests {
             steps.push(d.y);
             pending -= d;
         }
-        // Biggest step first, done in well under half a second at 60 fps, and the total
-        // is exactly one notch.
+        // Biggest step first, done well under half a second at 60 fps, adding up to one notch.
         assert!(steps[0] < -10.0 && steps[0] > -LINE);
         assert!(steps.iter().all(|s| s.abs() <= steps[0].abs()));
         assert!(steps.len() < 20, "took {} frames", steps.len());

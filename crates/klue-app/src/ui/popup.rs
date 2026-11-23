@@ -1,5 +1,5 @@
-//! The tray popup: every number at a glance. It's a fixed panel next to the tray icon:
-//! there is no drag handle, and it closes as soon as it loses focus.
+//! The tray popup: every number at a glance. It sits by the tray icon and closes when it
+//! loses focus.
 
 use iced::{
     Alignment, Length,
@@ -11,7 +11,7 @@ use klue_core::{BundleState, Carrier, format};
 use super::{Ctx, El, hline, tile, vline};
 use crate::{app::{App, Message}, assets::Icon, i18n, theme};
 
-/// Side padding: the mockup's 16 px less the 1 px frame line beside it.
+/// Side padding (16 px less the 1 px frame).
 const SIDE: f32 = 15.0;
 
 pub fn view(app: &App) -> El<'_> {
@@ -41,8 +41,7 @@ pub fn view(app: &App) -> El<'_> {
                 let days = (r - ctx.now).num_days().max(0);
                 if ctx.rtl() { format!("يتجدد خلال {days} يوم") } else { format!("Renews in {days}d") }
             });
-            // A borrowed or frozen bundle (frozen first, main or not, as on the dashboard)
-            // matters more than the renewal date.
+            // A borrowed or frozen bundle (frozen first) matters more than the renewal date.
             let state = account.usage.as_ref().and_then(|u| {
                 let b = u.bundles.iter().filter(|b| b.state != BundleState::Active).max_by_key(|b| b.state == BundleState::Frozen)?;
                 Some(match (b.state, b.settle_by) {
@@ -52,11 +51,10 @@ pub fn view(app: &App) -> El<'_> {
                 })
             });
             let frozen = main.is_some_and(|m| m.state == BundleState::Frozen);
-            // A line too long for the row breaks after the "·", never inside the number.
+            // Don't break inside the number.
             let number = account.pretty_number().replace(' ', "\u{a0}");
             let syncing = app.snap.is_refreshing(&account.id).then(|| s.syncing.to_string());
-            // A borrowed or frozen bundle's note ("Settle by 28 Nov") is too long to share a
-            // line with the number, whatever the date: the number goes on a line of its own.
+            // "Settle by 28 Nov" and the number don't fit on one line, so the number goes below.
             let joiner = if syncing.is_none() && state.is_some() { "\n" } else { " · " };
             let sub = [syncing.or(state).or(renews), Some(number)].into_iter().flatten().collect::<Vec<_>>().join(joiner);
             let text = column![ctx.semi(account.display_name(), 13.5), ctx.muted(sub, 11.5)].spacing(0).align_x(ctx.start()).width(Length::Fill);
@@ -97,8 +95,7 @@ pub fn view(app: &App) -> El<'_> {
     let panel = column![container(head).padding([12.0, SIDE]), hline(p.dv, 2.0), container(list).height(Length::Fill), hline(p.dv, 2.0), container(foot).padding([12.0, SIDE])]
         .width(Length::Fill)
         .height(Length::Fill);
-    // The window is cleared to `p.bg` (see `App::theme`); the 1 px frame is four lines
-    // rather than a bordered window-sized quad, which would be slow to redraw while the
-    // list scrolls.
+    // The window is cleared to `p.bg`; the 1 px frame is four lines, because a bordered
+    // window-sized quad is slow to redraw while scrolling.
     column![hline(p.dv, 1.0), row![vline(p.dv, 1.0), panel, vline(p.dv, 1.0)].height(Length::Fill), hline(p.dv, 1.0)].into()
 }

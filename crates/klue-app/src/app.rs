@@ -1,6 +1,5 @@
-//! The iced program. Klue runs as a daemon: the tray icon and background refreshes live
-//! for the whole session, while the main window and the tray popup are opened when needed
-//! and destroyed when hidden, so an idle Klue keeps no window (or its memory) around.
+//! The iced program. It runs as a daemon: the tray icon and refreshes live all session,
+//! and windows are destroyed when hidden.
 
 use std::{
     collections::HashMap,
@@ -31,7 +30,7 @@ use crate::{
     ui::{self, modals::Modal},
 };
 
-/// The shared state, reachable from subscription streams (which can't capture).
+/// Shared state, for subscriptions (which can't capture).
 pub static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
 
 const MAIN_SIZE: Size = Size::new(1200.0, 760.0);
@@ -60,11 +59,11 @@ pub enum Message {
     /// The shared data changed.
     Revision,
     Tick,
-    /// Refreshes finished: their alerts go out now, not at the next tick.
+    /// Refreshes finished; their alerts go out now.
     Refreshed,
     Window(window::Id, window::Event),
     Tray(systray::Event),
-    /// Another Klue was started: show this one (or its quick view).
+    /// Another Klue was started.
     SecondInstance(crate::instance::Request),
     Captcha(CaptchaAsk),
     CaptchaInput(String),
@@ -82,7 +81,7 @@ pub enum Message {
 
     // Navigation and data.
     ShowMain(Option<String>),
-    /// The popup's settings button: open the main window on Settings.
+    /// The popup's settings button.
     PopupSettings,
     SelectCarrier(Carrier),
     SelectAccount(String),
@@ -91,9 +90,9 @@ pub enum Message {
     Refresh(String),
     RefreshAll,
     SetMain(String, Option<String>),
-    /// The arrows on a number's quota card: show its next (`true`) or previous bundle.
+    /// Quota card arrows: next (`true`) or previous bundle.
     HeroStep(String, bool),
-    /// The usage graph's Days (`false`) / Hours (`true`) switch.
+    /// Usage graph: days (`false`) or hours (`true`).
     UsageHours(bool),
     OpenModal(ModalKind),
     CloseModal,
@@ -101,9 +100,9 @@ pub enum Message {
     /// Tab and Shift+Tab move between fields.
     FocusNext,
     FocusPrevious,
-    /// Escape closes the popup, the captcha prompt or the open dialog.
+    /// Closes the popup, the captcha prompt or the open dialog.
     Escape(window::Id),
-    /// The disclaimer: accept (and start), or quit.
+    /// The disclaimer: accept, or quit.
     AcceptDisclaimer,
     /// The debug console (--debug).
     OpenConsole,
@@ -115,7 +114,7 @@ pub enum Message {
     ConsoleClear,
     OpenUrl(&'static str),
     OpenUrlOwned(String),
-    /// Look for a newer release; `manual` from About (shows a skipped one too).
+    /// `manual` from About; also shows a skipped release.
     CheckUpdates { manual: bool },
     UpdateChecked { manual: bool, result: Result<Option<Box<Release>>, String> },
     ShowUpdate,
@@ -128,18 +127,18 @@ pub enum Message {
     Done,
 }
 
-/// The update check, and installing what it found. See `crate::updater`.
+/// Update check and install state.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpdateState {
     Idle,
     Checking,
     UpToDate,
     CheckFailed,
-    /// A newer release from the main branch; its dialog is up while `shown`.
+    /// A newer release from `main`; `shown` while its dialog is open.
     Available { release: Box<Release>, shown: bool },
     Downloading { release: Box<Release>, got: u64, total: Option<u64> },
     Installing { release: Box<Release> },
-    /// Handed to the system to install (a disk image or a package).
+    /// Opened in the system installer (disk image or package).
     Opened { release: Box<Release> },
     Failed { release: Box<Release>, message: String },
 }
@@ -177,42 +176,42 @@ pub struct App {
     pub main: Option<window::Id>,
     pub popup: Option<window::Id>,
     popup_anchor: Option<Anchor>,
-    /// Whether the popup has had the focus yet: it closes when it loses it.
+    /// The popup closes when it loses focus, but only after it had it.
     popup_focused: bool,
     popup_closed_at: Option<Instant>,
     tray: Option<Tray>,
     tray_lang: Lang,
     start_minimized: bool,
     start_quick_view: bool,
-    /// The carrier shown in the main window, and the number picked for each carrier.
+    /// The carrier shown, and the number picked per carrier.
     pub carrier: Carrier,
     pub selected: HashMap<Carrier, String>,
-    /// The bundle each number's quota card shows, by key (its main one if none).
+    /// The bundle each number's quota card shows, by key.
     pub hero: HashMap<String, String>,
-    /// The usage graph's view: hours when they can be shown, else days.
+    /// Prefer the hours view when it's available.
     pub usage_hours: bool,
     pub modal: Modal,
     pub captcha: Option<CaptchaAsk>,
     pub update: UpdateState,
-    /// The main window's size, which dialogs fit into.
+    /// Main window size, for fitting dialogs.
     pub main_size: Size,
-    /// When the last tick came; a much longer gap means the computer slept.
+    /// Time of the last tick. A much longer gap means the computer slept.
     last_tick: DateTime<Utc>,
-    /// Started with --debug: the title bar has a button for the debug console.
+    /// `--debug`: shows the console button.
     pub debug: bool,
     pub console: Option<window::Id>,
     pub log: LogView,
 }
 
-/// What the debug console shows.
+/// Debug console state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LogView {
     pub lines: Vec<crate::console::Line>,
     pub revision: u64,
-    /// The quietest level shown.
+    /// Lowest level shown.
     pub level: tracing::Level,
     pub search: String,
-    /// Keep the newest line in view.
+    /// Stick to the newest line.
     pub follow: bool,
 }
 
@@ -222,7 +221,7 @@ impl Default for LogView {
     }
 }
 
-/// How many lines the console shows at once (it keeps more).
+/// Lines shown at once.
 const CONSOLE_LINES: usize = 1500;
 pub const CONSOLE_SCROLL: &str = "console-log";
 
@@ -271,8 +270,7 @@ impl App {
             console: None,
             log: LogView::default(),
         };
-        // The tray icon is created on the first update: on macOS the event loop must be
-        // running by then.
+        // Create the tray icon on the first update: macOS needs the event loop running.
         (app, Task::done(Message::Init))
     }
 
@@ -280,22 +278,19 @@ impl App {
         self.snap.data.settings.lang
     }
 
-    /// Whether this version's disclaimer still has to be accepted (first launch, or the
-    /// first launch after an update). Until it is, Klue signs in nowhere.
+    /// This version's disclaimer hasn't been accepted. No sign-ins until it is.
     pub fn disclaimer_due(&self) -> bool {
         !self.shared.demo && self.snap.data.settings.accepted_disclaimer.as_deref() != Some(about::VERSION)
     }
 
-    /// The carrier the main window shows: the one picked while it has numbers, else the
-    /// first that has any. `None` without any numbers. Carriers without numbers (and so
-    /// the ones Klue can't sign in to yet) aren't listed at all.
+    /// The picked carrier if it has numbers, else the first one that does.
     pub fn shown_carrier(&self) -> Option<Carrier> {
         let data = &self.snap.data;
         let has_numbers = |c: &Carrier| data.accounts_for(*c).next().is_some();
         Some(self.carrier).filter(has_numbers).or_else(|| Carrier::ALL.into_iter().find(has_numbers))
     }
 
-    /// The account shown for the shown carrier.
+    /// The shown account.
     pub fn current(&self) -> Option<&Account> {
         let data = &self.snap.data;
         let carrier = self.shown_carrier()?;
@@ -307,9 +302,8 @@ impl App {
         if Some(window) == self.console { "Klue debug console".into() } else { "Klue".into() }
     }
 
-    /// The window's own palette background and text colour. The renderer clears every
-    /// redrawn area to that background, so no view paints a window-sized quad: tiny-skia
-    /// would redraw such a quad through a clip mask on every scroll frame, which is slow.
+    /// The window background. The renderer clears to it, so views don't paint a full-window
+    /// quad (tiny-skia redraws those through a clip mask on every scroll frame).
     fn theme(&self, window: window::Id) -> iced::Theme {
         let popup = Some(window) == self.popup;
         let carrier = if popup { Carrier::We } else { self.shown_carrier().unwrap_or(Carrier::We) };
@@ -334,13 +328,13 @@ impl App {
         Subscription::batch([
             window::events().map(|(id, e)| Message::Window(id, e)),
             iced::time::every(TICK).map(|_| Message::Tick),
-            // Countdowns and "synced 2 min ago" stay current while a window is open.
+            // Keep countdowns and "synced 2 min ago" current.
             if self.main.is_some() || self.popup.is_some() {
                 iced::time::every(Duration::from_secs(30)).map(|_| Message::Tick)
             } else {
                 Subscription::none()
             },
-            // The open console reads the log four times a second (not per line).
+            // The console polls the log four times a second.
             if self.console.is_some() {
                 iced::time::every(Duration::from_millis(250)).map(|_| Message::ConsoleTick)
             } else {
@@ -374,10 +368,9 @@ impl App {
                 } else {
                     self.show_main(None)
                 };
-                // Reminders that came due while Klue wasn't running go out now; quota
-                // alerts follow the refresh.
+                // Reminders that came due while closed go out now; quota alerts follow the refresh.
                 self.send_due_alerts();
-                // Look for an update once the first refreshes are under way.
+                // Check for updates once the first refreshes have started.
                 let check = if self.shared.demo {
                     Task::none()
                 } else {
@@ -398,9 +391,8 @@ impl App {
             }
             Message::Tick => {
                 self.now = Utc::now();
-                // Timers stop while the computer sleeps, so the first tick after waking
-                // finds the clock far ahead: whatever came due meanwhile goes out now, and
-                // every number is due for a refresh.
+                // Timers stop during sleep, so the first tick after waking is far ahead: send what came
+                // due and refresh everything.
                 let gap = self.now - self.last_tick;
                 self.last_tick = self.now;
                 if gap > chrono::Duration::from_std(TICK * 3).unwrap_or_default() {
@@ -655,7 +647,7 @@ impl App {
             Message::UpdateInstalled(result) => {
                 let Some(release) = self.update.release().cloned() else { return Task::none() };
                 match result {
-                    // The new Klue is starting and waits for this one to quit.
+                    // The new version waits for this one to exit.
                     Ok(updater::Outcome::Restart) => self.update(Message::Quit),
                     Ok(updater::Outcome::Opened) => {
                         self.update = UpdateState::Opened { release: Box::new(release) };
@@ -672,7 +664,7 @@ impl App {
         }
     }
 
-    /// Send the alerts that are due now (one sound for all of them).
+    /// Sends the alerts due now, with one sound.
     fn send_due_alerts(&mut self) {
         if self.disclaimer_due() {
             return;
@@ -709,7 +701,7 @@ impl App {
                     UpdateState::Idle
                 } else {
                     tracing::info!("update available: {}", release.version);
-                    // With no window open it waits for one; a notification says it's there.
+                    // Without a window it waits; a notification says there's an update.
                     if self.main.is_none() && !manual {
                         notify::notice(i18n::update_available(&release.version.to_string(), self.lang()), i18n::strings(self.lang()).update_notify_body.into());
                     }
@@ -725,11 +717,11 @@ impl App {
         Task::none()
     }
 
-    /// Download the release file for this platform, then install it.
+    /// Downloads this platform's file, then installs it.
     fn install_update(&mut self) -> Task<Message> {
         let Some(release) = self.update.release().cloned() else { return Task::none() };
         let Some(asset) = release.asset(updater::suffixes()).cloned() else {
-            // No file for this platform: the release page has whatever there is.
+            // No file for this platform: open the release page.
             about::open_url_owned(&release.page);
             return Task::none();
         };
@@ -739,7 +731,7 @@ impl App {
             iced::stream::channel(16, move |mut out: iced::futures::channel::mpsc::Sender<Message>| async move {
                 let mut shown = 0u64;
                 let result = klue_core::update::download(&asset, &dir, |got, total| {
-                    // A message per percent (or per MB without a total), not per chunk.
+                    // One message per percent (or per MB without a total).
                     let step = total.map_or(1 << 20, |t| (t / 100).max(1));
                     if got / step != shown / step {
                         shown = got;
@@ -758,7 +750,7 @@ impl App {
         self.main.map(f).unwrap_or_else(Task::none)
     }
 
-    /// Open the main window, or bring it forward; optionally on one number.
+    /// Opens or raises the main window, optionally on one number.
     fn show_main(&mut self, account: Option<String>) -> Task<Message> {
         if let Some(id) = account {
             let _ = self.update(Message::SelectAccount(id));
@@ -771,7 +763,7 @@ impl App {
         open.map(|_| Message::Done)
     }
 
-    /// The close button: back to the tray (dropping the window) or quit.
+    /// Close button: back to the tray, or quit.
     fn close_main(&mut self) -> Task<Message> {
         let keep = self.snap.data.settings.keep_in_tray && self.tray.is_some();
         if !keep {
@@ -822,14 +814,14 @@ impl App {
                 }
                 Task::none()
             }
-            // The popup is a transient panel: clicking anywhere else closes it. (Some
-            // platforms report a loss of focus before it ever had it; that one doesn't count.)
+            // The popup closes when focus moves elsewhere. Some platforms report a focus loss before
+            // it ever had focus; ignore that.
             window::Event::Focused if Some(id) == self.popup => {
                 self.popup_focused = true;
                 Task::none()
             }
             window::Event::Unfocused if Some(id) == self.popup && self.popup_focused => window::close(id),
-            // Going back to the main window also puts the popup away.
+            // Opening the main window also hides the popup.
             window::Event::Focused if Some(id) == self.main => self.popup.map(window::close).unwrap_or_else(Task::none),
             window::Event::Opened { .. } if Some(id) == self.popup => {
                 window::scale_factor(id).then(move |scale| window::monitor_size(id).map(move |monitor| Message::PopupPlaced(id, scale, monitor)))
@@ -856,8 +848,7 @@ impl App {
         if self.disclaimer_due() {
             return self.show_main(None);
         }
-        // A click on the tray icon first takes focus from the popup, which closes it;
-        // that click shouldn't reopen it.
+        // Clicking the tray icon steals focus from the popup and closes it; don't reopen it.
         if self.popup_closed_at.is_some_and(|t| t.elapsed() < Duration::from_millis(400)) {
             return Task::none();
         }
@@ -868,7 +859,7 @@ impl App {
         open.map(|_| Message::Done)
     }
 
-    /// Put the popup next to the tray icon (or in the corner where trays live), then show it.
+    /// Places the popup by the tray icon (or the usual tray corner), then shows it.
     fn place_popup(&mut self, id: window::Id, scale: f32, monitor: Option<Size>) -> Task<Message> {
         let monitor = monitor.unwrap_or(Size::new(1920.0, 1080.0));
         let (w, h) = (POPUP_SIZE.width, POPUP_SIZE.height);
@@ -883,7 +874,7 @@ impl App {
             None if cfg!(target_os = "macos") => Point::new(monitor.width - w - 16.0, 36.0),
             None => Point::new(monitor.width - w - 16.0, monitor.height - h - 64.0),
         };
-        // Shown only once it's in place, then focused (focusing a hidden window does nothing).
+        // Show after moving, then focus (focusing a hidden window does nothing).
         window::move_to(id, point).chain(window::set_mode(id, window::Mode::Windowed)).chain(window::gain_focus(id))
     }
 }
@@ -899,8 +890,7 @@ fn main_settings() -> window::Settings {
         size: MAIN_SIZE,
         min_size: Some(MAIN_MIN),
         position: window::Position::Centered,
-        // Klue draws its own title bar. macOS keeps a real titled window (rounded
-        // corners, shadow, resizing) with its traffic lights over Klue's title bar.
+        // Custom title bar. On macOS the window keeps its frame and traffic lights.
         decorations: cfg!(target_os = "macos"),
         icon: window_icon(),
         exit_on_close_request: false,
@@ -909,7 +899,7 @@ fn main_settings() -> window::Settings {
     }
 }
 
-/// The debug console: an ordinary window with the system's frame.
+/// The debug console uses the normal system frame.
 fn console_settings() -> window::Settings {
     window::Settings {
         size: Size::new(980.0, 620.0),
@@ -957,7 +947,7 @@ fn platform(popup: bool) -> window::settings::PlatformSpecific {
     }
 }
 
-/// Keyboard shortcuts. Escape counts even when a text field took it (to unfocus itself).
+/// Escape counts even when a text field captured it.
 fn keys(event: iced::Event, _status: iced::event::Status, window: window::Id) -> Option<Message> {
     use iced::keyboard::{Event, Key, key::Named};
     let iced::Event::Keyboard(Event::KeyPressed { key: Key::Named(named), modifiers, .. }) = event else { return None };

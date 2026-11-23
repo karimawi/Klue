@@ -1,7 +1,4 @@
-//! Klue core: carrier clients, data model, local storage and alert rules.
-//!
-//! The UI lives in the `klue-app` crate. Everything here is UI-agnostic so it can be
-//! unit-tested and reused from command-line tools (see `examples/`).
+//! Carrier clients, data model, storage and alert rules. No UI.
 
 pub mod alerts;
 pub mod captcha;

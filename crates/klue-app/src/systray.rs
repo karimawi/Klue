@@ -1,5 +1,5 @@
-//! The system tray icon and its menu. tray-icon reports clicks and menu picks through
-//! global handlers; they're forwarded to the UI through a channel read by a subscription.
+//! Tray icon and menu. tray-icon's global handlers forward events to the UI over a
+//! channel.
 
 use std::sync::{Mutex, OnceLock};
 
@@ -15,7 +15,7 @@ use crate::{assets, i18n};
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    /// Left click; the icon's position on screen when the platform reports it.
+    /// Left click, with the icon's position if the platform gives it.
     Click(Option<Anchor>),
     DoubleClick,
     Open,
@@ -33,14 +33,13 @@ pub struct Anchor {
     pub height: f64,
 }
 
-/// Keeps the icon (and its menu items, for relabelling) alive.
+/// Keeps the icon and menu items alive.
 pub struct Tray {
     _icon: TrayIcon,
     items: [MenuItem; 4],
 }
 
-/// The sending end for the tray's event handlers, and the receiving end until the UI's
-/// subscription takes it.
+/// Sender for the tray handlers, and the receiver until the UI takes it.
 type Channel = (mpsc::UnboundedSender<Event>, Mutex<Option<mpsc::UnboundedReceiver<Event>>>);
 
 static CHANNEL: OnceLock<Channel> = OnceLock::new();
@@ -55,7 +54,7 @@ fn sender() -> mpsc::UnboundedSender<Event> {
         .clone()
 }
 
-/// Create the tray icon. `None` if the desktop has no tray (closing the window then quits).
+/// `None` if there's no tray (closing the window then quits).
 pub fn create(lang: Lang) -> Option<Tray> {
     let tx = sender();
     TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {

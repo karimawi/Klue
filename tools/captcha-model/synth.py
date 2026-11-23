@@ -18,14 +18,11 @@ CHARSET = string.digits + string.ascii_uppercase + string.ascii_lowercase  # 62,
 # Letters whose upper and lower case differ only in size; never resize these on their own.
 SIZE_IS_CASE = set("cosuvwxzCOSUVWXZ")
 WIDTH, HEIGHT = 180, 50
-# Share of captchas whose text is drawn over the strike line rather than under it. WE draws
-# the text on top: where the line crosses a letter, the real images stay red (81% of
-# crossings, 5% blue), which this reproduces (87% / 8%); drawing the line on top gave 34% / 22%.
-# A few line-on-top captchas stay in for robustness.
+# Share of captchas with the text over the strike line, as in the real ones (letters stay
+# red where the line crosses). A few line-on-top ones help robustness.
 LINE_UNDER = 0.85
-# (path, weight). WE mostly uses Arial and sometimes Times New Roman (18 of the first 53
-# real samples, about a third). Liberation Sans/Serif have exactly their metrics and very similar shapes;
-# the others add a little glyph variety so the model doesn't overfit one rasteriser.
+# (path, weight). Mostly Arial, about a third Times New Roman. Liberation Sans/Serif have
+# the same metrics; the others add variety so the model doesn't overfit one rasteriser.
 DEFAULT_FONTS = [
     ("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 60),
     ("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 8),
@@ -92,9 +89,8 @@ class Generator:
         for i, ch in enumerate(text):
             x = x0 + i * pitch + r.uniform(-1.5, 1.5)
             y = baseline + r.uniform(-3.5, 3.5)
-            # Occasionally a character comes out a little smaller or larger (seen on digits),
-            # but never one whose case is only told apart by size. (Letting those vary too,
-            # within ranges measured on real samples, made real accuracy worse: 47/53 vs 51/53.)
+            # Sometimes a character is a bit smaller or larger (seen on digits), but never one
+            # whose case only differs by size: that made real accuracy worse (47/53 vs 51/53).
             resize = ch not in SIZE_IS_CASE and r.random() < 0.2
             glyph = self.font(font_path, round(size * r.uniform(0.85, 1.08)) * k) if resize else font
             draw.text((x * k, y * k), ch, font=glyph, fill=red, anchor="ls")

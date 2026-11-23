@@ -1,5 +1,4 @@
-//! English and Arabic strings, from the `S` table in the mockup plus the few screens
-//! the mockup doesn't cover (coming soon, captcha, sync errors).
+//! English and Arabic strings.
 
 use chrono::{DateTime, Datelike, Local, Utc};
 use klue_core::{BundleKind, BundleState, Carrier, FetchError, LineType, Unit, format, store::Lang};
@@ -78,7 +77,6 @@ pub struct Strings {
     pub open_app: &'static str,
     pub settings_title: &'static str,
     pub empty_kicker: &'static str,
-    // Not in the mockup:
     pub coming_soon_body: &'static str,
     pub not_synced: &'static str,
     pub syncing: &'static str,
@@ -121,17 +119,17 @@ pub struct Strings {
     pub borrowed: &'static str,
     pub frozen: &'static str,
     pub owed_note: &'static str,
-    /// Tooltips on line types Klue can't read yet, in the Add dialog.
+    /// Add dialog tooltips for line types that aren't supported yet.
     pub we_mobile_soon: &'static str,
     pub vf_dsl_soon: &'static str,
     /// The package's line speed (WE).
     pub speed: &'static str,
     pub after_quota: &'static str,
-    /// The hero's bundle navigation.
+    /// Quota card bundle navigation.
     pub main_quota: &'static str,
     pub prev_bundle: &'static str,
     pub next_bundle: &'static str,
-    /// Settings: alert settings for every number at once.
+    /// Settings: alerts for all numbers.
     pub all_alerts: &'static str,
     pub all_alerts_hint: &'static str,
     pub all_low_quota: &'static str,
@@ -172,7 +170,7 @@ pub struct Strings {
     pub disc_risk_title: &'static str,
     pub disc_risk: &'static str,
     pub disc_accept: &'static str,
-    /// The title-bar button that opens the debug console (--debug).
+    /// Title bar button for the debug console.
     pub debug_console: &'static str,
     /// Title of the usage graph section.
     pub usage: &'static str,
@@ -666,8 +664,8 @@ pub fn settle_by_short(dt: DateTime<Utc>, lang: Lang) -> String {
     }
 }
 
-/// Title and text of the notice about a borrowed or frozen bundle, in Vodafone's words.
-/// `what` names it: the package, or the bundle's own name when it isn't the main one.
+/// Notice title and text for a borrowed or frozen bundle. `what` is the package, or the
+/// bundle's name when it isn't the main one.
 pub fn state_notice(
     state: BundleState,
     carrier: Carrier,
@@ -754,7 +752,7 @@ pub fn countdown(until: DateTime<Utc>, now: DateTime<Utc>, lang: Lang) -> String
     }
 }
 
-/// User-facing explanation of a failed refresh or verification.
+/// Explanation of a failed refresh or sign-in.
 pub fn error_text(e: &FetchError, carrier: Carrier, lang: Lang) -> String {
     let name = carrier_name(carrier, lang);
     let app = carrier_app(carrier, lang);
@@ -813,7 +811,7 @@ pub fn error_text(e: &FetchError, carrier: Carrier, lang: Lang) -> String {
     }
 }
 
-/// Title for the error box in the add-number flow.
+/// Error title in the Add dialog.
 pub fn error_title(e: &FetchError, lang: Lang) -> &'static str {
     let ar = is_ar(lang);
     match e {
@@ -845,7 +843,7 @@ pub fn clock(dt: DateTime<Utc>) -> String {
     dt.with_timezone(&Local).format("%H:%M").to_string()
 }
 
-/// The minute of a refresh: "Mon 23 Nov, 14:07" / "الاثنين 23 نوفمبر، 14:07".
+/// "Mon 23 Nov, 14:07" / "الاثنين 23 نوفمبر، 14:07".
 pub fn moment(dt: DateTime<Utc>, lang: Lang) -> String {
     match lang {
         Lang::En => format!("{}, {}", day_label(dt, lang), clock(dt)),
@@ -853,7 +851,7 @@ pub fn moment(dt: DateTime<Utc>, lang: Lang) -> String {
     }
 }
 
-/// An hour of the graph: "Mon 23 Nov, 14:00–15:00".
+/// "Mon 23 Nov, 14:00–15:00".
 pub fn hour_span(start: DateTime<Utc>, end: DateTime<Utc>, lang: Lang) -> String {
     match lang {
         Lang::En => format!("{}, {}–{}", day_label(start, lang), clock(start), clock(end)),
@@ -861,7 +859,7 @@ pub fn hour_span(start: DateTime<Utc>, end: DateTime<Utc>, lang: Lang) -> String
     }
 }
 
-/// Under a day on the graph's time axis: "23 Nov" (with the month) or "23".
+/// Under a day on the time axis: "23 Nov" (with the month) or "23".
 pub fn axis_day(dt: DateTime<Utc>, with_month: bool, lang: Lang) -> String {
     let d = dt.with_timezone(&Local);
     let m = d.month0() as usize;
@@ -872,7 +870,7 @@ pub fn axis_day(dt: DateTime<Utc>, with_month: bool, lang: Lang) -> String {
     }
 }
 
-/// An amount with its unit; a GB amount that's under 1,000 MB in MB: "3.2 GB", "350 MB".
+/// With its unit; GB under 1,000 MB is shown in MB: "3.2 GB", "350 MB".
 pub fn quantity(v: f64, unit: Unit, lang: Lang) -> String {
     let (v, unit) = if unit == Unit::Gb && v != 0.0 && (v * 1024.0).abs() < 999.5 { (v * 1024.0, Unit::Mb) } else { (v, unit) };
     format!("{} {}", format::amount_short(v, unit), unit_name(unit, lang))
@@ -890,13 +888,13 @@ pub fn used_of(v: f64, unit: Unit, lang: Lang) -> String {
     if is_ar(lang) { format!("تم استخدام {q}") } else { format!("{q} used") }
 }
 
-/// What a refresh found used since the one before: "1.2 GB since 11:52".
+/// "1.2 GB since 11:52".
 pub fn used_since(v: f64, unit: Unit, since: DateTime<Utc>, lang: Lang) -> String {
     let q = quantity(v, unit, lang);
     if is_ar(lang) { format!("{q} منذ {}", clock(since)) } else { format!("{q} since {}", clock(since)) }
 }
 
-/// Why a graph period is a guess: "Spread over a 9-hour wait between refreshes".
+/// "Spread over a 9-hour wait between refreshes".
 pub fn spread_over(gap: chrono::Duration, lang: Lang) -> String {
     let hours = (gap.num_minutes() as f64 / 60.0).round().max(1.0) as i64;
     let (n, span) = if hours >= 48 { (hours / 24, Span::Day) } else { (hours, Span::Hour) };
@@ -906,7 +904,7 @@ pub fn spread_over(gap: chrono::Duration, lang: Lang) -> String {
     }
 }
 
-/// A period the samples only reach part of: "From 09:12" / "Until 14:07".
+/// "From 09:12" / "Until 14:07".
 pub fn from_clock(t: DateTime<Utc>, lang: Lang) -> String {
     if is_ar(lang) { format!("من {}", clock(t)) } else { format!("From {}", clock(t)) }
 }
@@ -922,7 +920,7 @@ pub fn over_days(days: f64, lang: Lang) -> String {
     if is_ar(lang) { format!("على مدى {c}") } else { format!("Over {c}") }
 }
 
-/// When a bundle runs out at its current rate: "Runs out Thu 3 Dec".
+/// "Runs out Thu 3 Dec".
 pub fn runs_out(at: DateTime<Utc>, lang: Lang) -> String {
     let day = day_label(at, lang);
     if is_ar(lang) { format!("ينفد {day}") } else { format!("Runs out {day}") }
@@ -942,7 +940,7 @@ mod tests {
     }
 
     #[test]
-    fn dates_match_the_mockup_formats() {
+    fn date_formats() {
         let dt = Local.with_ymd_and_hms(2026, 12, 8, 12, 0, 0).unwrap().with_timezone(&Utc);
         assert_eq!(date_long(dt, Lang::En), "Tue, 8 December 2026");
         assert_eq!(date_long(dt, Lang::Ar), "الثلاثاء، 8 ديسمبر 2026");

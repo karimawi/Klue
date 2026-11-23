@@ -5,9 +5,8 @@ use wreq::tls::trust::CertStore;
 
 use crate::FetchError;
 
-/// A fresh client per sign-in, with its own cookie jar, that presents Chrome 131's TLS
-/// and HTTP/2 fingerprint and headers.
-/// Redirects are handled by the callers.
+/// A client with its own cookie jar that looks like Chrome 131 (TLS, HTTP/2 and headers).
+/// Callers handle redirects.
 pub(crate) fn browser_client() -> Result<wreq::Client, FetchError> {
     let mut builder = wreq::Client::builder()
         .emulation(wreq_util::Emulation::Chrome131)
@@ -21,8 +20,7 @@ pub(crate) fn browser_client() -> Result<wreq::Client, FetchError> {
     builder.build().map_err(|e| FetchError::Network(e.to_string()))
 }
 
-/// A client for plain HTTPS (GitHub's API and downloads): follows redirects, waits up
-/// to `timeout` for a whole response.
+/// Plain HTTPS for GitHub: follows redirects, `timeout` for the whole response.
 pub(crate) fn plain_client(timeout: Duration) -> Result<wreq::Client, FetchError> {
     let mut builder = wreq::Client::builder()
         .redirect(wreq::redirect::Policy::limited(10))
@@ -34,9 +32,8 @@ pub(crate) fn plain_client(timeout: Duration) -> Result<wreq::Client, FetchError
     builder.build().map_err(|e| FetchError::Network(e.to_string()))
 }
 
-/// The CA certificates named by `SSL_CERT_FILE` / `SSL_CERT_DIR`, which then replace
-/// the bundled Mozilla roots, as in OpenSSL and curl. Networks that inspect TLS with
-/// their own CA (corporate proxies, sandboxes) set these. `None` when neither is set.
+/// CAs from `SSL_CERT_FILE` / `SSL_CERT_DIR`, replacing the bundled roots like OpenSSL
+/// does. Needed behind TLS-inspecting proxies.
 fn env_cert_store() -> Option<&'static CertStore> {
     static STORE: OnceLock<Option<CertStore>> = OnceLock::new();
     STORE
@@ -53,7 +50,7 @@ fn env_cert_store() -> Option<&'static CertStore> {
         .as_ref()
 }
 
-/// Read a response body as JSON, turning HTML error pages into a readable error.
+/// Parses JSON, turning HTML error pages into a readable error.
 pub(crate) async fn json_body(resp: wreq::Response, what: &str) -> Result<Value, FetchError> {
     let status = resp.status();
     let text = resp.text().await?;

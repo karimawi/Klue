@@ -1,5 +1,4 @@
-//! Views. Every window is drawn from the [`App`] state through a [`Ctx`]: the palette,
-//! language and clock in effect, and small helpers that mirror layouts for Arabic.
+//! Views, drawn from [`App`] through a [`Ctx`] (palette, language, clock, RTL helpers).
 
 pub mod chart;
 pub mod console;
@@ -28,7 +27,7 @@ use crate::{
 
 pub type El<'a> = Element<'a, Message>;
 
-/// What a view needs besides the data: colours, language, strings and the time.
+/// Palette, language, strings and the time.
 #[derive(Clone, Copy)]
 pub struct Ctx<'a> {
     pub app: &'a App,
@@ -89,7 +88,7 @@ impl<'a> Ctx<'a> {
         if self.rtl() { s.to_string() } else { s.to_uppercase() }
     }
 
-    /// Figures in DM Sans, which has the design's numerals in both languages.
+    /// Figures in DM Sans in both languages.
     pub fn num(&self, content: impl text::IntoFragment<'a>, size: f32, weight: Weight, color: Color) -> text::Text<'a> {
         text(content).size(size).font(assets::numbers(weight)).color(color)
     }
@@ -103,7 +102,7 @@ impl<'a> Ctx<'a> {
         if self.rtl() { Horizontal::Left } else { Horizontal::Right }
     }
 
-    /// A row laid out in reading order: mirrored in Arabic.
+    /// A row in reading order (mirrored in Arabic).
     pub fn row(&self, mut items: Vec<El<'a>>) -> Row<'a, Message> {
         if self.rtl() {
             items.reverse();
@@ -184,13 +183,13 @@ impl<'a> Ctx<'a> {
         button(track).padding(0).style(theme::ghost(self.p.tx, Color::TRANSPARENT, 10.0)).on_press(on_press).into()
     }
 
-    /// Segmented control; each option is (label, selected, message when picked).
+    /// Segmented control: (label, selected, message).
     pub fn segmented(&self, options: Vec<(String, bool, Option<Message>)>, height: f32, size: f32) -> El<'a> {
         self.segmented_tips(options.into_iter().map(|(label, on, msg)| (label, on, msg, None)).collect(), height, size)
     }
 
-    /// [`segmented`](Self::segmented) where an option can have a tooltip, say to tell why
-    /// it's off (an option without a message is shown dimmed).
+    /// [`segmented`](Self::segmented) with optional tooltips. Options without a message are
+    /// dimmed.
     pub fn segmented_tips(&self, options: Vec<(String, bool, Option<Message>, Option<&'a str>)>, height: f32, size: f32) -> El<'a> {
         let p = self.p;
         let buttons = options
@@ -282,11 +281,10 @@ pub fn logo<'a>(size: f32) -> El<'a> {
     svg(assets::LOGO.clone()).width(size).height(size).into()
 }
 
-/// A label + value pair stacked vertically.
+/// Label over value.
 ///
-/// Single-line text is placed by its column, never by `Text::align_x`: iced 0.14 skips
-/// the relayout of a one-line right-to-left paragraph that has an explicit alignment, so
-/// Arabic would be drawn shifted by the width left over.
+/// Placed by the column, not `Text::align_x`: iced 0.14 draws one-line Arabic with an
+/// explicit alignment shifted.
 pub fn stat<'a>(ctx: &Ctx<'a>, label: &str, value: impl text::IntoFragment<'a>, align: Horizontal) -> El<'a> {
     column![ctx.muted(label.to_string(), 12.0), ctx.semi(value, 12.0)].align_x(align).spacing(1).into()
 }

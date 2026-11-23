@@ -1,8 +1,5 @@
-//! Colours and widget styles.
-//!
-//! Light and dark use the logo's colours: #FFBE32 is the accent in both, with #1D1B1B
-//! text on it, and the dark theme is built on #1D1B1B. "Match" recolours the app with
-//! the selected carrier's brand (the tray popup, which shows every carrier, uses Light).
+//! Colours and widget styles. Light and Dark use the logo's colours (#FFBE32 and #1D1B1B);
+//! Match uses the selected carrier's (the tray popup always uses Light).
 
 use iced::{
     Background, Border, Color, Shadow,
@@ -32,8 +29,8 @@ pub struct Palette {
     pub on: Color,
     /// Errors and low quota.
     pub danger: Color,
-    /// Chrome (title bar and carrier rail): background, text, muted text, divider,
-    /// hovered/selected item and selection bar.
+    /// Title bar and carrier rail: background, text, muted text, divider, hovered item,
+    /// selection bar.
     pub ch: Color,
     pub cht: Color,
     pub chm: Color,
@@ -239,9 +236,8 @@ pub fn bg_line(background: Color, line: Color, radius: f32) -> impl Fn(&iced::Th
     move |_| outlined(background, line, radius)
 }
 
-// No blurred shadows anywhere: the software renderer draws a shadow over its whole extent
-// on every partial redraw (it ignores the damage clip), so each blink of a text cursor
-// would darken it further; and it computes them pixel by pixel. Edges are lines instead.
+// No blurred shadows: tiny-skia redraws them over their whole area on every partial
+// redraw, so they darken with each cursor blink. Borders instead.
 
 /// A floating panel (dialogs).
 pub fn panel(p: Palette, radius: f32) -> container::Style {

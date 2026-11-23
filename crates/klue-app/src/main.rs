@@ -1,9 +1,8 @@
 //! Klue desktop app.
 //!
-//! Flags: `--demo` (or `KLUE_DEMO=1`) shows sample numbers without touching your data;
-//! `--minimized` starts in the tray (used by "Launch at startup"); `--quick-view` opens
-//! the tray popup; `--debug` logs everything and adds a debug console to the title bar.
-//! `KLUE_DEBUG_DIR=<dir>` writes raw carrier responses (secrets redacted) for debugging.
+//! Flags: `--demo` (or `KLUE_DEMO=1`), `--minimized` (start in the tray), `--quick-view`
+//! (open the tray popup), `--debug` (log everything, with a console). `KLUE_DEBUG_DIR=<dir>`
+//! saves raw carrier responses with secrets redacted.
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
@@ -29,10 +28,8 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 
 fn main() -> iced::Result {
     let args: Vec<String> = std::env::args().collect();
-    // --debug: log everything (Klue's own code in full detail) and keep it for the
-    // debug console. A few sources are held back: iced and winit print each new window's
-    // settings, icon pixels and all (a quarter of a million lines per window), and
-    // cosmic-text times every text layout. RUST_LOG overrides all of it.
+    // --debug logs everything, minus iced/winit window dumps (icon pixels included) and
+    // cosmic-text layout timings. RUST_LOG overrides it.
     let debug = args.iter().any(|a| a == "--debug");
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         EnvFilter::new(if debug { "debug,klue=trace,klue_core=trace,iced_winit=warn,winit=warn,cosmic_text=info" } else { "klue=info,klue_core=info" })
@@ -46,7 +43,7 @@ fn main() -> iced::Result {
     let minimized = args.iter().any(|a| a == "--minimized");
     let quick_view = args.iter().any(|a| a == "--quick-view");
 
-    // Started by an update: the old Klue is quitting; take over once it has gone.
+    // Started by an update: wait for the old instance to exit.
     if args.iter().any(|a| a == "--after-update") {
         if !instance::wait_until_gone(std::time::Duration::from_secs(30)) {
             tracing::warn!("the old Klue is still running after an update");
@@ -54,7 +51,7 @@ fn main() -> iced::Result {
         updater::cleanup();
     }
 
-    // A second launch just brings the running Klue forward.
+    // A second launch brings the running one forward.
     if !demo && matches!(instance::claim(quick_view), instance::Start::Second) {
         tracing::info!("Klue is already running; showing it");
         return Ok(());

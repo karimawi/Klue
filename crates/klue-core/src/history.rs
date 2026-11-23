@@ -1,7 +1,5 @@
-//! Usage history: what each bundle had left at each refresh, and what can be read from
-//! it. Refreshes come at uneven times (the computer sleeps, Klue is closed, a refresh
-//! fails or is started by hand), so everything here works from whatever samples there
-//! are: usage between two samples is spread evenly over the time between them.
+//! Usage history: what each bundle had left at each refresh. Refreshes come at uneven
+//! times, so usage between two samples is spread evenly over the time between them.
 
 use std::collections::BTreeMap;
 
@@ -10,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Bundle;
 
-/// What a bundle had left at one refresh. Saved as `[unix seconds, remaining, total]`.
+/// What a bundle had left at one refresh. Stored as `[unix seconds, remaining, total]`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(from = "(i64, f64, f64)", into = "(i64, f64, f64)")]
 pub struct Sample {
@@ -38,17 +36,17 @@ pub struct History {
     pub bundles: BTreeMap<String, Vec<Sample>>,
 }
 
-/// Samples older than this are dropped.
+/// Samples older than this many days are dropped.
 const KEEP: i64 = 62;
 
 impl History {
-    /// Record a refresh's bundles at `at`, in time order whenever it came.
+    /// Records a refresh. Samples stay sorted whatever order they arrive in.
     pub fn record(&mut self, at: DateTime<Utc>, bundles: &[Bundle]) {
         self.insert(at, bundles);
         self.thin(at);
     }
 
-    /// Record many refreshes at once, in any order: quicker than one at a time.
+    /// Like [`record`](Self::record) for many refreshes, thinning once at the end.
     pub fn record_all<'a>(&mut self, refreshes: impl IntoIterator<Item = (DateTime<Utc>, &'a [Bundle])>) {
         let mut latest = None;
         for (at, bundles) in refreshes {
@@ -77,14 +75,11 @@ impl History {
         self.bundles.get(key).map_or(&[], Vec::as_slice)
     }
 
-    /// Keep the file small: every sample from the last 2 days, one an hour for the two
-    /// weeks before, one every 6 hours before that, nothing older than [`KEEP`] days. The
-    /// samples on either side of each local midnight stay, so every day's usage stays
-    /// exact. Bundles with no samples left are forgotten.
+    /// Keeps the file small: everything from the last 2 days, hourly to 14 days, 6-hourly to
+    /// [`KEEP`] days. Samples next to a local midnight always stay, so days stay exact.
     fn thin(&mut self, now: DateTime<Utc>) {
         for samples in self.bundles.values_mut() {
-            // Only samples older than 2 days are thinned: their local dates (and the next
-            // one's) tell where the midnights are.
+            // Only samples older than 2 days get thinned.
             let old = samples.partition_point(|s| now - s.at > Duration::days(2));
             let days: Vec<NaiveDate> = samples[..(old + 1).min(samples.len())].iter().map(|s| s.at.with_timezone(&Local).date_naive()).collect();
             let edge = |i: usize| (i > 0 && days[i - 1] != days[i]) || days.get(i + 1).is_some_and(|d| *d != days[i]);
@@ -100,7 +95,7 @@ impl History {
                 } else {
                     None
                 };
-                // Within a slot keep the latest sample: it replaces the one before it.
+                // Keep the latest sample in each slot.
                 if let (Some(slot), Some(&(j, last))) = (slot, kept.last())
                     && now - last.at > Duration::days(2)
                     && last.at.timestamp().div_euclid(slot) == s.at.timestamp().div_euclid(slot)
@@ -116,7 +111,7 @@ impl History {
     }
 }
 
-/// A sample read for the chart: when, what was left, and how much the stretch had used.
+/// A sample as the chart reads it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Point {
     pub at: DateTime<Utc>,
@@ -131,11 +126,10 @@ pub struct Period {
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,
     pub used: f64,
-    /// The share of the period the samples cover (the first and last are partial).
+    /// How much of the period the samples cover (the first and last are partial).
     pub covered: f64,
-    /// Much of the period's usage came in a long wait between two refreshes on either side
-    /// of one of its ends, spread evenly over that wait: a guess, not a measure. The
-    /// wait is the longest such one.
+    /// Set when most of the period's usage came from a long wait between refreshes across one
+    /// of its edges, so it's spread out rather than measured. Holds the longest such wait.
     pub gap: Option<Duration>,
 }
 
@@ -145,44 +139,40 @@ impl Period {
     }
 }
 
-/// Averages from what the bundle has used, for the figures beside the chart (and in its
-/// place when there are too few samples).
+/// Average usage, for the figures next to the chart.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Estimate {
     pub used: f64,
-    /// Days the usage is spread over (at least an hour's worth).
+    /// Days the usage is spread over (at least an hour).
     pub days: f64,
     pub per_day: f64,
     pub per_hour: f64,
     /// When the rest runs out at this rate, if that's before the bundle renews or expires.
     pub runs_out: Option<DateTime<Utc>>,
-    /// Read from the samples (the cycle's start isn't known), not from the whole cycle.
+    /// Computed from the samples, because the cycle start isn't known.
     pub from_samples: bool,
 }
 
-/// What a bundle's history says.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Analysis {
-    /// The samples since the bundle last renewed or was topped up, oldest first.
+    /// Samples since the last renewal or top-up, oldest first.
     pub points: Vec<Point>,
-    /// Usage per local day of that stretch, once it spans a day.
+    /// Usage per local day, once the samples span a day.
     pub daily: Vec<Period>,
-    /// Usage per hour over the last two days, when enough of those hours were measured.
+    /// Usage per hour over the last two days, when enough hours were measured.
     pub hourly: Vec<Period>,
-    /// What today has used so far, when today has samples.
+    /// Today's usage so far.
     pub today: Option<Period>,
     pub estimate: Option<Estimate>,
 }
 
 impl Analysis {
-    /// Whether there's anything to draw.
     pub fn enough(&self) -> bool {
         !self.daily.is_empty() || !self.hourly.is_empty()
     }
 }
 
-/// A bundle's history read against what it has now. `since` and `until` are the bundle's
-/// cycle, as far as the carrier says.
+/// `since` and `until` are the bundle's cycle, if the carrier gives it.
 pub fn analyse(samples: &[Sample], bundle: &Bundle, since: Option<DateTime<Utc>>, until: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Analysis {
     let samples = without_glitches(samples);
     let stretch = current_stretch(&samples);
@@ -191,27 +181,26 @@ pub fn analyse(samples: &[Sample], bundle: &Bundle, since: Option<DateTime<Utc>>
     let span = points.first().zip(points.last()).map_or(Duration::zero(), |(f, l)| l.at - f.at);
     let mut daily = boundaries(&points, Boundary::Day);
     let today = daily.last().copied().filter(|p| p.start == floor(now, Boundary::Day));
-    // Days are worth a chart once there's a day's worth of samples across two of them.
+    // Days need a day's worth of samples.
     if daily.len() < 2 || span < Duration::hours(24) {
         daily.clear();
     }
     let window = (now - Duration::hours(48)).max(points.first().map_or(now, |p| p.at));
     let mut hourly = boundaries_from(&points, Boundary::Hour, window);
-    // Hours are worth showing once a few of them are measured, not guessed.
+    // Hours need a few measured hours.
     if hourly.iter().filter(|p| !p.rough() && p.covered > 0.5).count() < 4 {
         hourly.clear();
     }
     Analysis { estimate: estimate(bundle, &points, since, until, now), points, daily, hourly, today }
 }
 
-/// The tolerance for comparing what's left: carriers round, and some report a little
-/// more after a little less.
+/// Carriers round, and some report slightly more after slightly less.
 fn tolerance(total: f64) -> f64 {
     (total * 0.002).max(1e-6)
 }
 
-/// Readings that dip and come straight back (a carrier hiccup: a zero while its system
-/// was busy, say) aren't usage. They're left out before anything is read.
+/// Drops readings that dip and come straight back (e.g. a 0 while the carrier's system
+/// was busy).
 fn without_glitches(samples: &[Sample]) -> Vec<Sample> {
     let mut out: Vec<Sample> = Vec::with_capacity(samples.len());
     for (i, s) in samples.iter().enumerate() {
@@ -228,8 +217,8 @@ fn without_glitches(samples: &[Sample]) -> Vec<Sample> {
     out
 }
 
-/// The samples since the last renewal or top-up: a jump up in what's left (beyond
-/// rounding) or a new total starts a new stretch.
+/// Samples since the last renewal or top-up: a jump up in what's left, or a new total,
+/// starts over.
 fn current_stretch(samples: &[Sample]) -> &[Sample] {
     let start = samples
         .windows(2)
@@ -256,14 +245,12 @@ fn floor(t: DateTime<Utc>, unit: Boundary) -> DateTime<Utc> {
     }) else {
         return t;
     };
-    // Where the clocks skip that time (summer time can start at midnight), the period
-    // starts when they resume.
+    // If the clocks skip that time (DST can start at midnight), use the hour after.
     let resolved = Local.from_local_datetime(&floored).earliest().or_else(|| Local.from_local_datetime(&(floored + Duration::hours(1))).earliest());
     resolved.map(|l| l.with_timezone(&Utc)).filter(|f| *f <= t).unwrap_or(t)
 }
 
-/// The start of the next local day or hour. A local day can be 23 or 25 hours long, and
-/// where the clocks go back an hour repeats; the result is always later than `t`.
+/// Start of the next local day or hour. Always after `t`, even across DST changes.
 fn next(t: DateTime<Utc>, unit: Boundary) -> DateTime<Utc> {
     let (ahead, least) = match unit {
         Boundary::Day => (Duration::hours(26), Duration::hours(22)),
@@ -273,7 +260,7 @@ fn next(t: DateTime<Utc>, unit: Boundary) -> DateTime<Utc> {
     if found - t >= least { found } else { t + least.max(Duration::hours(1)) }
 }
 
-/// What the stretch had used by `t`, between the samples around it.
+/// Usage by `t`, interpolated between samples.
 fn used_at(points: &[Point], t: DateTime<Utc>) -> f64 {
     let i = points.partition_point(|p| p.at <= t);
     match (i.checked_sub(1).map(|j| points[j]), points.get(i)) {
@@ -287,17 +274,15 @@ fn used_at(points: &[Point], t: DateTime<Utc>) -> f64 {
     }
 }
 
-/// Usage per day or hour across the samples.
 fn boundaries(points: &[Point], unit: Boundary) -> Vec<Period> {
     boundaries_from(points, unit, points.first().map_or_else(Utc::now, |p| p.at))
 }
 
-/// Usage per day or hour across the samples, from the period holding `from` on.
+/// Same, starting from the period that contains `from`.
 fn boundaries_from(points: &[Point], unit: Boundary, from: DateTime<Utc>) -> Vec<Period> {
     let (Some(first), Some(last)) = (points.first(), points.last()) else { return Vec::new() };
-    // How long a wait between refreshes across a period's end can be before the split of
-    // its usage between the two sides is a guess. Hourly refreshes (the default) measure
-    // hours.
+    // Longest wait across a period edge that still counts as measured. Hourly refreshes (the
+    // default) are enough for hours.
     let slack = match unit {
         Boundary::Day => Duration::hours(2),
         Boundary::Hour => Duration::minutes(90),
@@ -310,7 +295,7 @@ fn boundaries_from(points: &[Point], unit: Boundary, from: DateTime<Utc>) -> Vec
         if hi > lo {
             let used = (used_at(points, hi) - used_at(points, lo)).max(0.0);
             let covered = (hi - lo).num_seconds() as f64 / (end - start).num_seconds().max(1) as f64;
-            // The usage in long waits across either end was split by time, not measured.
+            // Usage in long waits across an edge was split by time, not measured.
             let (mut unsure, mut gap) = (0.0, None::<Duration>);
             for edge in [start, end] {
                 let i = points.partition_point(|p| p.at <= edge);
@@ -331,8 +316,7 @@ fn boundaries_from(points: &[Point], unit: Boundary, from: DateTime<Utc>) -> Vec
     out
 }
 
-/// Averages from what the bundle has used since its cycle started or, when that isn't
-/// known, over the samples.
+/// Averages since the cycle started, or over the samples if the start isn't known.
 fn estimate(bundle: &Bundle, points: &[Point], since: Option<DateTime<Utc>>, until: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Option<Estimate> {
     let (used, minutes, from_samples) = match since.filter(|s| *s < now) {
         Some(since) => (bundle.used(), (now - since).num_minutes(), false),
@@ -375,8 +359,7 @@ mod tests {
         }
     }
 
-    /// `h` hours after a local midnight (in November: no clock changes nearby in the zones
-    /// the tests are run in).
+    /// `h` hours after a local midnight (no DST changes near these dates).
     fn at(h: i64) -> DateTime<Utc> {
         floor(Utc.with_ymd_and_hms(2026, 11, 20, 12, 0, 0).unwrap(), Boundary::Day) + Duration::hours(h)
     }
@@ -411,8 +394,7 @@ mod tests {
         }
         let s = h.samples("data");
         assert!(s.iter().all(|x| now - x.at <= Duration::days(KEEP)));
-        // Everything from the last 2 days, hourly to 14 days, 6-hourly after, and the
-        // samples around each midnight.
+        // All of the last 2 days, hourly to 14 days, 6-hourly after, plus samples around midnight.
         let recent = s.iter().filter(|x| now - x.at <= Duration::days(2)).count();
         assert!(recent >= 190, "{recent}");
         assert!(s.len() < recent + 12 * 24 + 48 * 4 + 2 * 62 + 10, "{}", s.len());
@@ -429,7 +411,7 @@ mod tests {
         }
         let mut all = History::default();
         all.record_all(refreshes.iter().rev().map(|(t, b)| (*t, b.as_slice())));
-        // Thinning as it goes can only have dropped what the last pass would drop too.
+        // Thinning as it goes only drops what the final pass would drop.
         let (a, b) = (one.samples("data"), all.samples("data"));
         assert!(a.iter().all(|s| b.contains(s)) && b.len() - a.len() < 30, "{} vs {}", a.len(), b.len());
     }
@@ -541,8 +523,7 @@ mod tests {
 
     #[test]
     fn a_night_without_refreshes_only_makes_a_day_a_guess_when_it_used_a_lot() {
-        // Refreshes every half hour from 07:00 to 23:00 for three days; the computer
-        // sleeps at night.
+        // Every half hour from 07:00 to 23:00 for three days, nothing at night.
         let build = |night_use: f64| {
             let mut samples = Vec::new();
             let mut left = 100.0;

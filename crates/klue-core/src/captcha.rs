@@ -1,6 +1,5 @@
-//! Captcha solving. WE starts asking for a captcha after a few sign-ins. Klue reads it
-//! with its own model (feature `we-model`, the default), optionally with ddddocr
-//! (feature `ocr`), and falls back to asking the user.
+//! Captcha solving: Klue's own WE model (default), optionally ddddocr (`ocr` feature),
+//! and asking the user as a last resort.
 
 use std::{
     future::Future,
@@ -22,10 +21,10 @@ pub use we_model::WeCaptchaModel;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// Something that can read a captcha image: an OCR model, or a person.
+/// Reads a captcha image: a model, or a person.
 pub trait CaptchaSolver: Send + Sync {
     fn name(&self) -> &str;
-    /// The code in `image`, or `None` when this solver can't answer.
+    /// `None` if it can't answer.
     fn solve<'a>(&'a self, image: &'a [u8]) -> BoxFuture<'a, Option<String>>;
 }
 
@@ -50,13 +49,13 @@ impl CaptchaSolver for SolverChain {
     }
 }
 
-/// WE codes are case-sensitive letters and digits; drop everything else.
+/// WE codes are case-sensitive letters and digits.
 pub fn clean_code(raw: &str) -> String {
     raw.chars().filter(char::is_ascii_alphanumeric).collect()
 }
 
-/// Bytes of a `data:image/…;base64,…` URI. WE labels its JPEGs as PNG, so the
-/// declared type is ignored.
+/// Bytes of a `data:image/...;base64,...` URI. WE labels JPEGs as PNG, so the type is
+/// ignored.
 pub fn decode_data_uri(uri: &str) -> Option<Vec<u8>> {
     let b64 = uri.split_once(',').map_or(uri, |(_, data)| data).trim();
     if b64.is_empty() {
@@ -65,12 +64,11 @@ pub fn decode_data_uri(uri: &str) -> Option<Vec<u8>> {
     base64::engine::general_purpose::STANDARD.decode(b64).ok()
 }
 
-/// File name of the ddddocr model Klue uses (the default model of the Python package).
+/// ddddocr's default model file.
 pub const MODEL_FILE: &str = "common_old.onnx";
 
-/// Where Klue looks for the ddddocr model, in order:
-/// `KLUE_OCR_MODEL`, `<data dir>/models/`, `models/` next to the executable,
-/// and `assets/models/` in the working directory (for `cargo run`).
+/// Where to look for the ddddocr model: `KLUE_OCR_MODEL`, `<data dir>/models/`, `models/`
+/// next to the executable, then `assets/models/` (for `cargo run`).
 pub fn model_search_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(p) = std::env::var_os("KLUE_OCR_MODEL") {
@@ -90,8 +88,7 @@ pub fn find_model() -> Option<PathBuf> {
     model_search_paths().into_iter().find(|p| p.is_file())
 }
 
-/// The best captcha reader compiled in: Klue's WE model, else ddddocr when its model
-/// file is present.
+/// The best reader compiled in: the WE model, else ddddocr if its model file exists.
 pub fn default_solver() -> Option<Arc<dyn CaptchaSolver>> {
     #[cfg(feature = "we-model")]
     match WeCaptchaModel::load() {
