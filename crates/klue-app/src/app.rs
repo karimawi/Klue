@@ -87,6 +87,8 @@ pub enum Message {
     Refresh(String),
     RefreshAll,
     SetMain(String, Option<String>),
+    /// The arrows on a number's quota card: show its next (`true`) or previous bundle.
+    HeroStep(String, bool),
     OpenModal(ModalKind),
     CloseModal,
     Modal(ui::modals::Msg),
@@ -123,6 +125,8 @@ pub struct App {
     /// The carrier shown in the main window, and the number picked for each carrier.
     pub carrier: Carrier,
     pub selected: HashMap<Carrier, String>,
+    /// The bundle each number's quota card shows, by key (its main one if none).
+    pub hero: HashMap<String, String>,
     pub modal: Modal,
     pub captcha: Option<CaptchaAsk>,
 }
@@ -161,6 +165,7 @@ impl App {
             start_quick_view: quick_view,
             carrier,
             selected: HashMap::new(),
+            hero: HashMap::new(),
             modal: Modal::None,
             captcha: None,
         };
@@ -348,6 +353,20 @@ impl App {
             }
             Message::SetMain(id, key) => {
                 self.shared.set_main_bundle(&id, key);
+                Task::none()
+            }
+            Message::HeroStep(id, forward) => {
+                let keys: Vec<String> = self
+                    .snap
+                    .data
+                    .account(&id)
+                    .and_then(|a| Some(a.usage.as_ref()?.ordered(a.main_bundle.as_deref()).iter().map(|b| b.key.clone()).collect()))
+                    .unwrap_or_default();
+                if !keys.is_empty() {
+                    let at = self.hero.get(&id).and_then(|k| keys.iter().position(|x| x == k)).unwrap_or(0);
+                    let next = if forward { (at + 1) % keys.len() } else { (at + keys.len() - 1) % keys.len() };
+                    self.hero.insert(id, keys[next].clone());
+                }
                 Task::none()
             }
             Message::OpenModal(kind) => {

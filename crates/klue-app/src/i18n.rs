@@ -124,6 +124,13 @@ pub struct Strings {
     /// Tooltips on line types Klue can't read yet, in the Add dialog.
     pub we_mobile_soon: &'static str,
     pub vf_dsl_soon: &'static str,
+    /// The package's line speed (WE).
+    pub speed: &'static str,
+    pub after_quota: &'static str,
+    /// The hero's bundle navigation.
+    pub main_quota: &'static str,
+    pub prev_bundle: &'static str,
+    pub next_bundle: &'static str,
 }
 
 pub static EN: Strings = Strings {
@@ -178,6 +185,11 @@ pub static EN: Strings = Strings {
     owed_note: "Your next recharge pays it first.",
     we_mobile_soon: "WE mobile (015) lines are coming soon.",
     vf_dsl_soon: "Vodafone DSL is coming soon.",
+    speed: "Speed",
+    after_quota: "After the quota",
+    main_quota: "The main quota",
+    prev_bundle: "Previous bundle",
+    next_bundle: "Next bundle",
 };
 
 pub static AR: Strings = Strings {
@@ -233,12 +245,44 @@ pub static AR: Strings = Strings {
     owed_note: "يُخصم أولًا من الشحنة القادمة.",
     we_mobile_soon: "خطوط وي المحمول (015) قريباً.",
     vf_dsl_soon: "فودافون DSL قريباً.",
+    speed: "السرعة",
+    after_quota: "بعد انتهاء الباقة",
+    main_quota: "الباقة الرئيسية",
+    prev_bundle: "الباقة السابقة",
+    next_bundle: "الباقة التالية",
 };
 
 pub fn strings(lang: Lang) -> &'static Strings {
     match lang {
         Lang::En => &EN,
         Lang::Ar => &AR,
+    }
+}
+
+/// A line speed with its unit: "30 Mbps", "256 Kbps".
+pub fn speed(kbps: u32, lang: Lang) -> String {
+    let (n, mbps) = format::speed(kbps);
+    match (lang, mbps) {
+        (Lang::En, true) => format!("{n} Mbps"),
+        (Lang::En, false) => format!("{n} Kbps"),
+        (Lang::Ar, true) => format!("{n} ميجابت/ث"),
+        (Lang::Ar, false) => format!("{n} كيلوبت/ث"),
+    }
+}
+
+/// "Up to 30 Mbps", beside a package's name.
+pub fn up_to(kbps: u32, lang: Lang) -> String {
+    let speed = speed(kbps, lang);
+    if is_ar(lang) { format!("حتى {speed}") } else { format!("Up to {speed}") }
+}
+
+/// "30 Mbps down, 3 Mbps up".
+pub fn speeds(s: &klue_core::model::Speed, lang: Lang) -> String {
+    let down = speed(s.down_kbps, lang);
+    match (s.up_kbps, is_ar(lang)) {
+        (Some(up), false) => format!("{down} down, {} up", speed(up, lang)),
+        (Some(up), true) => format!("{down} تحميل، {} رفع", speed(up, lang)),
+        (None, _) => down,
     }
 }
 

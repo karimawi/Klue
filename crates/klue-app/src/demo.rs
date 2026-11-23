@@ -7,7 +7,7 @@ use std::time::Duration;
 use chrono::{DateTime, Local, TimeZone, Utc};
 use klue_core::{
     Bundle, BundleKind, BundleState, Carrier, FetchError, LineType, Unit, Usage,
-    model::{LineInfo, Payment, PaymentKind},
+    model::{LineInfo, Payment, PaymentKind, Speed},
     store::{Account, AppData, BundleAlert, LeadUnit, RenewalReminder, ThresholdMode},
 };
 
@@ -89,6 +89,8 @@ fn build(l: Line) -> Account {
         info: LineInfo {
             plan: Some(l.plan.into()),
             plan_ar: l.plan_ar.map(String::from),
+            // WE's "Super" packages: 30 Mbit/s down, 3 up, 256 kbit/s after the quota.
+            speed: (l.carrier == Carrier::We).then_some(Speed { down_kbps: 30720, up_kbps: Some(3072), throttled_kbps: Some(256) }),
             payment: Some(PaymentKind::Prepaid),
             status: Some("Active".into()),
             number: None,
@@ -199,6 +201,7 @@ pub async fn verify(carrier: Carrier, number: &str, password: &str) -> Result<Us
         info: LineInfo {
             plan: Some(plan.into()),
             plan_ar: plan_ar.map(String::from),
+            speed: (carrier == Carrier::We).then_some(Speed { down_kbps: 30720, up_kbps: Some(3072), throttled_kbps: Some(256) }),
             payment: Some(PaymentKind::Prepaid),
             status: Some("Active".into()),
             number: Some(number.to_string()),

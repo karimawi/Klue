@@ -79,6 +79,18 @@ pub fn tidy_name(raw: &str) -> Option<String> {
     Some(collapsed.split(' ').map(|w| if shouting(w) { title(w) } else { w.to_string() }).collect::<Vec<_>>().join(" "))
 }
 
+/// A line speed as a number and whether it's in Mbit/s (else kbit/s): WE counts
+/// 1024 kbit/s to the Mbit/s (30720 is "30").
+pub fn speed(kbps: u32) -> (String, bool) {
+    if kbps >= 1024 {
+        let mbps = f64::from(kbps) / 1024.0;
+        let text = if (mbps - mbps.round()).abs() < 0.05 { format!("{}", mbps.round()) } else { format!("{mbps:.1}") };
+        (text, true)
+    } else {
+        (kbps.to_string(), false)
+    }
+}
+
 /// `name` tidied, if it's written in Arabic. Asked for Arabic, carriers still answer in
 /// English for names they haven't translated, and those aren't Arabic names.
 pub fn arabic(name: &str) -> Option<String> {
@@ -159,6 +171,14 @@ mod tests {
         assert_eq!(pretty_number("01001285532"), "010 0128 5532");
         assert_eq!(pretty_number("0223584417"), "02 2358 4417");
         assert_eq!(pretty_number("0403456789"), "040 345 6789");
+    }
+
+    #[test]
+    fn speeds_in_mbps_from_1024_kbps() {
+        assert_eq!(speed(30720), ("30".to_string(), true));
+        assert_eq!(speed(2560), ("2.5".to_string(), true));
+        assert_eq!(speed(3072), ("3".to_string(), true));
+        assert_eq!(speed(256), ("256".to_string(), false));
     }
 
     #[test]

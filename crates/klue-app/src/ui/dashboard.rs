@@ -4,7 +4,7 @@
 use iced::{
     Alignment, Color, Length,
     font::Weight,
-    widget::{Space, column, container, scrollable, stack},
+    widget::{Space, button, column, container, scrollable, stack},
 };
 use klue_core::{
     Bundle, BundleState, Unit, Usage, format,
@@ -122,6 +122,33 @@ fn state_pill<'a>(ctx: &Ctx<'a>, state: BundleState) -> Option<El<'a>> {
 }
 
 /// "10 GB" or "20%" for a bundle alert.
+/// The quota card's bundle switcher: make the shown bundle the main one, and step through
+/// the number's bundles.
+fn bundle_nav<'a>(ctx: &Ctx<'a>, account: &'a Account, shown: &'a Bundle, is_main: bool, index: usize, count: usize) -> El<'a> {
+    let p = ctx.p;
+    let s = ctx.s;
+    let small = |icon: Icon, color: Color, msg: Option<Message>| {
+        button(container(ctx.icon(icon, 15.0, color)).center(Length::Fill)).width(30).height(30).padding(0).style(theme::ghost(p.mu, p.sf, 8.0)).on_press_maybe(msg)
+    };
+    let star = if is_main {
+        ctx.tip(small(Icon::StarFilled, p.ac, None), s.main_quota)
+    } else {
+        ctx.tip(small(Icon::Star, p.mu, Some(Message::SetMain(account.id.clone(), Some(shown.key.clone())))), s.make_main)
+    };
+    // The arrows point the way the bundles go: mirrored in Arabic.
+    let (back, ahead) = if ctx.rtl() { (Icon::ChevronRight, Icon::ChevronLeft) } else { (Icon::ChevronLeft, Icon::ChevronRight) };
+    let id = account.id.clone();
+    ctx.row(vec![
+        star,
+        ctx.tip(small(back, p.tx, Some(Message::HeroStep(id.clone(), false))), s.prev_bundle),
+        ctx.num(format!("{}/{count}", index + 1), 12.0, Weight::Semibold, p.mu).into(),
+        ctx.tip(small(ahead, p.tx, Some(Message::HeroStep(id, true))), s.next_bundle),
+    ])
+    .spacing(2)
+    .align_y(Alignment::Center)
+    .into()
+}
+
 fn threshold_text(alert: &BundleAlert, unit: Unit, lang: Lang) -> String {
     match alert.mode {
         ThresholdMode::Percent => format!("{}%", format::amount_short(alert.value, Unit::Gb)),
@@ -135,29 +162,58 @@ fn overview<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a>
     let ar = ctx.rtl();
     let main = usage.main_for(account.main_bundle.as_deref());
     let picked = account.main_bundle.is_some() && main.is_some_and(|m| Some(&m.key) == account.main_bundle.as_ref());
+    // The quota card shows the main bundle, or another one the arrows rolled to.
+    let ordered = usage.ordered(account.main_bundle.as_deref());
+    let index = ctx.app.hero.get(&account.id).and_then(|k| ordered.iter().position(|b| &b.key == k)).unwrap_or(0);
+    let shown = ordered.get(index).copied();
+    let is_main = index == 0;
 
     // Quota hero.
     let package = usage.package_in(ctx.lang).or_else(|| main.map(|m| m.name_in(ctx.lang))).unwrap_or_default().to_string();
     let mut quota = column![].spacing(0);
     let mut quota_foot: El<'a> = Space::new().into();
-    let mut top = vec![ctx.caps(s.package).into(), super::fill_x()];
-    top.extend(main.and_then(|m| state_pill(ctx, m.state)));
-    if account.main_alert_triggered() {
+    let mut top = vec![ctx.caps(if is_main { s.package } else { s.col_bundle }).into(), super::fill_x()];
+    top.extend(shown.and_then(|m| state_pill(ctx, m.state)));
+    if shown.is_some_and(|m| account.alert_for(m, is_main).is_triggered(m)) {
         top.push(container(ctx.text(s.below_alert, 11.0, Weight::Semibold, p.on)).padding([3, 10]).style(move |_| theme::fill(p.danger, 10.0)).into());
     }
-    quota = quota.push(ctx.row(top).spacing(6));
-    quota = quota.push(ctx.bold(package.clone(), 21.0));
-    if let Some(m) = main {
-        if m.name_in(ctx.lang) != package || picked {
-            let mut line = vec![ctx.muted(m.name_in(ctx.lang).to_string(), 13.0).into()];
-            if picked {
+    if let Some(m) = shown.filter(|_| ordered.len() > 1) {
+        top.push(bundle_nav(ctx, account, m, is_main, index, ordered.len()));
+    }
+    quota = quota.push(ctx.row(top).spacing(6).align_y(Alignment::Center));
+    let title = match shown {
+        Some(m) if !is_main => m.name_in(ctx.lang).to_string(),
+        _ => package.clone(),
+    };
+    quota = quota.push(ctx.bold(title, 21.0));
+    if let Some(m) = shown {
+        // Under the name: the main bundle's own name (when it isn't the package's) and the
+        // line speed, or another bundle's kind.
+        let mut line: Vec<El<'a>> = Vec::new();
+        let push = |line: &mut Vec<El<'a>>, el: El<'a>| {
+            if !line.is_empty() {
                 line.push(ctx.muted("·", 13.0).into());
-                line.push(ctx.text(s.main_picked, 13.0, Weight::Semibold, p.ac_tx).into());
+            }
+            line.push(el);
+        };
+        if !is_main {
+            push(&mut line, ctx.muted(i18n::kind_name(m.kind, ctx.lang), 13.0).into());
+        } else {
+            if m.name_in(ctx.lang) != package {
+                push(&mut line, ctx.muted(m.name_in(ctx.lang).to_string(), 13.0).into());
+            }
+            if let Some(speed) = &usage.info.speed {
+                push(&mut line, ctx.muted(i18n::up_to(speed.down_kbps, ctx.lang), 13.0).into());
+            }
+            if picked {
+                push(&mut line, ctx.text(s.main_picked, 13.0, Weight::Semibold, p.ac_tx).into());
                 line.push(ctx.link(s.main_default, Message::SetMain(account.id.clone(), None)).into());
             }
+        }
+        if !line.is_empty() {
             quota = quota.push(ctx.row(line).spacing(6));
         }
-        let alert = account.alert_for(m, true);
+        let alert = account.alert_for(m, is_main);
         let unit = i18n::unit_name(m.unit, ctx.lang);
         let pct = (m.remaining_pct() * 10.0).round() / 10.0;
         let low = alert.is_triggered(m);
@@ -320,6 +376,12 @@ fn money_and_line<'a>(ctx: &Ctx<'a>, usage: &'a Usage) -> El<'a> {
     }
     if let Some(since) = info.since {
         pairs.push((s.since, i18n::date_short(since, ctx.lang)));
+    }
+    if let Some(speed) = &info.speed {
+        pairs.push((s.speed, i18n::speeds(speed, ctx.lang)));
+        if let Some(throttled) = speed.throttled_kbps {
+            pairs.push((s.after_quota, i18n::speed(throttled, ctx.lang)));
+        }
     }
     let mut details = column![ctx.caps(s.line_info)].spacing(8).align_x(ctx.start());
     if pairs.is_empty() {

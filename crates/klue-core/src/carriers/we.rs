@@ -27,7 +27,7 @@ use wreq::header::{ACCEPT, ACCEPT_LANGUAGE, HeaderMap, HeaderName, HeaderValue, 
 use super::FetchContext;
 use crate::{
     Bundle, BundleKind, BundleState, FetchError, LineType, Unit, Usage,
-    model::{LineInfo, Payment, PaymentKind, order_bundles},
+    model::{LineInfo, Payment, PaymentKind, Speed, order_bundles},
     captcha::{clean_code, decode_data_uri},
     format::{self, tidy_name},
     http,
@@ -249,7 +249,7 @@ impl WeSession {
 
         // Extras. Neither is essential, so failures only leave them out.
         let (plan, since) = self.line_product(auth, &headers, ctx).await.unwrap_or_default();
-        usage.info = LineInfo { plan, plan_ar: None, payment: auth.payment, status: auth.status.clone(), number: None, since };
+        usage.info = LineInfo { plan, plan_ar: None, speed: package.speed, payment: auth.payment, status: auth.status.clone(), number: None, since };
         usage.payments = self.recharges(auth, &headers, ctx).await;
         Ok(usage)
     }
@@ -479,6 +479,8 @@ pub(crate) struct MainOffering {
     pub name: Option<String>,
     /// `offerArName`, when it's in Arabic (WE leaves some offerings' in English).
     pub name_ar: Option<String>,
+    /// From the offering's properties, when it has them.
+    pub speed: Option<Speed>,
     pub subscribed_at: Option<chrono::DateTime<Utc>>,
     pub renews_at: Option<chrono::DateTime<Utc>>,
 }
@@ -493,9 +495,29 @@ pub(crate) fn main_offering(v: &Value) -> Option<MainOffering> {
     Some(MainOffering {
         name: main.and_then(|o| shallow_text(o, &["offerEnName", "offeringName", "offerArName"])),
         name_ar: main.and_then(|o| shallow_text(o, &["offerArName"])).and_then(|n| format::arabic(&n)),
+        speed: main.and_then(offering_speed),
         subscribed_at: main.and_then(|o| j::epoch_ms(&o["subscriptionDate"])),
         renews_at: main.and_then(|o| j::epoch_ms(&o["renewalDate"])),
         id,
+    })
+}
+
+/// An offering's speeds: `C_O_DOWNLOAD_RATE_NORMAL` (30720 for 30 Mbit/s),
+/// `C_O_UPLOAD_RATE_NORMAL` and `C_O_DOWNLOAD_RATE_DEGRADE` (after the quota), in kbit/s.
+fn offering_speed(offering: &Value) -> Option<Speed> {
+    let properties = offering["property"].as_array()?;
+    let rate = |id: &str| {
+        properties
+            .iter()
+            .find(|p| j::text(&p["id"]).is_some_and(|i| i.eq_ignore_ascii_case(id)))
+            .and_then(|p| j::num(&p["value"]))
+            .filter(|v| *v > 0.0 && *v < f64::from(u32::MAX))
+            .map(|v| v.round() as u32)
+    };
+    Some(Speed {
+        down_kbps: rate("C_O_DOWNLOAD_RATE_NORMAL")?,
+        up_kbps: rate("C_O_UPLOAD_RATE_NORMAL"),
+        throttled_kbps: rate("C_O_DOWNLOAD_RATE_DEGRADE"),
     })
 }
 
@@ -755,6 +777,17 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn reads_the_package_speed() {
+        // As WE sends it for "Super speed 2-(400GB)": 30 Mbit/s down, 3 up, 256 kbit/s
+        // once the quota is used up.
+        let package = main_offering(&fixture("we_offerings.json")).unwrap();
+        assert_eq!(package.speed, Some(Speed { down_kbps: 30720, up_kbps: Some(3072), throttled_kbps: Some(256) }));
+        // Packages without the properties have no speed.
+        let bare = json!({"body": {"offeringList": [{"main": true, "offerId": "1", "offerEnName": "X", "property": [{"id": "C_O_MONTHLY_FEE", "value": "0"}]}]}});
+        assert_eq!(main_offering(&bare).unwrap().speed, None);
     }
 
     #[test]

@@ -161,6 +161,17 @@ pub enum PaymentKind {
     Postpaid,
 }
 
+/// A DSL package's speeds as the carrier configures them, in kbit/s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Speed {
+    pub down_kbps: u32,
+    #[serde(default)]
+    pub up_kbps: Option<u32>,
+    /// The download speed once the quota is used up.
+    #[serde(default)]
+    pub throttled_kbps: Option<u32>,
+}
+
 /// What the carrier says about the line itself, besides its quotas.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct LineInfo {
@@ -170,6 +181,9 @@ pub struct LineInfo {
     /// The plan's Arabic name, when the carrier has one.
     #[serde(default)]
     pub plan_ar: Option<String>,
+    /// The package's speed (WE home internet).
+    #[serde(default)]
+    pub speed: Option<Speed>,
     #[serde(default)]
     pub payment: Option<PaymentKind>,
     /// Line status as the carrier words it, e.g. "Active".

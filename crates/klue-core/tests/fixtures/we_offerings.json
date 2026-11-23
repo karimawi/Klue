@@ -1,5 +1,8 @@
 {
-  "header": { "retCode": "0", "validateResults": [] },
+  "header": {
+    "retCode": "0",
+    "validateResults": []
+  },
   "body": {
     "offeringList": [
       {
@@ -11,13 +14,25 @@
         "main": false,
         "mainOfferingId": "820058",
         "offerArName": "Top-up 400 GB – 30 days",
-        "offerDetails": { "bssOfferId": "460479392", "offeringType": "O" },
+        "offerDetails": {
+          "bssOfferId": "460479392",
+          "offeringType": "O"
+        },
         "offerEnName": "Top-up 400 GB – 30 days",
         "offerId": "460479392",
         "offeringInstId": "200000000000001",
         "price": 5000000,
         "primary": false,
-        "property": [{ "id": "C_O_MONTHLY_FEE", "value": "5000000" }, { "id": "C_O_One_Time_Quota", "value": "Y" }],
+        "property": [
+          {
+            "id": "C_O_MONTHLY_FEE",
+            "value": "5000000"
+          },
+          {
+            "id": "C_O_One_Time_Quota",
+            "value": "Y"
+          }
+        ],
         "relaPrimaryOfferingId": "710009",
         "relaPrimaryOfferingInstanceId": "200000000000003",
         "renewable": true,
@@ -31,19 +46,70 @@
         "addOn": false,
         "expiryDate": 4133894400000,
         "fmc": false,
-        "imageFiles": [{ "dpi": "0", "resFileName": "820058.png", "resUri": "/ecpub/soe/uniaccess?fileID=x" }],
+        "imageFiles": [
+          {
+            "dpi": "0",
+            "resFileName": "820058.png",
+            "resUri": "/ecpub/soe/uniaccess?fileID=x"
+          }
+        ],
         "iptv": false,
         "main": true,
         "mainOfferingId": "820058",
         "offerArName": "سرعة سوبر 3-(250 جيجابايت)",
-        "offerDetails": { "bssOfferId": "820058", "offeringType": "M" },
+        "offerDetails": {
+          "bssOfferId": "820058",
+          "offeringType": "M"
+        },
         "offerEnName": "Super speed 3- (250GB)",
         "offerId": "820058",
         "offeringInstId": "200000000000002",
-        "offeringRenewInfo": { "consumedRenewalLocks": 1, "offerId": 820058, "offerRenewDate": 1797112800000, "offerSubscriptionDate": 1794520800000 },
+        "offeringRenewInfo": {
+          "consumedRenewalLocks": 1,
+          "offerId": 820058,
+          "offerRenewDate": 1797112800000,
+          "offerSubscriptionDate": 1794520800000
+        },
         "price": 3950000,
         "primary": false,
-        "property": [{ "id": "C_O_MONTHLY_FEE", "value": "3950000" }, { "id": "C_O_One_Time_Quota", "value": "N" }],
+        "property": [
+          {
+            "id": "C_O_MONTHLY_FEE",
+            "value": "3950000"
+          },
+          {
+            "id": "C_O_One_Time_Quota",
+            "value": "N"
+          },
+          {
+            "id": "C_ECARE_DISPLAY",
+            "value": "Y"
+          },
+          {
+            "id": "C_O_BANDWIDTH_TYPE",
+            "value": "VDSL"
+          },
+          {
+            "id": "C_O_UPLOAD_RATE_NORMAL",
+            "value": "3072"
+          },
+          {
+            "id": "C_O_DOWNLOAD_RATE_NORMAL",
+            "value": "30720"
+          },
+          {
+            "id": "C_O_UPLOAD_RATE_DEGRADE",
+            "value": "256"
+          },
+          {
+            "id": "C_O_DOWNLOAD_RATE_DEGRADE",
+            "value": "256"
+          },
+          {
+            "id": "C_O_Limited_QUOTA",
+            "value": "250"
+          }
+        ],
         "relaPrimaryOfferingId": "710009",
         "relaPrimaryOfferingInstanceId": "200000000000003",
         "remainingDaysForRenewal": 20,
@@ -68,7 +134,12 @@
         "offeringInstId": "200000000000003",
         "price": 0,
         "primary": true,
-        "property": [{ "id": "C_O_MONTHLY_FEE", "value": "0" }],
+        "property": [
+          {
+            "id": "C_O_MONTHLY_FEE",
+            "value": "0"
+          }
+        ],
         "renewalInfo": {},
         "status": "2",
         "statusCode": "2",

@@ -115,6 +115,7 @@ pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Resu
     usage.info = LineInfo {
         plan_ar: plan_ar.filter(|_| plan.is_some()),
         plan: plan.or_else(|| profile.tariff.clone()),
+        speed: None,
         payment: profile.payment,
         status: profile.status.clone(),
         number: profile.msisdn.clone(),
