@@ -9,10 +9,7 @@ use iced::{
     widget::{Space, button, column, container, mouse_area, opaque, row, scrollable, stack, text_input},
     window::Direction,
 };
-use klue_core::{
-    Carrier, LineType, format,
-    store::{Lang, Theme},
-};
+use klue_core::{Carrier, LineType, format};
 
 use super::{Ctx, El, dashboard, empty, hline, modals, tile, vline};
 use crate::{
@@ -91,51 +88,30 @@ fn resize_edges<'a>() -> El<'a> {
 fn titlebar<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let p = ctx.p;
     let s = ctx.s;
-    let settings = &ctx.app.snap.data.settings;
-    let synced = if ctx.app.snap.refreshing.is_empty() {
-        i18n::synced(ctx.app.snap.data.last_sync(), ctx.now, ctx.lang)
-    } else {
-        s.syncing.to_string()
-    };
-
-    let switch = |options: Vec<(String, bool, Message)>| -> El<'a> {
-        let buttons = options
-            .into_iter()
-            .map(|(label, on, msg)| {
-                let weight = if on { Weight::Semibold } else { Weight::Normal };
-                button(container(ctx.text(label, 12.0, weight, if on { p.ch } else { p.chm })).center_y(Length::Fill))
-                    .padding([0, 10])
-                    .height(Length::Fill)
-                    .style(theme::segment(on, p.cht, p.ch, p.chm, 6.0))
-                    .on_press(msg)
-                    .into()
-            })
-            .collect();
-        container(ctx.row(buttons).spacing(2).height(Length::Fill))
-            .height(26)
-            .padding(2)
-            .style(move |_| theme::outlined(Color::TRANSPARENT, p.chdv, 8.0))
-            .into()
-    };
-    let themes = switch(
-        [(Theme::Light, s.light), (Theme::Dark, s.dark), (Theme::Match, s.match_)]
-            .into_iter()
-            .map(|(t, label)| (label.to_string(), settings.theme == t, Message::SetTheme(t)))
-            .collect(),
+    let all = ctx.app.snap.refreshing_all;
+    let synced = if all { s.syncing.to_string() } else { i18n::synced(ctx.app.snap.data.last_sync(), ctx.now, ctx.lang) };
+    // Refresh all, beside the sync time; each number has its own Refresh on its page.
+    let has_numbers = !ctx.app.snap.data.accounts.is_empty();
+    let refresh_all = ctx.tip(
+        button(container(ctx.icon(Icon::Refresh, 14.0, if all { p.chm } else { p.cht })).center(Length::Fill))
+            .width(28)
+            .height(28)
+            .padding(0)
+            .style(theme::chrome_button(p))
+            .on_press_maybe((!all && has_numbers).then_some(Message::RefreshAll)),
+        s.refresh_all,
     );
-    let langs = switch(vec![
-        ("EN".to_string(), settings.lang == Lang::En, Message::SetLang(Lang::En)),
-        ("ع".to_string(), settings.lang == Lang::Ar, Message::SetLang(Lang::Ar)),
-    ]);
 
     let brand = ctx
-        .row(vec![super::logo(16.0), ctx.text("Klue", 14.0, Weight::ExtraBold, p.cht).into(), ctx.text(synced, 12.0, Weight::Normal, p.chm).into()])
-        .spacing(10);
+        .row(vec![super::logo(16.0), ctx.text("Klue", 14.0, Weight::ExtraBold, p.cht).into(), ctx.text(synced, 12.0, Weight::Normal, p.chm).into(), refresh_all])
+        .spacing(10)
+        .align_y(Alignment::Center);
     // Dragging the empty part of the title bar moves the window.
     let handle = mouse_area(container(brand).width(Length::Fill).height(Length::Fill).align_x(ctx.start()).align_y(Alignment::Center))
         .on_press(Message::Drag)
         .on_double_click(Message::ToggleMaximize);
-    let middle = ctx.row(vec![handle.into(), themes, langs]).spacing(12).width(Length::Fill).height(Length::Fill);
+    // Theme and language are in Settings.
+    let middle = ctx.row(vec![handle.into()]).width(Length::Fill).height(Length::Fill);
 
     // macOS draws its traffic lights at the top left; elsewhere Klue's window buttons
     // sit at the right edge in both languages, where the OS puts them.
@@ -212,14 +188,7 @@ fn rail<'a>(ctx: &Ctx<'a>) -> El<'a> {
 
 fn badge<'a>(ctx: &Ctx<'a>, label: &str, size: f32) -> El<'a> {
     let p = ctx.p;
-    container(ctx.num(label.to_string(), size, Weight::ExtraBold, p.ch))
-        .padding([1, 6])
-        .style(move |_| {
-            let mut s = theme::fill(p.cht, 10.0);
-            s.border = theme::border(p.ch, 2.0, 10.0);
-            s
-        })
-        .into()
+    container(ctx.num(label.to_string(), size, Weight::ExtraBold, p.ch)).padding([1, 6]).style(move |_| theme::fill(p.cht, 10.0)).into()
 }
 
 // ---------------------------------------------------------------------------------------

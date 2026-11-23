@@ -8,7 +8,6 @@ pub struct Strings {
     pub app: &'static str,
     pub light: &'static str,
     pub dark: &'static str,
-    pub match_: &'static str,
     pub match_long: &'static str,
     pub add: &'static str,
     pub settings: &'static str,
@@ -122,15 +121,18 @@ pub struct Strings {
     pub borrowed: &'static str,
     pub frozen: &'static str,
     pub owed_note: &'static str,
+    /// Tooltips on line types Klue can't read yet, in the Add dialog.
+    pub we_mobile_soon: &'static str,
+    pub vf_dsl_soon: &'static str,
 }
 
 pub static EN: Strings = Strings {
-    app: "Klue", light: "Light", dark: "Dark", match_: "Match", match_long: "Match carrier", add: "Add", settings: "Settings",
-    add_number: "Add number", mobile: "Mobile", landline: "Landline", registered_to: "Registered to", refresh: "Refresh",
+    app: "Klue", light: "Light", dark: "Dark", match_long: "Match carrier", add: "Add", settings: "Settings",
+    add_number: "Add number", mobile: "Mobile", landline: "DSL", registered_to: "Registered to", refresh: "Refresh",
     rename: "Rename", alerts: "Alerts", package: "Package", below_alert: "Below alert", remaining: "remaining", change: "Change",
     next_renewal: "Next renewal", cycle: "Billing cycle", subscribed: "Subscribed", renews: "Renews", bundles: "Bundles & add-ons",
     col_bundle: "Bundle", col_rem: "Remaining", col_total: "Total", col_left: "Left", col_alert: "Alert", off: "Off",
-    empty_body: "Add a number and its account password. Klue signs in, reads the quota, and fills in the registered owner for you. Mobile and landline numbers both work.",
+    empty_body: "Add a number and its account password. Klue signs in, reads the quota, and fills in the registered owner for you. Mobile lines and DSL both work.",
     steps: ["Enter the number", "Enter the account password", "Owner name and quota load automatically"],
     new_number: "New number", add_title: "Add a number", carrier: "Carrier", line_type: "Line type", number: "Number",
     password: "Account password", owner_name: "Owner name", from_account: "From the account",
@@ -174,15 +176,17 @@ pub static EN: Strings = Strings {
     borrowed: "Borrowed",
     frozen: "Frozen",
     owed_note: "Your next recharge pays it first.",
+    we_mobile_soon: "WE mobile (015) lines are coming soon.",
+    vf_dsl_soon: "Vodafone DSL is coming soon.",
 };
 
 pub static AR: Strings = Strings {
-    app: "Klue", light: "فاتح", dark: "داكن", match_: "الشركة", match_long: "ألوان الشركة", add: "إضافة", settings: "الإعدادات",
-    add_number: "إضافة رقم", mobile: "محمول", landline: "أرضي", registered_to: "مسجّل باسم", refresh: "تحديث", rename: "تغيير الاسم",
+    app: "Klue", light: "فاتح", dark: "داكن", match_long: "ألوان الشركة", add: "إضافة", settings: "الإعدادات",
+    add_number: "إضافة رقم", mobile: "محمول", landline: "DSL", registered_to: "مسجّل باسم", refresh: "تحديث", rename: "تغيير الاسم",
     alerts: "التنبيهات", package: "الباقة", below_alert: "أقل من حد التنبيه", remaining: "متبقي", change: "تعديل",
     next_renewal: "التجديد القادم", cycle: "دورة الاشتراك", subscribed: "تاريخ الاشتراك", renews: "يتجدد", bundles: "الباقات والإضافات",
     col_bundle: "الباقة", col_rem: "المتبقي", col_total: "الإجمالي", col_left: "النسبة", col_alert: "التنبيه", off: "غير مفعّل",
-    empty_body: "أضف الرقم وكلمة مرور الحساب. يسجّل Klue الدخول ويقرأ الباقة ويملأ اسم صاحب الخط تلقائياً. يدعم أرقام المحمول والأرضي.",
+    empty_body: "أضف الرقم وكلمة مرور الحساب. يسجّل Klue الدخول ويقرأ الباقة ويملأ اسم صاحب الخط تلقائياً. يدعم خطوط المحمول وDSL.",
     steps: ["أدخل الرقم", "أدخل كلمة مرور الحساب", "يظهر اسم صاحب الخط والرصيد تلقائياً"],
     new_number: "رقم جديد", add_title: "إضافة رقم", carrier: "الشركة", line_type: "نوع الخط", number: "الرقم",
     password: "كلمة مرور الحساب", owner_name: "اسم صاحب الخط", from_account: "من بيانات الحساب",
@@ -227,6 +231,8 @@ pub static AR: Strings = Strings {
     borrowed: "مستلفة",
     frozen: "موقوفة",
     owed_note: "يُخصم أولًا من الشحنة القادمة.",
+    we_mobile_soon: "خطوط وي المحمول (015) قريباً.",
+    vf_dsl_soon: "فودافون DSL قريباً.",
 };
 
 pub fn strings(lang: Lang) -> &'static Strings {

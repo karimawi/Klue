@@ -321,6 +321,11 @@ pub fn segment(on: bool, fill: Color, on_text: Color, off_text: Color, radius: f
     }
 }
 
+/// A small button on the title bar's colors: no chrome until pointed at.
+pub fn chrome_button(p: Palette) -> impl Fn(&iced::Theme, button::Status) -> button::Style {
+    move |_, status| btn(hovered(status).then_some(p.ch_act), p.cht, None, 7.0)
+}
+
 /// Window buttons in the title bar; `close` turns red when hovered.
 pub fn window_button(p: Palette, close: bool) -> impl Fn(&iced::Theme, button::Status) -> button::Style {
     move |_, status| match (hovered(status), close) {

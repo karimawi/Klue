@@ -19,7 +19,7 @@ pub fn view(app: &App) -> El<'_> {
     let p = ctx.p;
     let s = ctx.s;
     let data = &app.snap.data;
-    let refreshing = !app.snap.refreshing.is_empty();
+    let refreshing = app.snap.refreshing_all;
 
     let head = ctx
         .row(vec![
@@ -54,7 +54,8 @@ pub fn view(app: &App) -> El<'_> {
             let frozen = main.is_some_and(|m| m.state == BundleState::Frozen);
             // A line too long for the row breaks after the "·", never inside the number.
             let number = account.pretty_number().replace(' ', "\u{a0}");
-            let sub = [state.or(renews), Some(number)].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+            let syncing = app.snap.is_refreshing(&account.id).then(|| s.syncing.to_string());
+            let sub = [syncing.or(state).or(renews), Some(number)].into_iter().flatten().collect::<Vec<_>>().join(" · ");
             let text = column![ctx.semi(account.display_name(), 13.5), ctx.muted(sub, 11.5)].spacing(0).align_x(ctx.start()).width(Length::Fill);
             let right: El<'_> = match main {
                 Some(m) => column![

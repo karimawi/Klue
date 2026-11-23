@@ -4,7 +4,10 @@
 use std::{
     collections::BTreeSet,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -27,6 +30,8 @@ pub struct Snapshot {
     pub data: AppData,
     /// Accounts with a refresh in flight.
     pub refreshing: BTreeSet<String>,
+    /// A Refresh all is going through the numbers (its own refreshes are in `refreshing`).
+    pub refreshing_all: bool,
     pub demo: bool,
 }
 
@@ -66,6 +71,7 @@ pub struct Shared {
     secrets: Secrets,
     data: Mutex<AppData>,
     refreshing: Mutex<BTreeSet<String>>,
+    refreshing_all: AtomicBool,
     revision: watch::Sender<u64>,
     ocr: Option<Arc<dyn CaptchaSolver>>,
     prompt: Arc<dyn CaptchaSolver>,
@@ -103,6 +109,7 @@ impl Shared {
             secrets,
             data: Mutex::new(data),
             refreshing: Mutex::new(BTreeSet::new()),
+            refreshing_all: AtomicBool::new(false),
             revision: watch::channel(0).0,
             ocr: if demo { None } else { default_solver() },
             prompt: Arc::new(PromptSolver { tx }),
@@ -117,6 +124,7 @@ impl Shared {
         Snapshot {
             data: self.data.lock().expect("data lock").clone(),
             refreshing: self.refreshing.lock().expect("refreshing lock").clone(),
+            refreshing_all: self.refreshing_all.load(Ordering::Relaxed),
             demo: self.demo,
         }
     }
@@ -313,11 +321,19 @@ impl Shared {
         }
     }
 
+    /// Refresh every number, one at a time. A number already refreshing on its own is
+    /// left to finish; a second Refresh all while one runs does nothing.
     pub async fn refresh_all(&self) {
+        if self.refreshing_all.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        self.bump();
         let ids: Vec<String> = self.data.lock().expect("data lock").accounts.iter().map(|a| a.id.clone()).collect();
         for id in ids {
             self.refresh(&id, true).await;
         }
+        self.refreshing_all.store(false, Ordering::Relaxed);
+        self.bump();
     }
 
     /// Alerts that are due now; they're marked as shown.

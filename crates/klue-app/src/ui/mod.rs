@@ -184,17 +184,27 @@ impl<'a> Ctx<'a> {
 
     /// Segmented control; each option is (label, selected, message when picked).
     pub fn segmented(&self, options: Vec<(String, bool, Option<Message>)>, height: f32, size: f32) -> El<'a> {
+        self.segmented_tips(options.into_iter().map(|(label, on, msg)| (label, on, msg, None)).collect(), height, size)
+    }
+
+    /// [`segmented`](Self::segmented) where an option can have a tooltip, say to tell why
+    /// it's off (an option without a message is shown dimmed).
+    pub fn segmented_tips(&self, options: Vec<(String, bool, Option<Message>, Option<&'a str>)>, height: f32, size: f32) -> El<'a> {
         let p = self.p;
         let buttons = options
             .into_iter()
-            .map(|(label, on, msg)| {
+            .map(|(label, on, msg, tip)| {
                 let weight = if on { Weight::Semibold } else { Weight::Normal };
-                button(container(self.text(label, size, weight, if on { p.on } else { p.tx })).center_y(Length::Fill))
+                let color = if on { p.on } else if msg.is_none() { theme::fade(p.tx, 0.45) } else { p.tx };
+                let b = button(container(self.text(label, size, weight, color)).center_y(Length::Fill))
                     .padding([0, 12])
                     .height(Length::Fill)
                     .style(theme::segment(on, p.ac, p.on, p.tx, 6.0))
-                    .on_press_maybe(msg)
-                    .into()
+                    .on_press_maybe(msg);
+                match tip {
+                    Some(tip) => self.tip(b, tip),
+                    None => b.into(),
+                }
             })
             .collect();
         container(self.row(buttons).spacing(2).height(Length::Fill))

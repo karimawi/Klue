@@ -373,10 +373,16 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
         })
         .collect();
 
-    let line_seg = ctx.segmented(
+    // Line types a carrier has but Klue can't read yet say so.
+    let soon = |l: LineType| match (f.carrier, l) {
+        (Carrier::We, LineType::Mobile) => Some(s.we_mobile_soon),
+        (Carrier::Vodafone, LineType::Landline) => Some(s.vf_dsl_soon),
+        _ => None,
+    };
+    let line_seg = ctx.segmented_tips(
         [(LineType::Mobile, s.mobile), (LineType::Landline, s.landline)]
             .into_iter()
-            .map(|(l, label)| (label.to_string(), f.line == l, (f.carrier.supports_line(l) && !verifying).then_some(Message::Modal(Msg::AddLine(l)))))
+            .map(|(l, label)| (label.to_string(), f.line == l, (f.carrier.supports_line(l) && !verifying).then_some(Message::Modal(Msg::AddLine(l))), soon(l)))
             .collect(),
         38.0,
         13.0,

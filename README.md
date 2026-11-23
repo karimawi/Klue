@@ -6,7 +6,7 @@ A desktop app that puts the quota, package and renewal date of all your Egyptian
 
 | Carrier | Status |
 | --- | --- |
-| WE (Telecom Egypt) | Home internet (landline) |
+| WE (Telecom Egypt) | Home internet (DSL) |
 | Vodafone | Mobile lines |
 | Orange | Coming soon |
 | e& | Coming soon |
