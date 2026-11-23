@@ -15,8 +15,15 @@ from PIL import Image, ImageDraw, ImageFilter
 
 
 def render(svg: bytes, size: int) -> Image.Image:
-    png = cairosvg.svg2png(bytestring=svg, output_width=size, output_height=size)
-    return Image.open(io.BytesIO(png)).convert("RGBA")
+    # Cairo clips each shape on its own, so where the K runs off the tile the yellow under it
+    # shows through the anti-aliased corner. Render the square tile unclipped and cut the
+    # rounded corners here instead.
+    flat = svg.replace(b' clip-path="url(#tile)"', b"").replace(b' rx="80" fill="#FFBE32"', b' fill="#FFBE32"')
+    assert flat.count(b"clip-path") == 0 and b'rx="80" fill="#FFBE32"' not in flat, "klue.svg changed shape"
+    png = cairosvg.svg2png(bytestring=flat, output_width=size, output_height=size)
+    art = Image.open(io.BytesIO(png)).convert("RGBA")
+    art.putalpha(rounded_mask(size, round(size * 0.08)))
+    return art
 
 
 def rounded_mask(size: int, radius: int, scale: int = 4) -> Image.Image:
