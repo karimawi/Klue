@@ -122,10 +122,20 @@ fn titlebar<'a>(ctx: &Ctx<'a>) -> El<'a> {
     // Theme and language are in Settings.
     let middle = ctx.row(vec![handle.into()]).width(Length::Fill).height(Length::Fill);
 
+    // Started with --debug: a button for the debug console, beside the window buttons.
+    let console: El<'a> = if ctx.app.debug {
+        ctx.tip(
+            button(container(ctx.icon(Icon::Terminal, 15.0, p.cht)).center(Length::Fill)).width(46).height(Length::Fill).padding(0).style(theme::window_button(p, false)).on_press(Message::OpenConsole),
+            ctx.s.debug_console,
+        )
+    } else {
+        Space::new().into()
+    };
+
     // macOS draws its traffic lights at the top left; elsewhere Klue's window buttons
     // sit at the right edge in both languages, where the OS puts them.
     let bar = if cfg!(target_os = "macos") {
-        row![Space::new().width(78), middle, Space::new().width(12)]
+        row![Space::new().width(78), middle, console, Space::new().width(12)]
     } else {
         let win = |icon: Icon, msg: Message, close: bool| -> El<'a> {
             button(container(ctx.icon(icon, 14.0, p.cht)).center(Length::Fill))
@@ -140,6 +150,7 @@ fn titlebar<'a>(ctx: &Ctx<'a>) -> El<'a> {
             Space::new().width(16),
             middle,
             Space::new().width(12),
+            console,
             win(Icon::WinMin, Message::Minimize, false),
             win(Icon::WinMax, Message::ToggleMaximize, false),
             win(Icon::WinClose, Message::CloseMain, true)

@@ -172,6 +172,8 @@ pub struct Strings {
     pub disc_risk_title: &'static str,
     pub disc_risk: &'static str,
     pub disc_accept: &'static str,
+    /// The title-bar button that opens the debug console (--debug).
+    pub debug_console: &'static str,
 }
 
 pub static EN: Strings = Strings {
@@ -266,8 +268,9 @@ pub static EN: Strings = Strings {
     disc_unofficial_title: "Klue isn't an official app",
     disc_unofficial: "It talks to your carrier the way the carrier's own app and website do, through interfaces worked out from them (reverse engineered). Carriers don't seem to look for tools like this today, but they may make them harder to use in the future, or even warn or penalise accounts that use them.",
     disc_risk_title: "Use it at your own risk",
-    disc_risk: "Karim W. Almorsi isn't responsible for anything your carrier does about accounts that use Klue.",
+    disc_risk: "The developers aren't responsible for anything your carrier does about accounts that use Klue.",
     disc_accept: "I understand and accept",
+    debug_console: "Debug console",
 };
 
 pub static AR: Strings = Strings {
@@ -363,8 +366,9 @@ pub static AR: Strings = Strings {
     disc_unofficial_title: "Klue ليس تطبيقاً رسمياً",
     disc_unofficial: "يتواصل مع شركتك بالطريقة التي يتواصل بها تطبيقها وموقعها، عبر واجهات تم التوصل إليها بالهندسة العكسية. لا يبدو أن الشركات تتعقب مثل هذه الأدوات حالياً، لكنها قد تجعل استخدامها أصعب مستقبلاً، بل قد تُنذر الحسابات التي تستخدمها أو تعاقبها.",
     disc_risk_title: "استخدمه على مسؤوليتك الخاصة",
-    disc_risk: "لا يتحمل Karim W. Almorsi أي مسؤولية عما قد تتخذه شركتك من إجراءات تجاه الحسابات التي تستخدم Klue.",
+    disc_risk: "لا يتحمل المطورون أي مسؤولية عما قد تتخذه شركتك من إجراءات تجاه الحسابات التي تستخدم Klue.",
     disc_accept: "أفهم ذلك وأوافق",
+    debug_console: "وحدة تصحيح الأخطاء",
 };
 
 pub fn strings(lang: Lang) -> &'static Strings {

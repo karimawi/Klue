@@ -103,6 +103,14 @@ pub enum Message {
     Escape(window::Id),
     /// The disclaimer: accept (and start), or quit.
     AcceptDisclaimer,
+    /// The debug console (--debug).
+    OpenConsole,
+    ConsoleTick,
+    ConsoleLevel(tracing::Level),
+    ConsoleSearch(String),
+    ConsoleFollow,
+    ConsoleCopy,
+    ConsoleClear,
     OpenUrl(&'static str),
     OpenUrlOwned(String),
     /// Look for a newer release; `manual` from About (shows a skipped one too).
@@ -186,11 +194,37 @@ pub struct App {
     pub main_size: Size,
     /// When the last tick came; a much longer gap means the computer slept.
     last_tick: DateTime<Utc>,
+    /// Started with --debug: the title bar has a button for the debug console.
+    pub debug: bool,
+    pub console: Option<window::Id>,
+    pub log: LogView,
 }
 
-pub fn run(shared: Arc<Shared>, minimized: bool, quick_view: bool) -> iced::Result {
+/// What the debug console shows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LogView {
+    pub lines: Vec<crate::console::Line>,
+    pub revision: u64,
+    /// The quietest level shown.
+    pub level: tracing::Level,
+    pub search: String,
+    /// Keep the newest line in view.
+    pub follow: bool,
+}
+
+impl Default for LogView {
+    fn default() -> Self {
+        Self { lines: Vec::new(), revision: u64::MAX, level: tracing::Level::TRACE, search: String::new(), follow: true }
+    }
+}
+
+/// How many lines the console shows at once (it keeps more).
+const CONSOLE_LINES: usize = 1500;
+pub const CONSOLE_SCROLL: &str = "console-log";
+
+pub fn run(shared: Arc<Shared>, minimized: bool, quick_view: bool, debug: bool) -> iced::Result {
     let _ = SHARED.set(shared.clone());
-    let mut daemon = iced::daemon(move || App::new(shared.clone(), minimized, quick_view), App::update, App::view)
+    let mut daemon = iced::daemon(move || App::new(shared.clone(), minimized, quick_view, debug), App::update, App::view)
         .title(App::title)
         .theme(App::theme)
         .subscription(App::subscription)
@@ -203,7 +237,7 @@ pub fn run(shared: Arc<Shared>, minimized: bool, quick_view: bool) -> iced::Resu
 }
 
 impl App {
-    fn new(shared: Arc<Shared>, minimized: bool, quick_view: bool) -> (Self, Task<Message>) {
+    fn new(shared: Arc<Shared>, minimized: bool, quick_view: bool, debug: bool) -> (Self, Task<Message>) {
         let snap = shared.snapshot();
         let carrier = Carrier::ALL.into_iter().find(|c| snap.data.accounts_for(*c).next().is_some()).unwrap_or(Carrier::We);
         let tray_lang = snap.data.settings.lang;
@@ -228,6 +262,9 @@ impl App {
             update: UpdateState::Idle,
             main_size: MAIN_SIZE,
             last_tick: Utc::now(),
+            debug,
+            console: None,
+            log: LogView::default(),
         };
         // The tray icon is created on the first update: on macOS the event loop must be
         // running by then.
@@ -261,8 +298,8 @@ impl App {
         picked.or_else(|| data.accounts_for(carrier).next())
     }
 
-    fn title(&self, _window: window::Id) -> String {
-        "Klue".into()
+    fn title(&self, window: window::Id) -> String {
+        if Some(window) == self.console { "Klue debug console".into() } else { "Klue".into() }
     }
 
     /// The window's own palette background and text colour. The renderer clears every
@@ -279,6 +316,8 @@ impl App {
     fn view(&self, window: window::Id) -> ui::El<'_> {
         if Some(window) == self.popup {
             ui::popup::view(self)
+        } else if Some(window) == self.console {
+            ui::console::view(self)
         } else if Some(window) == self.main {
             ui::window::view(self)
         } else {
@@ -293,6 +332,12 @@ impl App {
             // Countdowns and "synced 2 min ago" stay current while a window is open.
             if self.main.is_some() || self.popup.is_some() {
                 iced::time::every(Duration::from_secs(30)).map(|_| Message::Tick)
+            } else {
+                Subscription::none()
+            },
+            // The open console reads the log four times a second (not per line).
+            if self.console.is_some() {
+                iced::time::every(Duration::from_millis(250)).map(|_| Message::ConsoleTick)
             } else {
                 Subscription::none()
             },
@@ -493,6 +538,53 @@ impl App {
                     Task::none()
                 }
             }
+            Message::OpenConsole => {
+                if let Some(id) = self.console {
+                    return window::gain_focus(id);
+                }
+                let (id, open) = window::open(console_settings());
+                self.console = Some(id);
+                self.log.revision = u64::MAX;
+                Task::batch([open.map(|_| Message::Done), self.update(Message::ConsoleTick)])
+            }
+            Message::ConsoleTick => {
+                let revision = crate::console::revision();
+                if revision == self.log.revision {
+                    return Task::none();
+                }
+                self.log.revision = revision;
+                let (level, search) = (self.log.level, self.log.search.to_lowercase());
+                self.log.lines = crate::console::lines(CONSOLE_LINES, |l| {
+                    l.level <= level && (search.is_empty() || l.text.to_lowercase().contains(&search) || l.target.to_lowercase().contains(&search))
+                });
+                if self.log.follow {
+                    operation::snap_to_end(CONSOLE_SCROLL)
+                } else {
+                    Task::none()
+                }
+            }
+            Message::ConsoleLevel(level) => {
+                self.log.level = level;
+                self.log.revision = u64::MAX;
+                self.update(Message::ConsoleTick)
+            }
+            Message::ConsoleSearch(text) => {
+                self.log.search = text;
+                self.log.revision = u64::MAX;
+                self.update(Message::ConsoleTick)
+            }
+            Message::ConsoleFollow => {
+                self.log.follow = !self.log.follow;
+                if self.log.follow { operation::snap_to_end(CONSOLE_SCROLL) } else { Task::none() }
+            }
+            Message::ConsoleCopy => {
+                let text = self.log.lines.iter().map(crate::console::Line::plain).collect::<Vec<_>>().join("\n");
+                iced::clipboard::write(text)
+            }
+            Message::ConsoleClear => {
+                crate::console::clear();
+                self.update(Message::ConsoleTick)
+            }
             Message::AcceptDisclaimer => {
                 self.shared.update(|d| d.settings.accepted_disclaimer = Some(about::VERSION.to_string()));
                 self.snap = self.shared.snapshot();
@@ -685,7 +777,15 @@ impl App {
 
     fn window_event(&mut self, id: window::Id, event: window::Event) -> Task<Message> {
         if !matches!(event, window::Event::RedrawRequested(_) | window::Event::Moved(_)) {
-            let which = if Some(id) == self.popup { "popup" } else if Some(id) == self.main { "main" } else { "other" };
+            let which = if Some(id) == self.popup {
+                "popup"
+            } else if Some(id) == self.main {
+                "main"
+            } else if Some(id) == self.console {
+                "console"
+            } else {
+                "other"
+            };
             tracing::debug!("{which} window: {event:?}");
         }
         if Some(id) == self.main
@@ -696,6 +796,7 @@ impl App {
         match event {
             window::Event::CloseRequested if Some(id) == self.main => self.close_main(),
             window::Event::CloseRequested if Some(id) == self.popup => window::close(id),
+            window::Event::CloseRequested if Some(id) == self.console => window::close(id),
             window::Event::Closed => {
                 if Some(id) == self.main {
                     self.main = None;
@@ -706,6 +807,9 @@ impl App {
                 if Some(id) == self.popup {
                     self.popup = None;
                     self.popup_closed_at = Some(Instant::now());
+                }
+                if Some(id) == self.console {
+                    self.console = None;
                 }
                 Task::none()
             }
@@ -792,6 +896,18 @@ fn main_settings() -> window::Settings {
         icon: window_icon(),
         exit_on_close_request: false,
         platform_specific: platform(false),
+        ..Default::default()
+    }
+}
+
+/// The debug console: an ordinary window with the system's frame.
+fn console_settings() -> window::Settings {
+    window::Settings {
+        size: Size::new(980.0, 620.0),
+        min_size: Some(Size::new(600.0, 360.0)),
+        position: window::Position::Centered,
+        icon: window_icon(),
+        exit_on_close_request: false,
         ..Default::default()
     }
 }
