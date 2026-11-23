@@ -146,7 +146,9 @@ mod tests {
         let texts: Vec<_> = mine.iter().map(|l| (l.level, l.text.as_str())).collect();
         assert!(texts.contains(&(Level::INFO, "background refresh count=3")));
         assert!(texts.contains(&(Level::WARN, "couldn't play negative.wav")));
-        assert!(mine.last().unwrap().plain().contains(" WARN "));
+        // The log is shared with the other test here, which may add its line after these.
+        let warning = mine.iter().find(|l| l.text.starts_with("couldn't play")).unwrap();
+        assert!(warning.plain().contains(" WARN "));
     }
 
     #[test]

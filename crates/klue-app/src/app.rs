@@ -93,6 +93,8 @@ pub enum Message {
     SetMain(String, Option<String>),
     /// The arrows on a number's quota card: show its next (`true`) or previous bundle.
     HeroStep(String, bool),
+    /// The usage graph's Days (`false`) / Hours (`true`) switch.
+    UsageHours(bool),
     OpenModal(ModalKind),
     CloseModal,
     Modal(ui::modals::Msg),
@@ -187,6 +189,8 @@ pub struct App {
     pub selected: HashMap<Carrier, String>,
     /// The bundle each number's quota card shows, by key (its main one if none).
     pub hero: HashMap<String, String>,
+    /// The usage graph's view: hours when they can be shown, else days.
+    pub usage_hours: bool,
     pub modal: Modal,
     pub captcha: Option<CaptchaAsk>,
     pub update: UpdateState,
@@ -257,6 +261,7 @@ impl App {
             carrier,
             selected: HashMap::new(),
             hero: HashMap::new(),
+            usage_hours: false,
             modal: Modal::None,
             captcha: None,
             update: UpdateState::Idle,
@@ -509,6 +514,10 @@ impl App {
                     let next = if forward { (at + 1) % keys.len() } else { (at + keys.len() - 1) % keys.len() };
                     self.hero.insert(id, keys[next].clone());
                 }
+                Task::none()
+            }
+            Message::UsageHours(hours) => {
+                self.usage_hours = hours;
                 Task::none()
             }
             Message::OpenModal(kind) => {

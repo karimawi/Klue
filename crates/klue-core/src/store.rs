@@ -247,6 +247,9 @@ pub struct Account {
     /// Key of the bundle the user chose as this line's main quota.
     #[serde(default)]
     pub main_bundle: Option<String>,
+    /// What each bundle had left at each refresh, for the usage graphs.
+    #[serde(default)]
+    pub history: crate::history::History,
 }
 
 impl Account {
@@ -266,6 +269,7 @@ impl Account {
             fired: Vec::new(),
             created_at: Utc::now(),
             main_bundle: None,
+            history: Default::default(),
         }
     }
 
@@ -307,6 +311,7 @@ impl Account {
         if let Some(name) = usage.owner_name.clone() {
             self.owner_name = Some(name);
         }
+        self.history.record(usage.fetched_at, &usage.bundles);
         let main = usage.main_for(self.main_bundle.as_deref()).map(|m| m.key.clone());
         for b in &usage.bundles {
             if !self.alerts.bundles.contains_key(&b.key) {

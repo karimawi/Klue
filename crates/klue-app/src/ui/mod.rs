@@ -1,6 +1,7 @@
 //! Views. Every window is drawn from the [`App`] state through a [`Ctx`]: the palette,
 //! language and clock in effect, and small helpers that mirror layouts for Arabic.
 
+pub mod chart;
 pub mod console;
 pub mod dashboard;
 pub mod empty;

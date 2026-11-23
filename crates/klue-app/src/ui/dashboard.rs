@@ -1,18 +1,24 @@
-//! The number dashboard: quota hero, renewal column, balance and line details, the other
-//! bundles (any of which can be made the main quota) and the payment history.
+//! The number dashboard: quota hero, renewal column, balance and line details, the usage
+//! graph, the other bundles (any of which can be made the main quota) and the payment
+//! history.
 
 use iced::{
     Alignment, Color, Length,
     font::Weight,
-    widget::{Space, button, column, container, scrollable, stack},
+    widget::{Space, button, canvas, column, container, scrollable, stack},
 };
 use klue_core::{
     Bundle, BundleState, Unit, Usage, format,
+    history::{self, Analysis},
     model::PaymentKind,
     store::{Account, BundleAlert, Lang, LeadUnit, ThresholdMode},
 };
 
-use super::{Ctx, El, gap, hline, stat, vline};
+use super::{
+    Ctx, El,
+    chart::{self, Chart},
+    gap, hline, stat, vline,
+};
 use crate::{
     app::{Message, ModalKind},
     assets::Icon,
@@ -41,6 +47,7 @@ pub fn view<'a>(ctx: &Ctx<'a>, account: &'a Account) -> El<'a> {
                 .push(hline(p.dv, 2.0))
                 .push(money_and_line(ctx, usage))
                 .push(hline(p.dv, 2.0))
+                .push(usage_graph(ctx, account, usage))
                 .push(bundles(ctx, account, usage))
                 .push(payments(ctx, usage));
         }
@@ -404,6 +411,93 @@ fn money_and_line<'a>(ctx: &Ctx<'a>, usage: &'a Usage) -> El<'a> {
     let left = container(balance).padding(ctx.pad(20.0, 28.0, 20.0, 0.0)).width(Length::FillPortion(100));
     let right = container(details).padding(ctx.pad(20.0, 0.0, 20.0, 28.0)).width(Length::FillPortion(165));
     ctx.row(vec![left.into(), vline(p.dv, 2.0), right.into()]).align_y(Alignment::Start).into()
+}
+
+/// The usage graph of the bundle on the quota card, with averages over it; just the
+/// averages, as estimates, while there are too few refreshes to draw.
+fn usage_graph<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a> {
+    let p = ctx.p;
+    let s = ctx.s;
+    let ordered = usage.ordered(account.main_bundle.as_deref());
+    let index = ctx.app.hero.get(&account.id).and_then(|k| ordered.iter().position(|b| &b.key == k)).unwrap_or(0);
+    let Some(bundle) = ordered.get(index).copied().filter(|b| b.total > 0.0) else { return Space::new().into() };
+    // The package's own quota runs with the package's cycle.
+    let (since, until) = if index == 0 {
+        (bundle.starts_at.or(usage.cycle_start()), bundle.expires_at.or(usage.renews_at))
+    } else {
+        (bundle.starts_at, bundle.expires_at)
+    };
+    let a = history::analyse(account.history.samples(&bundle.key), bundle, since, until, ctx.now);
+    let hours = !a.hourly.is_empty() && (ctx.app.usage_hours || a.daily.is_empty());
+
+    let name = if index == 0 { usage.package_in(ctx.lang).unwrap_or_else(|| bundle.name_in(ctx.lang)) } else { bundle.name_in(ctx.lang) };
+    let mut head: Vec<El<'a>> = vec![
+        ctx.icon(Icon::Chart, 16.0, p.tx),
+        ctx.bold(s.usage, 16.0).into(),
+        ctx.muted("·", 13.0).into(),
+        ctx.muted(name.to_string(), 13.0).into(),
+        super::fill_x(),
+    ];
+    if a.enough() {
+        let (days_ok, hours_ok) = (!a.daily.is_empty(), !a.hourly.is_empty());
+        head.push(ctx.segmented_tips(
+            vec![
+                (s.usage_days.to_string(), !hours, days_ok.then_some(Message::UsageHours(false)), (!days_ok).then_some(s.usage_days_later)),
+                (s.usage_hours.to_string(), hours, hours_ok.then_some(Message::UsageHours(true)), (!hours_ok).then_some(s.usage_hours_later)),
+            ],
+            30.0,
+            12.5,
+        ));
+    }
+    let mut section = column![ctx.row(head).spacing(8)].spacing(16).align_x(ctx.start());
+    if !a.enough() {
+        let mut body = s.not_enough_body.to_string();
+        if let Some(e) = &a.estimate {
+            body.push(' ');
+            body.push_str(if e.from_samples { s.not_enough_samples } else { s.not_enough_cycle });
+        }
+        section = section.push(notice(ctx, Icon::Info, p.tx, s.not_enough_title, body));
+    }
+    if let Some(figures) = usage_figures(ctx, &a, bundle, until) {
+        section = section.push(figures);
+    }
+    if a.enough() {
+        let (span, periods) = if hours { (chart::Span::Hours, a.hourly.clone()) } else { (chart::Span::Days, a.daily.clone()) };
+        let graph = Chart { span, readings: a.points.clone(), periods, unit: bundle.unit, p, lang: ctx.lang };
+        let note = if graph.has_gaps() { format!("{} {}", s.chart_dots, s.chart_gaps) } else { s.chart_dots.to_string() };
+        section = section.push(canvas(graph).width(Length::Fill).height(chart::HEIGHT)).push(ctx.muted(note, 12.0));
+    }
+    container(section).padding(super::pad4(22.0, 0.0, 6.0, 0.0)).into()
+}
+
+/// Today's usage, the averages and when the bundle runs out at that rate.
+fn usage_figures<'a>(ctx: &Ctx<'a>, a: &Analysis, bundle: &Bundle, until: Option<chrono::DateTime<chrono::Utc>>) -> Option<El<'a>> {
+    let p = ctx.p;
+    let s = ctx.s;
+    let e = a.estimate?;
+    let figure = |label: &str, value: El<'a>, sub: String| -> El<'a> {
+        container(column![ctx.caps(label), value, ctx.muted(sub, 12.0)].spacing(3).align_x(ctx.start())).width(Length::FillPortion(1)).align_x(ctx.start()).into()
+    };
+    let amount = |v: f64| -> El<'a> { ctx.num(i18n::quantity(v, bundle.unit, ctx.lang), 22.0, Weight::ExtraBold, p.tx).into() };
+    let mut cells: Vec<El<'a>> = Vec::new();
+    if a.enough() {
+        cells.push(match a.today {
+            Some(today) => figure(s.usage_today, amount(today.used), s.so_far.to_string()),
+            None => figure(s.usage_today, ctx.num("—", 22.0, Weight::ExtraBold, p.mu).into(), s.no_refresh_today.to_string()),
+        });
+    }
+    let (over, average) = if e.from_samples { (s.avg_refreshes.to_string(), s.avg_refreshes) } else { (i18n::over_days(e.days, ctx.lang), s.avg_cycle) };
+    cells.push(figure(s.per_day, amount(e.per_day), over));
+    cells.push(figure(s.per_hour, amount(e.per_hour), average.to_string()));
+    let rate = if e.per_day <= 0.0 {
+        figure(s.at_this_rate, ctx.text(s.no_usage_yet, 17.0, Weight::ExtraBold, p.tx).into(), String::new())
+    } else if let Some(out) = e.runs_out {
+        figure(s.at_this_rate, ctx.text(i18n::runs_out(out, ctx.lang), 17.0, Weight::ExtraBold, p.danger).into(), i18n::countdown(out, ctx.now, ctx.lang))
+    } else {
+        figure(s.at_this_rate, ctx.text(s.lasts_renewal, 17.0, Weight::ExtraBold, p.tx).into(), until.map(|u| i18n::day_label(u, ctx.lang)).unwrap_or_default())
+    };
+    cells.push(rate);
+    Some(ctx.row(cells).spacing(20).align_y(Alignment::Start).into())
 }
 
 fn bundles<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a> {

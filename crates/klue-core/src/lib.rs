@@ -8,6 +8,7 @@ pub mod captcha;
 pub mod carriers;
 pub mod error;
 pub mod format;
+pub mod history;
 mod http;
 mod json;
 pub mod model;

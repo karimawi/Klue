@@ -174,6 +174,37 @@ pub struct Strings {
     pub disc_accept: &'static str,
     /// The title-bar button that opens the debug console (--debug).
     pub debug_console: &'static str,
+    /// Title of the usage graph section.
+    pub usage: &'static str,
+    /// The usage graph's views.
+    pub usage_days: &'static str,
+    pub usage_hours: &'static str,
+    /// Why a view isn't available yet.
+    pub usage_days_later: &'static str,
+    pub usage_hours_later: &'static str,
+    /// Captions of the graph's two panels.
+    pub chart_left: &'static str,
+    pub chart_per_day: &'static str,
+    pub chart_per_hour: &'static str,
+    /// Figures beside the graph.
+    pub usage_today: &'static str,
+    pub so_far: &'static str,
+    pub no_refresh_today: &'static str,
+    pub per_day: &'static str,
+    pub per_hour: &'static str,
+    pub avg_cycle: &'static str,
+    pub avg_refreshes: &'static str,
+    pub at_this_rate: &'static str,
+    pub lasts_renewal: &'static str,
+    pub no_usage_yet: &'static str,
+    /// When there's too little history to draw.
+    pub not_enough_title: &'static str,
+    pub not_enough_body: &'static str,
+    pub not_enough_cycle: &'static str,
+    pub not_enough_samples: &'static str,
+    /// Notes under the graph.
+    pub chart_dots: &'static str,
+    pub chart_gaps: &'static str,
 }
 
 pub static EN: Strings = Strings {
@@ -271,6 +302,30 @@ pub static EN: Strings = Strings {
     disc_risk: "The developers aren't responsible for anything your carrier does about accounts that use Klue.",
     disc_accept: "I understand and accept",
     debug_console: "Debug console",
+    usage: "Usage",
+    usage_days: "Days",
+    usage_hours: "Hours",
+    usage_days_later: "Shows once a day of refreshes is saved",
+    usage_hours_later: "Shows after a few hours of refreshes about every hour",
+    chart_left: "What was left",
+    chart_per_day: "Used per day",
+    chart_per_hour: "Used per hour",
+    usage_today: "Today",
+    so_far: "So far",
+    no_refresh_today: "No refresh yet today",
+    per_day: "Per day",
+    per_hour: "Per hour",
+    avg_cycle: "This cycle’s average",
+    avg_refreshes: "From the refreshes so far",
+    at_this_rate: "At this rate",
+    lasts_renewal: "Lasts until it renews",
+    no_usage_yet: "Nothing used yet",
+    not_enough_title: "Not enough refreshes for a graph yet",
+    not_enough_body: "Klue saves what’s left at every refresh and draws the graph after a few hours of them.",
+    not_enough_cycle: "Until then, the figures below are estimates from what this cycle has used so far.",
+    not_enough_samples: "Until then, the figures below are estimates from the refreshes so far.",
+    chart_dots: "Each dot is a refresh. Hover over the graph for the exact time and amounts.",
+    chart_gaps: "Dashed lines and fainter bars span long waits between refreshes; their usage is spread out evenly.",
 };
 
 pub static AR: Strings = Strings {
@@ -369,6 +424,30 @@ pub static AR: Strings = Strings {
     disc_risk: "لا يتحمل المطورون أي مسؤولية عما قد تتخذه شركتك من إجراءات تجاه الحسابات التي تستخدم Klue.",
     disc_accept: "أفهم ذلك وأوافق",
     debug_console: "وحدة تصحيح الأخطاء",
+    usage: "الاستهلاك",
+    usage_days: "الأيام",
+    usage_hours: "الساعات",
+    usage_days_later: "يظهر بعد حفظ تحديثات يوم كامل",
+    usage_hours_later: "يظهر بعد بضع ساعات من التحديث كل ساعة تقريباً",
+    chart_left: "المتبقي",
+    chart_per_day: "الاستخدام في اليوم",
+    chart_per_hour: "الاستخدام في الساعة",
+    usage_today: "اليوم",
+    so_far: "حتى الآن",
+    no_refresh_today: "لا يوجد تحديث اليوم بعد",
+    per_day: "في اليوم",
+    per_hour: "في الساعة",
+    avg_cycle: "متوسط هذه الدورة",
+    avg_refreshes: "من التحديثات حتى الآن",
+    at_this_rate: "بهذا المعدل",
+    lasts_renewal: "يكفي حتى التجديد",
+    no_usage_yet: "لم يُستخدم شيء بعد",
+    not_enough_title: "التحديثات غير كافية لرسم بياني بعد",
+    not_enough_body: "يحفظ Klue المتبقي عند كل تحديث، ويرسم البياني بعد بضع ساعات منها.",
+    not_enough_cycle: "حتى ذلك الحين، الأرقام أدناه تقديرية مما استُخدم في هذه الدورة حتى الآن.",
+    not_enough_samples: "حتى ذلك الحين، الأرقام أدناه تقديرية من التحديثات حتى الآن.",
+    chart_dots: "كل نقطة تحديث. مرّر المؤشر فوق الرسم لمعرفة الوقت والكميات بالضبط.",
+    chart_gaps: "الخطوط المتقطعة والأعمدة الباهتة تغطي فترات انتظار طويلة بين التحديثات، واستخدامها موزّع بالتساوي.",
 };
 
 pub fn strings(lang: Lang) -> &'static Strings {
@@ -503,7 +582,7 @@ pub fn left_label(unit: Unit, lang: Lang) -> String {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Span {
     Minute,
     Hour,
@@ -655,8 +734,23 @@ pub fn countdown(until: DateTime<Utc>, now: DateTime<Utc>, lang: Lang) -> String
     }
     let (d, h) = (secs / 86_400, (secs % 86_400) / 3_600);
     match lang {
-        Lang::En => format!("in {d} days, {h} hrs"),
-        Lang::Ar => format!("بعد {d} يوم و{h} ساعة"),
+        Lang::En => {
+            let days = if d == 1 { "1 day".to_string() } else { format!("{d} days") };
+            let hours = if h == 1 { "1 hr".to_string() } else { format!("{h} hrs") };
+            match (d, h) {
+                (0, _) => format!("in {hours}"),
+                (_, 0) => format!("in {days}"),
+                _ => format!("in {days}, {hours}"),
+            }
+        }
+        Lang::Ar => {
+            let (days, hours) = (count(d, Span::Day, lang), count(h, Span::Hour, lang));
+            match (d, h) {
+                (0, _) => format!("بعد {hours}"),
+                (_, 0) => format!("بعد {days}"),
+                _ => format!("بعد {days} و{hours}"),
+            }
+        }
     }
 }
 
@@ -733,6 +827,107 @@ pub fn error_title(e: &FetchError, lang: Lang) -> &'static str {
     }
 }
 
+// ---------------------------------------------------------------------------------------
+// The usage graph
+
+/// "Mon 23 Nov" / "الاثنين 23 نوفمبر", in local time.
+pub fn day_label(dt: DateTime<Utc>, lang: Lang) -> String {
+    let d = dt.with_timezone(&Local);
+    let (m, wd) = (d.month0() as usize, d.weekday().num_days_from_monday() as usize);
+    match lang {
+        Lang::En => format!("{} {} {}", DAYS_EN[wd], d.day(), &MONTHS_EN[m][..3]),
+        Lang::Ar => format!("{} {} {}", DAYS_AR[wd], d.day(), MONTHS_AR[m]),
+    }
+}
+
+/// "14:07", local.
+pub fn clock(dt: DateTime<Utc>) -> String {
+    dt.with_timezone(&Local).format("%H:%M").to_string()
+}
+
+/// The minute of a refresh: "Mon 23 Nov, 14:07" / "الاثنين 23 نوفمبر، 14:07".
+pub fn moment(dt: DateTime<Utc>, lang: Lang) -> String {
+    match lang {
+        Lang::En => format!("{}, {}", day_label(dt, lang), clock(dt)),
+        Lang::Ar => format!("{}، {}", day_label(dt, lang), clock(dt)),
+    }
+}
+
+/// An hour of the graph: "Mon 23 Nov, 14:00–15:00".
+pub fn hour_span(start: DateTime<Utc>, end: DateTime<Utc>, lang: Lang) -> String {
+    match lang {
+        Lang::En => format!("{}, {}–{}", day_label(start, lang), clock(start), clock(end)),
+        Lang::Ar => format!("{}، {}–{}", day_label(start, lang), clock(start), clock(end)),
+    }
+}
+
+/// Under a day on the graph's time axis: "23 Nov" (with the month) or "23".
+pub fn axis_day(dt: DateTime<Utc>, with_month: bool, lang: Lang) -> String {
+    let d = dt.with_timezone(&Local);
+    let m = d.month0() as usize;
+    match (with_month, lang) {
+        (false, _) => d.day().to_string(),
+        (true, Lang::En) => format!("{} {}", d.day(), &MONTHS_EN[m][..3]),
+        (true, Lang::Ar) => format!("{} {}", d.day(), MONTHS_AR[m]),
+    }
+}
+
+/// An amount with its unit; a GB amount that's under 1,000 MB in MB: "3.2 GB", "350 MB".
+pub fn quantity(v: f64, unit: Unit, lang: Lang) -> String {
+    let (v, unit) = if unit == Unit::Gb && v != 0.0 && (v * 1024.0).abs() < 999.5 { (v * 1024.0, Unit::Mb) } else { (v, unit) };
+    format!("{} {}", format::amount_short(v, unit), unit_name(unit, lang))
+}
+
+/// "87.4 GB left" / "متبقي 87.4 جيجا".
+pub fn left_of(v: f64, unit: Unit, lang: Lang) -> String {
+    let q = quantity(v, unit, lang);
+    if is_ar(lang) { format!("متبقي {q}") } else { format!("{q} left") }
+}
+
+/// "3.2 GB used" / "تم استخدام 3.2 جيجا".
+pub fn used_of(v: f64, unit: Unit, lang: Lang) -> String {
+    let q = quantity(v, unit, lang);
+    if is_ar(lang) { format!("تم استخدام {q}") } else { format!("{q} used") }
+}
+
+/// What a refresh found used since the one before: "1.2 GB since 11:52".
+pub fn used_since(v: f64, unit: Unit, since: DateTime<Utc>, lang: Lang) -> String {
+    let q = quantity(v, unit, lang);
+    if is_ar(lang) { format!("{q} منذ {}", clock(since)) } else { format!("{q} since {}", clock(since)) }
+}
+
+/// Why a graph period is a guess: "Spread over a 9-hour wait between refreshes".
+pub fn spread_over(gap: chrono::Duration, lang: Lang) -> String {
+    let hours = (gap.num_minutes() as f64 / 60.0).round().max(1.0) as i64;
+    let (n, span) = if hours >= 48 { (hours / 24, Span::Day) } else { (hours, Span::Hour) };
+    match lang {
+        Lang::En => format!("Spread over a {n}-{} wait between refreshes", if span == Span::Day { "day" } else { "hour" }),
+        Lang::Ar => format!("موزّع على انتظار {} بين تحديثين", count(n, span, lang)),
+    }
+}
+
+/// A period the samples only reach part of: "From 09:12" / "Until 14:07".
+pub fn from_clock(t: DateTime<Utc>, lang: Lang) -> String {
+    if is_ar(lang) { format!("من {}", clock(t)) } else { format!("From {}", clock(t)) }
+}
+
+pub fn until_clock(t: DateTime<Utc>, lang: Lang) -> String {
+    if is_ar(lang) { format!("حتى {}", clock(t)) } else { format!("Until {}", clock(t)) }
+}
+
+/// What an average is over: "Over 16 days" / "على مدى 16 يوم".
+pub fn over_days(days: f64, lang: Lang) -> String {
+    let (n, span) = if days >= 1.0 { (days.round() as i64, Span::Day) } else { ((days * 24.0).round().max(1.0) as i64, Span::Hour) };
+    let c = count(n, span, lang);
+    if is_ar(lang) { format!("على مدى {c}") } else { format!("Over {c}") }
+}
+
+/// When a bundle runs out at its current rate: "Runs out Thu 3 Dec".
+pub fn runs_out(at: DateTime<Utc>, lang: Lang) -> String {
+    let day = day_label(at, lang);
+    if is_ar(lang) { format!("ينفد {day}") } else { format!("Runs out {day}") }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -761,6 +956,23 @@ mod tests {
         let until = Utc.with_ymd_and_hms(2026, 12, 8, 0, 0, 0).unwrap();
         assert_eq!(countdown(until, now, Lang::En), "in 16 days, 14 hrs");
         assert_eq!(countdown(until, now, Lang::Ar), "بعد 16 يوم و14 ساعة");
+        let soon = now + chrono::Duration::hours(31);
+        assert_eq!(countdown(soon, now, Lang::En), "in 1 day, 7 hrs");
+        assert_eq!(countdown(soon, now, Lang::Ar), "بعد يوم و7 ساعات");
+        assert_eq!(countdown(now + chrono::Duration::hours(5), now, Lang::En), "in 5 hrs");
+        assert_eq!(countdown(now + chrono::Duration::days(3), now, Lang::Ar), "بعد 3 أيام");
+    }
+
+    #[test]
+    fn usage_graph_wording() {
+        assert_eq!(quantity(0.25, Unit::Gb, Lang::En), "256 MB");
+        assert_eq!(quantity(0.984, Unit::Gb, Lang::En), "1 GB");
+        assert_eq!(quantity(3.26, Unit::Gb, Lang::En), "3.3 GB");
+        assert_eq!(left_of(87.4, Unit::Gb, Lang::Ar), "متبقي 87.4 جيجا");
+        assert_eq!(spread_over(chrono::Duration::minutes(32 * 60 + 10), Lang::En), "Spread over a 32-hour wait between refreshes");
+        assert_eq!(spread_over(chrono::Duration::hours(50), Lang::En), "Spread over a 2-day wait between refreshes");
+        assert_eq!(over_days(16.4, Lang::En), "Over 16 days");
+        assert_eq!(over_days(0.25, Lang::Ar), "على مدى 6 ساعات");
     }
 
     #[test]
