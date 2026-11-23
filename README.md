@@ -9,9 +9,18 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/karimawi/Klue/releases"><img src="https://img.shields.io/github/v/release/karimawi/Klue?include_prereleases&label=download&color=FFBE32&labelColor=1D1B1B" alt="Download"></a>
-  <img src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-1D1B1B" alt="Windows, macOS and Linux">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-1D1B1B" alt="GPL-3.0"></a>
+  <a href="https://github.com/karimawi/Klue/releases" target="_blank">
+    <img src="https://img.shields.io/github/v/release/karimawi/Klue?include_prereleases&label=Version&labelColor=1D1B1B&color=FFBE32&style=for-the-badge&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNGRkJFMzIiIHN0cm9rZS13aWR0aD0iMi4yIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0xMi42IDIuNkEyIDIgMCAwIDAgMTEuMiAySDRhMiAyIDAgMCAwLTIgMnY3LjJhMiAyIDAgMCAwIC42IDEuNGw4LjcgOC43YTIuNCAyLjQgMCAwIDAgMy40IDBsNi42LTYuNmEyLjQgMi40IDAgMCAwIDAtMy40eiIvPjxjaXJjbGUgY3g9IjcuNSIgY3k9IjcuNSIgcj0iMS4yIiBmaWxsPSIjRkZCRTMyIi8%2BPC9zdmc%2B" alt="Version"/>
+  </a>
+  <a href="https://github.com/karimawi/Klue/releases" target="_blank">
+    <img src="https://img.shields.io/github/downloads/karimawi/Klue/total?label=Downloads&labelColor=1D1B1B&color=FFBE32&style=for-the-badge&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNGRkJFMzIiIHN0cm9rZS13aWR0aD0iMi4yIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0yMSAxNXY0YTIgMiAwIDAgMS0yIDJINWEyIDIgMCAwIDEtMi0ydi00Ii8%2BPHBhdGggZD0ibTcgMTAgNSA1IDUtNSIvPjxwYXRoIGQ9Ik0xMiAxNVYzIi8%2BPC9zdmc%2B" alt="Downloads"/>
+  </a>
+  <a href="#download" target="_blank">
+    <img src="https://img.shields.io/badge/OS-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-FFBE32?labelColor=1D1B1B&color=FFBE32&style=for-the-badge&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNGRkJFMzIiIHN0cm9rZS13aWR0aD0iMi4yIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxyZWN0IHg9IjIiIHk9IjMiIHdpZHRoPSIyMCIgaGVpZ2h0PSIxNCIgcng9IjIiLz48cGF0aCBkPSJNOCAyMWg4Ii8%2BPHBhdGggZD0iTTEyIDE3djQiLz48L3N2Zz4=" alt="Windows, macOS and Linux"/>
+  </a>
+  <a href="LICENSE" target="_blank">
+    <img src="https://img.shields.io/github/license/karimawi/Klue?label=License&labelColor=1D1B1B&color=FFBE32&style=for-the-badge&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNGRkJFMzIiIHN0cm9rZS13aWR0aD0iMi4yIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0xNiAxNmwzLTggMyA4YTUgNSAwIDAgMS02IDB6Ii8%2BPHBhdGggZD0iTTIgMTZsMy04IDMgOGE1IDUgMCAwIDEtNiAweiIvPjxwYXRoIGQ9Ik03IDIxaDEwIi8%2BPHBhdGggZD0iTTEyIDN2MTgiLz48cGF0aCBkPSJNMyA3aDJjMiAwIDUtMSA3LTIgMiAxIDUgMiA3IDJoMiIvPjwvc3ZnPg==" alt="License"/>
+  </a>
 </p>
 
 <p align="center">
