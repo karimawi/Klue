@@ -60,6 +60,8 @@ pub enum Message {
     /// The shared data changed.
     Revision,
     Tick,
+    /// Refreshes finished: their alerts go out now, not at the next tick.
+    Refreshed,
     Window(window::Id, window::Event),
     Tray(systray::Event),
     /// Another Klue was started: show this one (or its quick view).
@@ -182,6 +184,8 @@ pub struct App {
     pub update: UpdateState,
     /// The main window's size, which dialogs fit into.
     pub main_size: Size,
+    /// When the last tick came; a much longer gap means the computer slept.
+    last_tick: DateTime<Utc>,
 }
 
 pub fn run(shared: Arc<Shared>, minimized: bool, quick_view: bool) -> iced::Result {
@@ -223,6 +227,7 @@ impl App {
             captcha: None,
             update: UpdateState::Idle,
             main_size: MAIN_SIZE,
+            last_tick: Utc::now(),
         };
         // The tray icon is created on the first update: on macOS the event loop must be
         // running by then.
@@ -307,7 +312,7 @@ impl App {
                 let refresh = if self.disclaimer_due() {
                     Task::none()
                 } else {
-                    Task::perform(async move { shared.refresh_due().await }, |_| Message::Done)
+                    Task::perform(async move { shared.refresh_due().await }, |_| Message::Refreshed)
                 };
                 // The disclaimer needs a window, even when starting in the tray.
                 let window = if self.disclaimer_due() {
@@ -319,6 +324,9 @@ impl App {
                 } else {
                     self.show_main(None)
                 };
+                // Reminders that came due while Klue wasn't running go out now; quota
+                // alerts follow the refresh.
+                self.send_due_alerts();
                 // Look for an update once the first refreshes are under way.
                 let check = if self.shared.demo {
                     Task::none()
@@ -340,13 +348,24 @@ impl App {
             }
             Message::Tick => {
                 self.now = Utc::now();
+                // Timers stop while the computer sleeps, so the first tick after waking
+                // finds the clock far ahead: whatever came due meanwhile goes out now, and
+                // every number is due for a refresh.
+                let gap = self.now - self.last_tick;
+                self.last_tick = self.now;
+                if gap > chrono::Duration::from_std(TICK * 3).unwrap_or_default() {
+                    tracing::info!("woke up after {} min", gap.num_minutes());
+                }
                 if self.disclaimer_due() {
                     return Task::none();
                 }
-                let alerts = self.shared.take_due_alerts(self.now);
-                notify::send(&alerts, self.lang());
+                self.send_due_alerts();
                 let shared = self.shared.clone();
-                Task::perform(async move { shared.refresh_due().await }, |_| Message::Done)
+                Task::perform(async move { shared.refresh_due().await }, |_| Message::Refreshed)
+            }
+            Message::Refreshed => {
+                self.send_due_alerts();
+                Task::none()
             }
             Message::Window(id, event) => self.window_event(id, event),
             Message::Tray(event) => self.tray_event(event),
@@ -423,11 +442,11 @@ impl App {
             Message::Refresh(_) | Message::RefreshAll if self.disclaimer_due() => Task::none(),
             Message::Refresh(id) => {
                 let shared = self.shared.clone();
-                Task::perform(async move { shared.refresh(&id, true).await }, |_| Message::Done)
+                Task::perform(async move { shared.refresh(&id, true).await }, |_| Message::Refreshed)
             }
             Message::RefreshAll => {
                 let shared = self.shared.clone();
-                Task::perform(async move { shared.refresh_all().await }, |_| Message::Done)
+                Task::perform(async move { shared.refresh_all().await }, |_| Message::Refreshed)
             }
             Message::SetMain(id, key) => {
                 self.shared.set_main_bundle(&id, key);
@@ -478,7 +497,7 @@ impl App {
                 self.shared.update(|d| d.settings.accepted_disclaimer = Some(about::VERSION.to_string()));
                 self.snap = self.shared.snapshot();
                 let shared = self.shared.clone();
-                Task::perform(async move { shared.refresh_due().await }, |_| Message::Done)
+                Task::perform(async move { shared.refresh_due().await }, |_| Message::Refreshed)
             }
             Message::OpenUrl(url) => {
                 about::open_url(url);
@@ -549,6 +568,18 @@ impl App {
                 }
             }
             Message::Done => Task::none(),
+        }
+    }
+
+    /// Send the alerts that are due now (one sound for all of them).
+    fn send_due_alerts(&mut self) {
+        if self.disclaimer_due() {
+            return;
+        }
+        let alerts = self.shared.take_due_alerts(Utc::now());
+        if !alerts.is_empty() {
+            tracing::info!("{} alert(s) due", alerts.len());
+            notify::send(&alerts, self.lang());
         }
     }
 

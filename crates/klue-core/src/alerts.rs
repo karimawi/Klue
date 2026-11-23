@@ -138,4 +138,23 @@ mod tests {
             == (Utc::now() + Duration::minutes(5)).with_timezone(&Local).date_naive();
         assert_eq!(events.iter().any(|e| matches!(e, AlertEvent::RenewalToday { .. })), same_day);
     }
+
+    #[test]
+    fn what_came_due_while_klue_was_off_goes_out_once_it_runs() {
+        // Klue last ran a week ago, when the renewal was 9 days out; the 2-day reminder
+        // window opened while it wasn't running. Seen at the next launch, it's due.
+        let mut a = account(10.0, Duration::days(1));
+        let events = due(&a, Utc::now());
+        assert!(events.iter().any(|e| matches!(e, AlertEvent::RenewalSoon { .. })));
+        // Sent then, it isn't sent again after another restart (fired keys are saved).
+        for e in &events {
+            a.mark_fired(e.key());
+        }
+        let saved: Account = serde_json::from_str(&serde_json::to_string(&a).unwrap()).unwrap();
+        assert!(due(&saved, Utc::now()).is_empty());
+        // A renewal that already happened while Klue was off isn't announced late.
+        let past = account(10.0, -Duration::hours(3));
+        assert!(!due(&past, Utc::now()).iter().any(|e| matches!(e, AlertEvent::RenewalSoon { .. })));
+    }
+
 }
