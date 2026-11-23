@@ -11,6 +11,9 @@ use klue_core::{BundleState, Carrier, format};
 use super::{Ctx, El, hline, tile, vline};
 use crate::{app::{App, Message}, assets::Icon, i18n, theme};
 
+/// Side padding: the mockup's 16 px less the 1 px frame line beside it.
+const SIDE: f32 = 15.0;
+
 pub fn view(app: &App) -> El<'_> {
     let ctx = Ctx::new(app, Carrier::We, true);
     let p = ctx.p;
@@ -49,7 +52,9 @@ pub fn view(app: &App) -> El<'_> {
                 })
             });
             let frozen = main.is_some_and(|m| m.state == BundleState::Frozen);
-            let sub = [state.or(renews), Some(account.pretty_number())].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+            // A line too long for the row breaks after the "·", never inside the number.
+            let number = account.pretty_number().replace(' ', "\u{a0}");
+            let sub = [state.or(renews), Some(number)].into_iter().flatten().collect::<Vec<_>>().join(" · ");
             let text = column![ctx.semi(account.display_name(), 13.5), ctx.muted(sub, 11.5)].spacing(0).align_x(ctx.start()).width(Length::Fill);
             let right: El<'_> = match main {
                 Some(m) => column![
@@ -69,14 +74,14 @@ pub fn view(app: &App) -> El<'_> {
             };
             let content = ctx.row(vec![tile(account.carrier, 34.0, t.tray, 10.0, false), text.into(), right]).spacing(12);
             column![
-                button(container(content).padding([11, 16])).padding(0).width(Length::Fill).style(theme::plain(p.sf, None, 0.0)).on_press(Message::ShowMain(Some(account.id.clone()))),
+                button(container(content).padding([11.0, SIDE])).padding(0).width(Length::Fill).style(theme::plain(p.sf, None, 0.0)).on_press(Message::ShowMain(Some(account.id.clone()))),
                 hline(p.dvs, 1.0)
             ]
             .into()
         })
         .collect();
     let list: El<'_> = if rows.is_empty() {
-        container(ctx.muted(s.tray_empty, 13.0)).padding([24, 16]).into()
+        container(ctx.muted(s.tray_empty, 13.0)).padding([24.0, SIDE]).into()
     } else {
         super::smooth::smooth(scrollable(column(rows)).style(theme::scroller(p)).height(Length::Fill))
     };
@@ -85,7 +90,7 @@ pub fn view(app: &App) -> El<'_> {
     let settings = ctx.tool(Icon::Sliders, s.settings, Some(Message::PopupSettings), false);
     let foot = ctx.row(vec![open.into(), settings]).spacing(8).align_y(Alignment::Center);
 
-    let panel = column![container(head).padding([12, 16]), hline(p.dv, 2.0), container(list).height(Length::Fill), hline(p.dv, 2.0), container(foot).padding([12, 16])]
+    let panel = column![container(head).padding([12.0, SIDE]), hline(p.dv, 2.0), container(list).height(Length::Fill), hline(p.dv, 2.0), container(foot).padding([12.0, SIDE])]
         .width(Length::Fill)
         .height(Length::Fill);
     // The window is cleared to `p.bg` (see `App::theme`); the 1 px frame is four lines

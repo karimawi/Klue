@@ -13,14 +13,14 @@ A desktop app that puts the quota, package and renewal date of all your Egyptian
 
 ## Features
 
-- One tab per number, grouped by carrier. Each number shows its registered owner, an optional nickname, the package, what's left in each bucket in the bucket's own unit (GB, MB, minutes, units), the subscription date and the next renewal.
+- One tab per number, grouped by carrier; only carriers you have numbers with are listed. Each number shows its registered owner, an optional nickname, the package, what's left in each bucket in the bucket's own unit (GB, MB, minutes, units), the subscription date and the next renewal.
 - The balance in EGP, the line's plan, payment type and status, and the payment history (WE recharges and Vodafone payments).
 - A Vodafone Flex bundle renewed on credit is marked borrowed, with the date to pay by before Vodafone freezes it, or frozen once it has; what the line owes shows under the balance.
 - The main quota is the largest bucket that isn't empty. Any other bucket can be made the main one with its star.
 - Quota alerts at X GB or X% left, per bundle, and a renewal reminder X days or hours before renewal. Both arrive as desktop notifications.
 - Adding a number signs in with the carrier's own password, checks it, and fills in the owner name from the account.
 - Light, Dark and Match themes. Match recolors the app with each carrier's brand colors.
-- English and Arabic, with a fully mirrored right-to-left layout. Fonts are DM Sans and Google Sans, bundled with the app.
+- English and Arabic, with a fully mirrored right-to-left layout. In Arabic, packages and plans carry the carrier's own Arabic names where it has them (WE's package names, Vodafone's plans and Flex); bundles the carriers only name in English stay in English. Fonts are DM Sans and Google Sans, bundled with the app.
 - A tray icon with a quick-view popup that closes when you click elsewhere. Closing the window leaves Klue in the tray and frees the window's memory. Optional launch at startup, minimized to the tray.
 - One Klue at a time: launching it again brings the running one forward.
 - Passwords live in the OS credential store (Windows Credential Manager, macOS Keychain or Secret Service), never in Klue's data file. Each is saved under the service `Klue` and the account `<carrier>:<number>` (for example `we:0223584417`), so any version of Klue finds it, and the list of your numbers is kept there too: an update or reinstall that starts with an empty data folder brings them back.
@@ -30,7 +30,7 @@ A desktop app that puts the quota, package and renewal date of all your Egyptian
 | ![Match theme, low quota](docs/screenshots/match-we-low-quota.png) | ![Dark theme, Vodafone](docs/screenshots/dark-vodafone.png) |
 | ![Balance, bundles and payments](docs/screenshots/vodafone-balance-payments.png) | ![Arabic](docs/screenshots/arabic-rtl.png) |
 | ![Add a number](docs/screenshots/add-number-verified.png) | ![Alerts](docs/screenshots/alerts.png) |
-| ![Coming soon](docs/screenshots/coming-soon.png) | <img src="docs/screenshots/tray-quick-view.png" alt="Tray quick view" width="240"> |
+| ![Borrowed Flex bundle](docs/screenshots/vodafone-flex-borrowed.png) | <img src="docs/screenshots/tray-quick-view.png" alt="Tray quick view" width="240"> |
 
 ## Download
 
