@@ -4,10 +4,10 @@ members = ["crates/klue-core", "crates/klue-app"]
 default-members = ["crates/klue-app"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.92"
-license = "MIT"
+license = "GPL-3.0-only"
 authors = ["Karim W. Almorsi"]
 repository = "https://github.com/karimawi/Klue"
 
