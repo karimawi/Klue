@@ -28,6 +28,9 @@ struct Line {
     owner: &'static str,
     nick: Option<&'static str>,
     pkg: &'static str,
+    /// The package's Arabic name, as the carrier gives it (WE's `offerArName`, Vodafone's
+    /// plan record in Arabic). The package's own quota takes it too.
+    pkg_ar: Option<&'static str>,
     sub: (u32, u32),
     renew: (u32, u32),
     remind: (u32, LeadUnit),
@@ -36,6 +39,7 @@ struct Line {
     /// The Flex bundle was renewed on credit: settle-by (month, day) and what's owed.
     borrowed: Option<((u32, u32), f64)>,
     plan: &'static str,
+    plan_ar: Option<&'static str>,
     since: (i32, u32, u32),
     /// (month, day, amount, method, balance after)
     payments: Vec<(u32, u32, f64, &'static str, Option<f64>)>,
@@ -48,10 +52,12 @@ fn build(l: Line) -> Account {
     let bundles: Vec<Bundle> = l
         .bundles
         .iter()
-        .map(|B(kind, name, total, rem, unit, _)| Bundle {
+        .enumerate()
+        .map(|(i, B(kind, name, total, rem, unit, _))| Bundle {
             key: name.to_lowercase().replace(' ', "-"),
             kind: *kind,
             name: (*name).into(),
+            name_ar: bundle_ar(i, *kind, name, l.pkg_ar),
             unit: *unit,
             total: *total,
             remaining: *rem,
@@ -73,6 +79,7 @@ fn build(l: Line) -> Account {
     a.apply_usage(Usage {
         owner_name: Some(l.owner.into()),
         package_name: Some(l.pkg.into()),
+        package_name_ar: l.pkg_ar.map(String::from),
         balance_egp: Some(l.balance),
         owed_egp: l.borrowed.map(|(_, owed)| owed),
         bundles,
@@ -81,6 +88,7 @@ fn build(l: Line) -> Account {
         fetched_at,
         info: LineInfo {
             plan: Some(l.plan.into()),
+            plan_ar: l.plan_ar.map(String::from),
             payment: Some(PaymentKind::Prepaid),
             status: Some("Active".into()),
             number: None,
@@ -103,6 +111,17 @@ fn build(l: Line) -> Account {
     a
 }
 
+/// A demo bundle's Arabic name, the way the carriers give them: the package's own quota
+/// (the first, if it's data or Flex) has the package's; Vodafone's unnamed data bucket is
+/// "موبايل انترنت" in its Arabic pages; bundles the carrier names have no Arabic name.
+fn bundle_ar(index: usize, kind: BundleKind, name: &str, pkg_ar: Option<&str>) -> Option<String> {
+    match (index, kind) {
+        (0, BundleKind::Data | BundleKind::Flex) => pkg_ar.map(String::from),
+        _ if name == "Mobile data" => Some("موبايل انترنت".into()),
+        _ => None,
+    }
+}
+
 pub fn data() -> AppData {
     use BundleKind as K;
     use Unit as U;
@@ -110,34 +129,34 @@ pub fn data() -> AppData {
     let lines = vec![
         Line {
             carrier: Carrier::We, line: LineType::Landline, number: "0223584417", owner: mo, nick: Some("Home internet"),
-            pkg: "Super 140", sub: (11, 5), renew: (12, 5), remind: (2, LeadUnit::Days),
+            pkg: "Super 140", pkg_ar: Some("سرعة سوبر 140"), sub: (11, 5), renew: (12, 5), remind: (2, LeadUnit::Days),
             bundles: vec![B(K::Data, "Home internet", 140.0, 62.4, U::Gb, Some(10.0)), B(K::Addon, "Extra 25 GB", 25.0, 18.5, U::Gb, None)],
-            balance: 214.35, borrowed: None, plan: "WE IOE VDSL Primary Prepaid", since: (2016, 3, 8),
+            balance: 214.35, borrowed: None, plan: "WE IOE VDSL Primary Prepaid", plan_ar: None, since: (2016, 3, 8),
             payments: vec![(11, 4, 410.0, "Cash", Some(624.35)), (10, 5, 410.0, "Voucher", Some(418.2)), (9, 5, 400.0, "Cash", Some(407.95))],
         },
         Line {
             carrier: Carrier::We, line: LineType::Landline, number: "0348712290", owner: mo, nick: None,
-            pkg: "Super 25", sub: (11, 12), renew: (12, 12), remind: (12, LeadUnit::Hours),
+            pkg: "Super 25", pkg_ar: Some("سرعة سوبر 25"), sub: (11, 12), renew: (12, 12), remind: (12, LeadUnit::Hours),
             bundles: vec![B(K::Data, "Home internet", 25.0, 3.1, U::Gb, Some(5.0)), B(K::Minutes, "All-network minutes", 1000.0, 610.0, U::Minutes, Some(100.0))],
-            balance: 12.4, borrowed: None, plan: "WE IOE ADSL Primary Prepaid", since: (2019, 3, 2),
+            balance: 12.4, borrowed: None, plan: "WE IOE ADSL Primary Prepaid", plan_ar: None, since: (2019, 3, 2),
             payments: vec![(11, 11, 165.0, "EVC", Some(177.4))],
         },
         Line {
             carrier: Carrier::Vodafone, line: LineType::Mobile, number: "01001285532", owner: mo, nick: Some("My phone"),
-            pkg: "New Plus Bundle 98 LE", sub: (11, 8), renew: (12, 8), remind: (2, LeadUnit::Days),
+            pkg: "New Plus Bundle 98 LE", pkg_ar: None, sub: (11, 8), renew: (12, 8), remind: (2, LeadUnit::Days),
             bundles: vec![
                 B(K::Data, "New Plus Bundle 98 LE - 4750Mega", 4750.0, 1310.0, U::Mb, Some(500.0)),
                 B(K::Addon, "MI Minutes Conversion Optin", 500.0, 240.0, U::Mb, None),
                 B(K::Minutes, "All-network minutes", 1500.0, 1020.0, U::Minutes, Some(150.0)),
             ],
-            balance: 23.75, borrowed: None, plan: "Worry Free 14 PT", since: (2021, 6, 1),
+            balance: 23.75, borrowed: None, plan: "Worry Free 14 PT", plan_ar: Some("ريح بالك ١٤ قرش"), since: (2021, 6, 1),
             payments: vec![(11, 9, 120.0, "Card •••• 4242", None), (10, 24, 135.0, "Card •••• 4242", None), (10, 3, 120.0, "Card •••• 1881", None), (9, 12, 100.0, "Topup via fawry", None)],
         },
         Line {
             carrier: Carrier::Vodafone, line: LineType::Mobile, number: "01099214470", owner: "Samia Ibrahim Fahmy", nick: Some("Mom"),
-            pkg: "Flex 70", sub: (11, 1), renew: (12, 1), remind: (1, LeadUnit::Days),
+            pkg: "Flex 70", pkg_ar: Some("فليكس 70"), sub: (11, 1), renew: (12, 1), remind: (1, LeadUnit::Days),
             bundles: vec![B(K::Flex, "Flex 70", 2000.0, 1200.0, U::Flex, Some(200.0)), B(K::Data, "Mobile data", 12288.0, 6963.0, U::Mb, Some(1024.0))],
-            balance: 0.0, borrowed: Some(((11, 26), 79.8)), plan: "Flex 70", since: (2016, 2, 14),
+            balance: 0.0, borrowed: Some(((11, 26), 79.8)), plan: "Flex 70", plan_ar: Some("فليكس 70"), since: (2016, 2, 14),
             payments: vec![(10, 2, 80.0, "Topup via fawry", None)],
         },
     ];
@@ -151,19 +170,21 @@ pub async fn verify(carrier: Carrier, number: &str, password: &str) -> Result<Us
         return Err(FetchError::BadCredentials);
     }
     let (sub, renew) = (Utc::now() - chrono::Duration::days(6), Utc::now() + chrono::Duration::days(24));
-    let (pkg, total, rem, kind, name, plan) = match carrier {
-        Carrier::We => ("Super 200", 200.0, 171.3, BundleKind::Data, "Home internet", "WE IOE VDSL Primary Prepaid"),
-        _ => ("Flex 100", 30.0, 21.7, BundleKind::Data, "Mobile data", "Flex 100"),
+    let (pkg, pkg_ar, total, rem, kind, name, plan, plan_ar) = match carrier {
+        Carrier::We => ("Super 200", "سرعة سوبر 200", 200.0, 171.3, BundleKind::Data, "Home internet", "WE IOE VDSL Primary Prepaid", None),
+        _ => ("Flex 100", "فليكس 100", 30.0, 21.7, BundleKind::Data, "Mobile data", "Flex 100", Some("فليكس 100")),
     };
     Ok(Usage {
         owner_name: Some("Youssef Adel Mansour".into()),
         package_name: Some(pkg.into()),
+        package_name_ar: Some(pkg_ar.into()),
         balance_egp: Some(42.5),
         owed_egp: None,
         bundles: vec![Bundle {
             key: format!("demo-{number}"),
             kind,
             name: name.into(),
+            name_ar: bundle_ar(0, kind, name, Some(pkg_ar)),
             unit: Unit::Gb,
             total,
             remaining: rem,
@@ -177,6 +198,7 @@ pub async fn verify(carrier: Carrier, number: &str, password: &str) -> Result<Us
         fetched_at: Utc::now(),
         info: LineInfo {
             plan: Some(plan.into()),
+            plan_ar: plan_ar.map(String::from),
             payment: Some(PaymentKind::Prepaid),
             status: Some("Active".into()),
             number: Some(number.to_string()),

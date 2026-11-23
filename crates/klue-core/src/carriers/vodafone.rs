@@ -8,6 +8,10 @@
 //!    (`pim/product`) and the payment history. A borrowed bundle's debt shows in the usage
 //!    report as a "Negative Balance" bucket.
 //!
+//! The plan's record and the Flex page are also read in Arabic, for the plan's Arabic
+//! name. The usage report has no Arabic names: asked in Arabic it answers word for word
+//! the same, and the web app labels its quotas by type instead.
+//!
 //! The access token is a JWT whose `userInfo` claim carries the line's profile (number,
 //! first and last name, prepaid/postpaid, status, rate plan code). Klue only reads it:
 //! it came straight from Vodafone over TLS, so there's no need to check its signature.
@@ -22,9 +26,10 @@ use wreq::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, LOCATION, ORIGIN, REFE
 use super::FetchContext;
 use crate::{
     Bundle, BundleKind, BundleState, FetchError, LineType, Unit, Usage,
-    format::tidy_name,
+    format::{self, tidy_name},
     http, json as j,
     model::{LineInfo, Payment, PaymentKind, assign_keys, order_bundles},
+    store::Lang,
 };
 
 const BASE: &str = "https://web.vodafone.com.eg";
@@ -100,14 +105,15 @@ pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Resu
     let report = http::json_body(resp, "Vodafone usage").await?;
     ctx.dump("vf-usage", &report);
     // The rate plan's name (best effort) also names a Flex line's package.
-    let plan = match &profile.plan_code {
-        Some(code) => plan_name(&client, code, ctx).await,
-        None => None,
+    let (plan, plan_ar) = match &profile.plan_code {
+        Some(code) => (plan_name(&client, code, Lang::En, ctx).await, plan_name(&client, code, Lang::Ar, ctx).await),
+        None => (None, None),
     };
-    let mut usage = parse_usage(&report, profile.name.clone(), plan.as_deref(), Utc::now())?;
+    let mut usage = parse_usage(&report, profile.name.clone(), plan.as_deref(), plan_ar.as_deref(), Utc::now())?;
 
     // 4. Extras. Not essential, so failures only leave them out.
     usage.info = LineInfo {
+        plan_ar: plan_ar.filter(|_| plan.is_some()),
         plan: plan.or_else(|| profile.tariff.clone()),
         payment: profile.payment,
         status: profile.status.clone(),
@@ -118,8 +124,11 @@ pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Resu
     // A Flex bundle can be borrowed or frozen; Vodafone's Flex page says which, until
     // when, and the plan's current name.
     if usage.bundles.iter().any(|b| b.kind == BundleKind::Flex)
-        && let Some(flex) = flex_status(&client, &access_token, payer, ctx).await
+        && let Some(mut flex) = flex_status(&client, &access_token, payer, Lang::En, ctx).await
     {
+        if flex.plan.is_some() {
+            flex.plan_ar = flex_status(&client, &access_token, payer, Lang::Ar, ctx).await.and_then(|ar| ar.plan).and_then(|p| format::arabic(&p));
+        }
         apply_flex_status(&mut usage, &flex);
     }
     usage.payments = payment_history(&client, &access_token, payer, ctx).await;
@@ -137,16 +146,26 @@ pub(crate) struct FlexStatus {
     /// The plan as the Flex page names it ("Flex 115"), more current than the content
     /// API's record for its code ([`plan_name`] can still say "Flex 100").
     pub plan: Option<String>,
+    /// The same, from the Flex page read in Arabic.
+    pub plan_ar: Option<String>,
 }
 
-async fn flex_status(client: &wreq::Client, access_token: &str, msisdn: &str, ctx: &FetchContext<'_>) -> Option<FlexStatus> {
+/// What the web app sends as `Accept-Language` to the DXL APIs in `lang`.
+fn accept_language(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "en-US,en;q=0.9",
+        Lang::Ar => "AR",
+    }
+}
+
+async fn flex_status(client: &wreq::Client, access_token: &str, msisdn: &str, lang: Lang, ctx: &FetchContext<'_>) -> Option<FlexStatus> {
     let url = format!("{BASE}/services/dxl/pim/product?relatedParty.id={msisdn}&@type=FlexFaceLiftProfile");
-    let resp = dxl_get(client, &url, access_token, msisdn).send().await.ok()?;
+    let resp = dxl_get_in(client, &url, access_token, msisdn, lang).send().await.ok()?;
     let v = http::json_body(resp, "Vodafone flex status")
         .await
         .inspect_err(|e| tracing::info!("Vodafone flex status unavailable: {e}"))
         .ok()?;
-    ctx.dump("vf-flex", &v);
+    ctx.dump(if lang == Lang::Ar { "vf-flex-ar" } else { "vf-flex" }, &v);
     parse_flex_status(&v)
 }
 
@@ -167,7 +186,7 @@ pub(crate) fn parse_flex_status(v: &Value) -> Option<FlexStatus> {
         if s.eq_ignore_ascii_case("active") { Some(BundleState::Active) } else { state_named(&s) }
     });
     let settle_by = characteristic(tariff, "AFBFreezeDate").and_then(|d| j::iso_datetime(&d).or_else(|| j::epoch_ms(&d)));
-    Some(FlexStatus { state, settle_by, plan: j::text(&tariff["productSpecification"]["name"]) })
+    Some(FlexStatus { state, settle_by, plan: j::text(&tariff["productSpecification"]["name"]), plan_ar: None })
 }
 
 /// The Flex page's word on the line's Flex bundle (the largest one, the plan's own) and
@@ -175,19 +194,34 @@ pub(crate) fn parse_flex_status(v: &Value) -> Option<FlexStatus> {
 pub(crate) fn apply_flex_status(usage: &mut Usage, flex: &FlexStatus) {
     if let Some(plan) = &flex.plan {
         usage.package_name = Some(plan.clone());
+        usage.package_name_ar = flex.plan_ar.clone();
         usage.info.plan = Some(plan.clone());
+        usage.info.plan_ar = flex.plan_ar.clone();
     }
-    let Some(bundle) = usage.bundles.iter_mut().filter(|b| b.kind == BundleKind::Flex).max_by(|a, b| a.total.total_cmp(&b.total)) else {
+    let Some(bundle) = plan_flex_bundle(&mut usage.bundles) else {
         return;
     };
+    if flex.plan.is_some() {
+        bundle.name_ar = flex.plan_ar.clone();
+    }
     if let Some(state) = flex.state {
         bundle.state = state;
     }
     bundle.settle_by = flex.settle_by.filter(|_| bundle.state == BundleState::Borrowed);
 }
 
+/// The Flex bundle that is a Flex plan's own: the largest.
+fn plan_flex_bundle(bundles: &mut [Bundle]) -> Option<&mut Bundle> {
+    bundles.iter_mut().filter(|b| b.kind == BundleKind::Flex).max_by(|a, b| a.total.total_cmp(&b.total))
+}
+
 /// A DXL API request with the headers the web app sends.
 fn dxl_get(client: &wreq::Client, url: &str, access_token: &str, msisdn: &str) -> wreq::RequestBuilder {
+    dxl_get_in(client, url, access_token, msisdn, Lang::En)
+}
+
+/// [`dxl_get`] in `lang`.
+fn dxl_get_in(client: &wreq::Client, url: &str, access_token: &str, msisdn: &str, lang: Lang) -> wreq::RequestBuilder {
     client
         .get(url)
         .header("msisdn", msisdn)
@@ -195,7 +229,7 @@ fn dxl_get(client: &wreq::Client, url: &str, access_token: &str, msisdn: &str) -
         .bearer_auth(access_token)
         .header(ACCEPT, "application/json")
         .header(CONTENT_TYPE, "application/json")
-        .header(ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+        .header(ACCEPT_LANGUAGE, accept_language(lang))
         .header(ORIGIN, BASE)
         .header(REFERER, REDIRECT_URI)
 }
@@ -256,13 +290,22 @@ pub(crate) fn parse_payments(v: &Value) -> Option<Vec<Payment>> {
 }
 
 /// The rate plan's display name (e.g. "Worry Free 14 PT") from Vodafone's content API,
-/// keyed by the token's `serviceClassCode`.
-async fn plan_name(client: &wreq::Client, code: &str, ctx: &FetchContext<'_>) -> Option<String> {
-    let url = format!("{BASE}/o/VodafoneDDLRecordRest/records/get/en/233987/PlanID/{code}");
+/// keyed by the token's `serviceClassCode`. In Arabic, only a name written in Arabic.
+async fn plan_name(client: &wreq::Client, code: &str, lang: Lang, ctx: &FetchContext<'_>) -> Option<String> {
+    let segment = if lang == Lang::Ar { "ar" } else { "en" };
+    let url = format!("{BASE}/o/VodafoneDDLRecordRest/records/get/{segment}/233987/PlanID/{code}");
     let resp = client.get(url).header(ACCEPT, "application/json").header(REFERER, BASE).send().await.ok()?;
     let v = http::json_body(resp, "Vodafone plan").await.ok()?;
-    ctx.dump("vf-plan", &v);
-    j::text(&v["PlanName"]).or_else(|| j::text(&v["eDesc"]["PlanName"])).filter(|n| n != "N/A")
+    ctx.dump(if lang == Lang::Ar { "vf-plan-ar" } else { "vf-plan" }, &v);
+    parse_plan_name(&v, lang)
+}
+
+fn parse_plan_name(v: &Value, lang: Lang) -> Option<String> {
+    let name = j::text(&v["PlanName"]).or_else(|| j::text(&v["eDesc"]["PlanName"])).filter(|n| n != "N/A");
+    match lang {
+        Lang::En => name,
+        Lang::Ar => name.and_then(|n| format::arabic(&n)),
+    }
 }
 
 async fn get_following_redirects(client: &wreq::Client, url: &str) -> Result<String, FetchError> {
@@ -383,8 +426,14 @@ const FAKKA_CARDS: [(&str, f64, u32); 4] = [("26", 750.0, 10), ("19.5", 550.0, 7
 
 /// `plan` is the rate plan's display name ([`plan_name`]); a Flex line's package is its
 /// plan ("Flex 100"), since its flex bucket can be named otherwise ("AFB Freeze Quota"
-/// while a borrowed bundle is frozen).
-pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, plan: Option<&str>, now: DateTime<Utc>) -> Result<Usage, FetchError> {
+/// while a borrowed bundle is frozen). `plan_ar` is the plan's Arabic name.
+pub(crate) fn parse_usage(
+    report: &Value,
+    owner_name: Option<String>,
+    plan: Option<&str>,
+    plan_ar: Option<&str>,
+    now: DateTime<Utc>,
+) -> Result<Usage, FetchError> {
     let items = report
         .as_array()
         .ok_or_else(|| FetchError::Unexpected("Vodafone's usage report isn't a list".into()))?;
@@ -443,10 +492,15 @@ pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, plan: Opti
                 _ => BundleKind::Other,
             };
             let valid = if balance["validFor"].is_object() { &balance["validFor"] } else { &bucket["validFor"] };
+            let named = bucket_name(bucket);
             bundles.push(Bundle {
                 key: String::new(),
                 kind,
-                name: bucket_name(bucket).unwrap_or_else(|| default_name(kind, &kind_raw)),
+                name_ar: match &named {
+                    Some(name) => fakka_card_ar(name),
+                    None => default_name_ar(kind, &kind_raw).map(str::to_string),
+                },
+                name: named.unwrap_or_else(|| default_name(kind, &kind_raw)),
                 unit,
                 total: total * factor,
                 remaining: remaining * factor,
@@ -461,18 +515,35 @@ pub(crate) fn parse_usage(report: &Value, owner_name: Option<String>, plan: Opti
     order_bundles(&mut bundles);
     assign_keys(&mut bundles);
 
+    // The package's English and Arabic names come from the same place: the tariff bucket,
+    // else the plan (a Flex line's package is its plan), else a bundle. The plan's Arabic
+    // name fits a tariff only when both name the same plan.
+    let has_flex = bundles.iter().any(|b| b.kind == BundleKind::Flex);
+    let with_plan_ar = |name: &str| (name.to_string(), plan_ar.filter(|_| plan == Some(name)).map(str::to_string));
+    let named = match (tariff_name, plan.filter(|_| has_flex)) {
+        (Some(tariff), _) => Some(with_plan_ar(&tariff)),
+        (None, plan) => plan.map(with_plan_ar),
+    };
+    // A Flex line's Flex bundle is its plan's own quota, so the plan's Arabic name fits it.
+    if has_flex
+        && let Some((_, Some(ar))) = &named
+        && let Some(flex) = plan_flex_bundle(&mut bundles)
+    {
+        flex.name_ar = Some(ar.clone());
+    }
+
     let main = bundles.first().ok_or_else(|| FetchError::Unexpected("Vodafone returned no bundles for this line".into()))?;
     let flex = bundles.iter().find(|b| b.kind == BundleKind::Flex);
-    let package_name = tariff_name
-        .or_else(|| plan.filter(|_| flex.is_some()).map(str::to_string))
-        .or_else(|| flex.map(|b| b.name.clone()))
-        .or_else(|| Some(main.name.clone()));
+    let (package_name, package_name_ar) = named
+        .or_else(|| flex.map(|b| (b.name.clone(), b.name_ar.clone())))
+        .unwrap_or_else(|| (main.name.clone(), main.name_ar.clone()));
     let renews_at = main
         .expires_at
         .or_else(|| bundles.iter().find_map(|b| b.expires_at));
     Ok(Usage {
         owner_name,
-        package_name,
+        package_name: Some(package_name),
+        package_name_ar,
         balance_egp,
         owed_egp: (owed_egp > 0.0).then(|| (owed_egp * 100.0).round() / 100.0),
         subscribed_at: main.starts_at,
@@ -558,9 +629,28 @@ fn product_name(bucket: &Value) -> Option<String> {
         .or_else(|| j::text(&bucket["name"]))
 }
 
+/// "Fakka 19 LE" in Arabic, as Vodafone's Arabic pages word its Fakka cards ("كروت فكة").
+fn fakka_card_ar(name: &str) -> Option<String> {
+    let price = Regex::new(r"^Fakka (\d+(?:\.\d+)?) LE$").ok()?.captures(name)?[1].to_string();
+    Some(format!("فكة {price} جنيه"))
+}
+
 fn fakka_card_units(name: &str) -> Option<f64> {
     let price = Regex::new(r"(\d+(?:\.\d+)?)\s*LE").ok()?.captures(name)?[1].to_string();
     FAKKA_CARDS.iter().find(|(p, ..)| *p == price).map(|(_, units, _)| *units)
+}
+
+/// [`default_name`] in Arabic, in the words of Vodafone's own Arabic pages (its web app's
+/// `ar.json`: "موبايل انترنت", "فليكس", "دقائق", "رسائل").
+fn default_name_ar(kind: BundleKind, raw: &str) -> Option<&'static str> {
+    match kind {
+        BundleKind::Data => Some("موبايل انترنت"),
+        BundleKind::Flex => Some("فليكس"),
+        BundleKind::Minutes => Some("دقائق"),
+        BundleKind::Sms => Some("رسائل"),
+        _ if raw == "fakka_and_mared" => Some("فكة"),
+        _ => None,
+    }
 }
 
 fn default_name(kind: BundleKind, raw: &str) -> String {
@@ -607,7 +697,7 @@ mod tests {
 
     #[test]
     fn parses_usage_report() {
-        let usage = parse_usage(&fixture("vf_usage.json"), Some("Mostafa".into()), None, Utc::now()).unwrap();
+        let usage = parse_usage(&fixture("vf_usage.json"), Some("Mostafa".into()), None, None, Utc::now()).unwrap();
         assert_eq!(usage.balance_egp, Some(37.25));
         assert_eq!(usage.package_name.as_deref(), Some("Flex 70"));
         let main = usage.main().unwrap();
@@ -624,7 +714,7 @@ mod tests {
 
     #[test]
     fn keeps_units_and_drops_internal_counters() {
-        let usage = parse_usage(&fixture("vf_usage_others.json"), None, Some("Worry Free 14 PT"), Utc::now()).unwrap();
+        let usage = parse_usage(&fixture("vf_usage_others.json"), None, Some("Worry Free 14 PT"), None, Utc::now()).unwrap();
         assert_eq!(usage.balance_egp, Some(12.5));
         // Not a Flex line: the package is the subscribed bundle, not the tariff.
         assert_eq!(usage.package_name.as_deref(), Some("New Plus Bundle 98 LE - 4750Mega"));
@@ -646,7 +736,7 @@ mod tests {
         // Quota", counts the flexes used on credit in Grace_Flex buckets and the debt in a
         // "Negative Balance" bucket in piastres.
         let report = fixture("vf_usage_flex_frozen.json");
-        let usage = parse_usage(&report, None, Some("Flex 100"), Utc::now()).unwrap();
+        let usage = parse_usage(&report, None, Some("Flex 100"), None, Utc::now()).unwrap();
         assert_eq!(usage.package_name.as_deref(), Some("Flex 100"));
         assert_eq!(usage.balance_egp, Some(0.0));
         let rows: Vec<_> = usage.bundles.iter().map(|b| (b.name.as_str(), b.unit, b.remaining, b.total)).collect();
@@ -659,13 +749,13 @@ mod tests {
         assert_eq!(usage.renews_at.unwrap().to_rfc3339(), "2026-12-17T00:00:00+00:00");
 
         // Without the plan's name, the flex bucket's.
-        let usage = parse_usage(&report, None, None, Utc::now()).unwrap();
+        let usage = parse_usage(&report, None, None, None, Utc::now()).unwrap();
         assert_eq!(usage.package_name.as_deref(), Some("AFB Freeze Quota"));
 
         // Grace flexes still to use would be shown, in flexes.
         let mut grace = report.clone();
         grace[3]["bucket"][0]["bucketBalance"][0]["remainingValue"]["amount"] = json!(50);
-        let usage = parse_usage(&grace, None, None, Utc::now()).unwrap();
+        let usage = parse_usage(&grace, None, None, None, Utc::now()).unwrap();
         let g = usage.bundles.iter().find(|b| b.name == "Grace Flex").unwrap();
         assert_eq!((g.unit, g.remaining, g.total), (Unit::Flex, 50.0, 750.0));
     }
@@ -674,7 +764,7 @@ mod tests {
     fn reads_the_flex_page_status() {
         let frozen = fixture("vf_flex_profile_frozen.json");
         let status = parse_flex_status(&frozen).unwrap();
-        assert_eq!(status, FlexStatus { state: Some(BundleState::Frozen), settle_by: None, plan: Some("Flex 115".into()) });
+        assert_eq!(status, FlexStatus { state: Some(BundleState::Frozen), settle_by: None, plan: Some("Flex 115".into()), plan_ar: None });
 
         // Borrowed: usable until AFBFreezeDate. (The tariff is the product flagged isFlexTariff.)
         let mut borrowed = frozen.clone();
@@ -687,7 +777,7 @@ mod tests {
 
         // It wins over the usage report and renames the plan; only a borrowed bundle keeps a date.
         let report = fixture("vf_usage_flex_frozen.json");
-        let mut usage = parse_usage(&report, None, Some("Flex 100"), Utc::now()).unwrap();
+        let mut usage = parse_usage(&report, None, Some("Flex 100"), None, Utc::now()).unwrap();
         apply_flex_status(&mut usage, &status);
         let main = usage.main().unwrap();
         assert_eq!((main.state, main.settle_by), (BundleState::Borrowed, status.settle_by));
@@ -695,14 +785,54 @@ mod tests {
         assert_eq!(usage.bundles[1].state, BundleState::Active);
 
         // "Grace" (expired) isn't a state Klue shows: the report's stays. "Active" clears it.
-        let mut usage = parse_usage(&report, None, None, Utc::now()).unwrap();
-        apply_flex_status(&mut usage, &FlexStatus { state: None, settle_by: status.settle_by, plan: None });
+        let mut usage = parse_usage(&report, None, None, None, Utc::now()).unwrap();
+        apply_flex_status(&mut usage, &FlexStatus { state: None, settle_by: status.settle_by, plan: None, plan_ar: None });
         assert_eq!((usage.main().unwrap().state, usage.main().unwrap().settle_by), (BundleState::Frozen, None));
         apply_flex_status(&mut usage, &FlexStatus { state: Some(BundleState::Active), ..Default::default() });
         assert_eq!(usage.main().unwrap().state, BundleState::Active);
         assert_eq!(usage.package_name.as_deref(), Some("AFB Freeze Quota"));
 
         assert!(parse_flex_status(&json!({"code": "1001", "reason": "No Data Found"})).is_none());
+    }
+
+    #[test]
+    fn arabic_names_come_from_the_plan_record_and_the_flex_page() {
+        // The plan's content record in Arabic ("/ar/" instead of "/en/").
+        let record = json!({"PlanName": "ريح بالك ١٤ قرش", "eDesc": {"PlanName": "ريح بالك ١٤ قرش"}});
+        assert_eq!(parse_plan_name(&record, Lang::Ar).as_deref(), Some("ريح بالك ١٤ قرش"));
+        assert_eq!(parse_plan_name(&json!({"PlanName": "Worry Free 14 PT"}), Lang::Ar), None);
+        assert_eq!(parse_plan_name(&json!({"PlanName": "N/A"}), Lang::En), None);
+
+        // A Flex line: the plan names the package and its Flex bundle in Arabic too.
+        let report = fixture("vf_usage_flex_frozen.json");
+        let mut usage = parse_usage(&report, None, Some("Flex 100"), Some("فليكس ١٠٠"), Utc::now()).unwrap();
+        assert_eq!(usage.package_name_ar.as_deref(), Some("فليكس ١٠٠"));
+        let names: Vec<_> = usage.bundles.iter().map(|b| (b.name_in(Lang::Ar), b.name_in(Lang::En))).collect();
+        assert_eq!(names, [("فليكس ١٠٠", "AFB Freeze Quota"), ("فكة 19 جنيه", "Fakka 19 LE")]);
+
+        // The Flex page read in Arabic has the current plan's Arabic name, and it wins.
+        let plan_ar = parse_flex_status(&fixture("vf_flex_profile_frozen_ar.json")).and_then(|s| s.plan);
+        assert_eq!(plan_ar.as_deref(), Some("فليكس 115"));
+        let status = FlexStatus { plan_ar, ..parse_flex_status(&fixture("vf_flex_profile_frozen.json")).unwrap() };
+        apply_flex_status(&mut usage, &status);
+        assert_eq!((usage.package_in(Lang::Ar), usage.info.plan_in(Lang::Ar)), (Some("فليكس 115"), Some("فليكس 115")));
+        assert_eq!(usage.main().unwrap().name_in(Lang::Ar), "فليكس 115");
+        assert_eq!(usage.package_in(Lang::En), Some("Flex 115"));
+
+        // A tariff bucket named like the plan takes its Arabic name; a stale plan record doesn't.
+        let report = fixture("vf_usage.json");
+        let usage = parse_usage(&report, None, Some("Flex 70"), Some("فليكس ٧٠"), Utc::now()).unwrap();
+        assert_eq!((usage.package_name.as_deref(), usage.package_name_ar.as_deref()), (Some("Flex 70"), Some("فليكس ٧٠")));
+        assert_eq!(usage.bundles.iter().find(|b| b.kind == BundleKind::Flex).unwrap().name_in(Lang::Ar), "فليكس ٧٠");
+        let usage = parse_usage(&report, None, Some("Flex 100"), Some("فليكس ١٠٠"), Utc::now()).unwrap();
+        assert_eq!((usage.package_name.as_deref(), usage.package_name_ar.as_deref()), (Some("Flex 70"), None));
+
+        // Bundles named by Vodafone keep their names: it has no Arabic ones. Klue's own
+        // names for unnamed buckets are in Vodafone's Arabic words.
+        let usage = parse_usage(&fixture("vf_usage_others.json"), None, Some("Worry Free 14 PT"), Some("ريح بالك ١٤ قرش"), Utc::now()).unwrap();
+        assert!(usage.bundles.iter().all(|b| b.name_ar.is_none()));
+        assert_eq!(usage.package_name_ar, None);
+        assert_eq!(default_name_ar(BundleKind::Data, "data"), Some("موبايل انترنت"));
     }
 
     #[test]

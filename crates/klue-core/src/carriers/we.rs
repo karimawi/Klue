@@ -29,7 +29,7 @@ use crate::{
     Bundle, BundleKind, BundleState, FetchError, LineType, Unit, Usage,
     model::{LineInfo, Payment, PaymentKind, order_bundles},
     captcha::{clean_code, decode_data_uri},
-    format::tidy_name,
+    format::{self, tidy_name},
     http,
     json::{self as j},
     model::assign_keys,
@@ -249,7 +249,7 @@ impl WeSession {
 
         // Extras. Neither is essential, so failures only leave them out.
         let (plan, since) = self.line_product(auth, &headers, ctx).await.unwrap_or_default();
-        usage.info = LineInfo { plan, payment: auth.payment, status: auth.status.clone(), number: None, since };
+        usage.info = LineInfo { plan, plan_ar: None, payment: auth.payment, status: auth.status.clone(), number: None, since };
         usage.payments = self.recharges(auth, &headers, ctx).await;
         Ok(usage)
     }
@@ -477,6 +477,8 @@ pub(crate) struct MainOffering {
     /// What `queryFreeUnit` wants as `mainOfferId`.
     pub id: String,
     pub name: Option<String>,
+    /// `offerArName`, when it's in Arabic (WE leaves some offerings' in English).
+    pub name_ar: Option<String>,
     pub subscribed_at: Option<chrono::DateTime<Utc>>,
     pub renews_at: Option<chrono::DateTime<Utc>>,
 }
@@ -490,6 +492,7 @@ pub(crate) fn main_offering(v: &Value) -> Option<MainOffering> {
     let main = flagged.or_else(|| list.iter().find(|o| j::text(&o["offerId"]).as_deref() == Some(id.as_str())));
     Some(MainOffering {
         name: main.and_then(|o| shallow_text(o, &["offerEnName", "offeringName", "offerArName"])),
+        name_ar: main.and_then(|o| shallow_text(o, &["offerArName"])).and_then(|n| format::arabic(&n)),
         subscribed_at: main.and_then(|o| j::epoch_ms(&o["subscriptionDate"])),
         renews_at: main.and_then(|o| j::epoch_ms(&o["renewalDate"])),
         id,
@@ -534,6 +537,7 @@ pub(crate) fn parse_free_units(v: &Value) -> Vec<Bundle> {
             key: String::new(),
             kind: if is_main_quota(detail) { BundleKind::Data } else { BundleKind::Addon },
             name,
+            name_ar: None,
             unit,
             total: total * factor,
             remaining: remaining * factor,
@@ -585,22 +589,27 @@ fn shallow_text(v: &Value, keys: &[&str]) -> Option<String> {
 
 /// Package name and cycle dates come from the package's own quota, not from a bigger
 /// top-up that may lead the list; without one, from the subscribed offering.
+///
+/// The only Arabic name WE gives is the package's (`offerArName`; top-ups and gifts keep
+/// their English names there too), and the package's quota takes it as well.
 pub(crate) fn build_usage(
     units: &Value,
     package: Option<&MainOffering>,
     balance_egp: Option<f64>,
     owner_name: Option<String>,
 ) -> Result<Usage, FetchError> {
-    let bundles = parse_free_units(units);
-    let first = bundles.first().ok_or_else(|| FetchError::Unexpected("WE returned no quota for this line".into()))?;
-    let quota = free_unit_details(units)
-        .any(|(_, d)| is_main_quota(d))
-        .then(|| bundles.iter().find(|b| b.kind == BundleKind::Data))
-        .flatten();
+    let mut bundles = parse_free_units(units);
     let offering = package.cloned().unwrap_or_default();
+    let has_quota = free_unit_details(units).any(|(_, d)| is_main_quota(d));
+    if has_quota && let Some(quota) = bundles.iter_mut().find(|b| b.kind == BundleKind::Data) {
+        quota.name_ar = offering.name_ar.clone();
+    }
+    let first = bundles.first().ok_or_else(|| FetchError::Unexpected("WE returned no quota for this line".into()))?;
+    let quota = has_quota.then(|| bundles.iter().find(|b| b.kind == BundleKind::Data)).flatten();
     Ok(Usage {
         owner_name,
         package_name: quota.map(|q| q.name.clone()).or(offering.name).or_else(|| Some(first.name.clone())),
+        package_name_ar: offering.name_ar,
         balance_egp,
         owed_egp: None,
         subscribed_at: quota.and_then(|q| q.starts_at).or(offering.subscribed_at).or(first.starts_at),
@@ -746,6 +755,21 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn the_package_and_its_quota_take_the_arabic_offering_name() {
+        let offers = fixture("we_offerings.json");
+        let package = main_offering(&offers).unwrap();
+        assert_eq!(package.name_ar.as_deref(), Some("سرعة سوبر 3-(250 جيجابايت)"));
+        let usage = build_usage(&fixture("we_free_units_topups.json"), Some(&package), None, None).unwrap();
+        assert_eq!(usage.package_in(crate::store::Lang::Ar), Some("سرعة سوبر 3-(250 جيجابايت)"));
+        assert_eq!(usage.package_in(crate::store::Lang::En), Some("Super 3 speed (250 GB)"));
+        let quota = usage.bundles.iter().find(|b| b.kind == BundleKind::Data).unwrap();
+        assert_eq!(quota.name_in(crate::store::Lang::Ar), "سرعة سوبر 3-(250 جيجابايت)");
+        // Top-ups have no Arabic names: WE's own "Arabic" names for them are English.
+        let topup = usage.bundles.iter().find(|b| b.name == "Giga Tank - 400 GB").unwrap();
+        assert_eq!((topup.name_ar.as_deref(), topup.name_in(crate::store::Lang::Ar)), (None, "Giga Tank - 400 GB"));
     }
 
     /// Reads only the captcha whose image is `[sure_of]`.

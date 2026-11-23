@@ -18,13 +18,13 @@ pub fn describe(account: &Account, event: &AlertEvent, lang: Lang) -> (String, S
     let package = account
         .usage
         .as_ref()
-        .and_then(|u| u.package_name.clone())
-        .unwrap_or_else(|| i18n::strings(lang).package.to_string());
+        .and_then(|u| u.package_in(lang))
+        .map_or_else(|| i18n::strings(lang).package.to_string(), str::to_string);
     let ar = lang == Lang::Ar;
     let body = match event {
         AlertEvent::QuotaLow { bundle, .. } => {
             let is_main = account.main_bundle().is_some_and(|m| m.key == bundle.key);
-            let on = if is_main { package } else { bundle.name.clone() };
+            let on = if is_main { package } else { bundle.name_in(lang).to_string() };
             let left = format!("{} {}", format::amount(bundle.remaining, bundle.unit), i18n::unit_name(bundle.unit, lang));
             if ar { format!("متبقي {left} فقط من باقة {on}") } else { format!("Only {left} left on {on}") }
         }

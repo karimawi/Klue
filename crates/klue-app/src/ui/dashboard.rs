@@ -100,7 +100,7 @@ fn notice<'a>(ctx: &Ctx<'a>, icon: Icon, color: Color, title: impl iced::widget:
 fn state_notice<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> Option<El<'a>> {
     let bundle = usage.bundles.iter().filter(|b| b.state != BundleState::Active).max_by_key(|b| b.state == BundleState::Frozen)?;
     let is_main = usage.main_for(account.main_bundle.as_deref()).is_some_and(|m| m.key == bundle.key);
-    let what = usage.package_name.clone().filter(|_| is_main).unwrap_or_else(|| bundle.name.clone());
+    let what = usage.package_in(ctx.lang).filter(|_| is_main).unwrap_or_else(|| bundle.name_in(ctx.lang)).to_string();
     let (title, body) = i18n::state_notice(bundle.state, account.carrier, &what, usage.owed_egp, bundle.settle_by, ctx.lang)?;
     Some(notice(ctx, Icon::Clock, state_color(ctx, bundle.state), title, body))
 }
@@ -137,7 +137,7 @@ fn overview<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a>
     let picked = account.main_bundle.is_some() && main.is_some_and(|m| Some(&m.key) == account.main_bundle.as_ref());
 
     // Quota hero.
-    let package = usage.package_name.clone().or_else(|| main.map(|m| m.name.clone())).unwrap_or_default();
+    let package = usage.package_in(ctx.lang).or_else(|| main.map(|m| m.name_in(ctx.lang))).unwrap_or_default().to_string();
     let mut quota = column![].spacing(0);
     let mut quota_foot: El<'a> = Space::new().into();
     let mut top = vec![ctx.caps(s.package).into(), super::fill_x()];
@@ -148,8 +148,8 @@ fn overview<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a>
     quota = quota.push(ctx.row(top).spacing(6));
     quota = quota.push(ctx.bold(package.clone(), 21.0));
     if let Some(m) = main {
-        if m.name != package || picked {
-            let mut line = vec![ctx.muted(m.name.clone(), 13.0).into()];
+        if m.name_in(ctx.lang) != package || picked {
+            let mut line = vec![ctx.muted(m.name_in(ctx.lang).to_string(), 13.0).into()];
             if picked {
                 line.push(ctx.muted("·", 13.0).into());
                 line.push(ctx.text(s.main_picked, 13.0, Weight::Semibold, p.ac_tx).into());
@@ -309,8 +309,8 @@ fn money_and_line<'a>(ctx: &Ctx<'a>, usage: &'a Usage) -> El<'a> {
 
     let info = &usage.info;
     let mut pairs: Vec<(&str, String)> = Vec::new();
-    if let Some(plan) = &info.plan {
-        pairs.push((s.plan, plan.clone()));
+    if let Some(plan) = info.plan_in(ctx.lang) {
+        pairs.push((s.plan, plan.to_string()));
     }
     if let Some(kind) = info.payment {
         pairs.push((s.payment_type, (if kind == PaymentKind::Prepaid { s.prepaid } else { s.postpaid }).to_string()));
@@ -382,7 +382,7 @@ fn bundles<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a> 
                 .into(),
             None => ctx.muted(i18n::kind_name(bundle.kind, ctx.lang), 11.5).into(),
         };
-        let name = column![ctx.semi(bundle.name.clone(), 13.5), kind].spacing(0).align_x(ctx.start());
+        let name = column![ctx.semi(bundle.name_in(ctx.lang).to_string(), 13.5), kind].spacing(0).align_x(ctx.start());
         let left = ctx
             .row(vec![
                 container(super::bar(bundle.remaining_pct() / 100.0, 6.0, if frozen { p.dv } else if low { p.danger } else { p.ac }, p.sf, None, ctx.rtl()))

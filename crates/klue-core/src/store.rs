@@ -494,6 +494,7 @@ mod tests {
             key: "data".into(),
             kind: BundleKind::Data,
             name: "Data".into(),
+            name_ar: None,
             unit: Unit::Gb,
             total,
             remaining,

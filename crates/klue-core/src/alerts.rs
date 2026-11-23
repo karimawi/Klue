@@ -86,12 +86,14 @@ mod tests {
         a.apply_usage(Usage {
             owner_name: None,
             package_name: None,
+            package_name_ar: None,
             balance_egp: None,
             owed_egp: None,
             bundles: vec![Bundle {
                 key: "mobile-data".into(),
                 kind: BundleKind::Data,
                 name: "Mobile data".into(),
+                name_ar: None,
                 unit: Unit::Gb,
                 total: 20.0,
                 remaining,

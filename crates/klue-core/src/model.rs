@@ -1,6 +1,8 @@
 use chrono::{DateTime, Months, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::store::Lang;
+
 /// The four Egyptian carriers Klue knows about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -98,6 +100,9 @@ pub struct Bundle {
     pub kind: BundleKind,
     /// Name as reported by the carrier.
     pub name: String,
+    /// The carrier's Arabic name for it, when it has one.
+    #[serde(default)]
+    pub name_ar: Option<String>,
     pub unit: Unit,
     pub total: f64,
     pub remaining: f64,
@@ -113,6 +118,11 @@ pub struct Bundle {
 }
 
 impl Bundle {
+    /// The name to show in `lang`: the Arabic one in Arabic, when the carrier has one.
+    pub fn name_in(&self, lang: Lang) -> &str {
+        self.name_ar.as_deref().filter(|_| lang == Lang::Ar).unwrap_or(&self.name)
+    }
+
     pub fn used(&self) -> f64 {
         (self.total - self.remaining).max(0.0)
     }
@@ -157,6 +167,9 @@ pub struct LineInfo {
     /// Rate plan / tariff, e.g. "Worry Free 14 PT" or "WE IOE VDSL Primary Prepaid".
     #[serde(default)]
     pub plan: Option<String>,
+    /// The plan's Arabic name, when the carrier has one.
+    #[serde(default)]
+    pub plan_ar: Option<String>,
     #[serde(default)]
     pub payment: Option<PaymentKind>,
     /// Line status as the carrier words it, e.g. "Active".
@@ -167,6 +180,13 @@ pub struct LineInfo {
     pub number: Option<String>,
     #[serde(default)]
     pub since: Option<DateTime<Utc>>,
+}
+
+impl LineInfo {
+    /// The plan's name in `lang` (see [`Bundle::name_in`]).
+    pub fn plan_in(&self, lang: Lang) -> Option<&str> {
+        self.plan_ar.as_deref().filter(|_| lang == Lang::Ar).or(self.plan.as_deref())
+    }
 }
 
 /// A top-up or bill payment.
@@ -189,6 +209,9 @@ pub struct Payment {
 pub struct Usage {
     pub owner_name: Option<String>,
     pub package_name: Option<String>,
+    /// The package's Arabic name, when the carrier has one.
+    #[serde(default)]
+    pub package_name_ar: Option<String>,
     #[serde(default)]
     pub balance_egp: Option<f64>,
     /// Money the line owes the carrier, e.g. for a borrowed bundle; the next recharge pays
@@ -208,6 +231,11 @@ pub struct Usage {
 }
 
 impl Usage {
+    /// The package's name in `lang` (see [`Bundle::name_in`]).
+    pub fn package_in(&self, lang: Lang) -> Option<&str> {
+        self.package_name_ar.as_deref().filter(|_| lang == Lang::Ar).or(self.package_name.as_deref())
+    }
+
     /// The main quota by default: the largest bundle with something left.
     pub fn main(&self) -> Option<&Bundle> {
         self.bundles.first()
@@ -283,7 +311,7 @@ mod tests {
     }
 
     fn bundle(name: &str, unit: Unit, total: f64, remaining: f64) -> Bundle {
-        Bundle { key: slug(name), kind: BundleKind::Other, name: name.into(), unit, total, remaining, starts_at: None, expires_at: None, state: BundleState::Active, settle_by: None }
+        Bundle { key: slug(name), kind: BundleKind::Other, name: name.into(), name_ar: None, unit, total, remaining, starts_at: None, expires_at: None, state: BundleState::Active, settle_by: None }
     }
 
     #[test]
@@ -309,6 +337,7 @@ mod tests {
         let usage = Usage {
             owner_name: None,
             package_name: None,
+            package_name_ar: None,
             balance_egp: None,
             owed_egp: None,
             bundles: vec![bundle("data", Unit::Mb, 4748.0, 992.0), bundle("minutes", Unit::Minutes, 500.0, 120.0)],
@@ -331,6 +360,7 @@ mod tests {
             key: String::new(),
             kind: BundleKind::Addon,
             name: name.into(),
+            name_ar: None,
             unit: Unit::Gb,
             total: 1.0,
             remaining: 1.0,

@@ -82,7 +82,7 @@ fn date(d: Option<chrono::DateTime<chrono::Utc>>) -> String {
 fn report(u: &Usage) {
     let or_dash = |s: &Option<String>| s.clone().unwrap_or_else(|| "—".into());
     println!("  owner:      {}", or_dash(&u.owner_name));
-    println!("  package:    {}", or_dash(&u.package_name));
+    println!("  package:    {}   ar: {}", or_dash(&u.package_name), or_dash(&u.package_name_ar));
     println!("  subscribed: {}   renews: {}", date(u.subscribed_at), date(u.renews_at));
     println!("  balance:    {}", u.balance_egp.map(|b| format!("{} EGP", format::money(b))).unwrap_or_else(|| "—".into()));
     if let Some(owed) = u.owed_egp {
@@ -90,8 +90,9 @@ fn report(u: &Usage) {
     }
     let info = &u.info;
     println!(
-        "  line:       plan {} · {} · status {} · number {} · since {}",
+        "  line:       plan {} (ar: {}) · {} · status {} · number {} · since {}",
         or_dash(&info.plan),
+        or_dash(&info.plan_ar),
         info.payment.map(|p| format!("{p:?}")).unwrap_or_else(|| "—".into()),
         or_dash(&info.status),
         info.number.as_deref().map(short).unwrap_or_else(|| "—".into()),
@@ -100,7 +101,7 @@ fn report(u: &Usage) {
     println!("  buckets ({}), main first:", u.bundles.len());
     for (i, b) in u.ordered(None).into_iter().enumerate() {
         println!(
-            "    {} {:<44} {:>10} / {:<10} {:?} {:?}  key={}  ends {}{}",
+            "    {} {:<44} {:>10} / {:<10} {:?} {:?}  key={}  ends {}{}\n        ar: {}",
             if i == 0 { "*" } else { " " },
             b.name,
             format::amount(b.remaining, b.unit),
@@ -113,6 +114,7 @@ fn report(u: &Usage) {
                 BundleState::Active => String::new(),
                 state => format!("  {state:?}, settle by {}", date(b.settle_by)),
             },
+            or_dash(&b.name_ar),
         );
     }
     match &u.payments {

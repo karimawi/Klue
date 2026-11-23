@@ -1,0 +1,354 @@
+[
+  {
+    "characteristic": [
+      {
+        "name": "MainBalance",
+        "value": "0"
+      }
+    ],
+    "isBundle": false,
+    "isCustomerVisible": false,
+    "productPrice": [],
+    "productSpecification": {
+      "name": "خدمات شكرا"
+    },
+    "productTerm": [
+      {
+        "@baseType": "Monetary",
+        "@type": "Monetary",
+        "characteristic": [],
+        "name": "Mike",
+        "quota": {
+          "amount": 300.0,
+          "consumed": 0.0,
+          "total": 300.0,
+          "units": "PT"
+        }
+      }
+    ],
+    "status": "BadDebt"
+  },
+  {
+    "characteristic": [
+      {
+        "name": "MainBalance",
+        "value": "0"
+      }
+    ],
+    "isBundle": false,
+    "isCustomerVisible": false,
+    "productPrice": [],
+    "productSpecification": {
+      "name": "خدمة سلفني شكرا"
+    },
+    "productTerm": [
+      {
+        "@baseType": "Monetary",
+        "@type": "Monetary",
+        "characteristic": [],
+        "name": "Rest of Salefny",
+        "quota": {
+          "amount": 0.0,
+          "consumed": 300.0,
+          "total": 300.0,
+          "units": "PT"
+        }
+      }
+    ],
+    "status": "Active"
+  },
+  {
+    "characteristic": [
+      {
+        "name": "MainBalance",
+        "value": "0"
+      }
+    ],
+    "isBundle": false,
+    "isCustomerVisible": false,
+    "productPrice": [],
+    "productSpecification": {
+      "name": "ضريبة الدمغة"
+    },
+    "productTerm": [
+      {
+        "@baseType": "Monetary",
+        "@type": "Monetary",
+        "characteristic": [],
+        "name": "Stamp Tax Debt",
+        "quota": {
+          "amount": 180.0,
+          "consumed": 999819.0,
+          "total": 999999.0,
+          "units": "PT"
+        }
+      }
+    ],
+    "status": "Active"
+  },
+  {
+    "characteristic": [
+      {
+        "name": "MainBalance",
+        "value": "0"
+      },
+      {
+        "name": "AFBRemainingDays",
+        "value": "20"
+      }
+    ],
+    "id": "AFB_Flex5.0",
+    "isBundle": false,
+    "isCustomerVisible": false,
+    "productOffering": {
+      "encProductId": "x",
+      "id": "AFB_Flex5.0"
+    },
+    "productPrice": [],
+    "productSpecification": {
+      "name": "باقة فليكس"
+    },
+    "productTerm": [
+      {
+        "@baseType": "Flex",
+        "@type": "فليكس",
+        "characteristic": [],
+        "name": "Units",
+        "quota": {
+          "amount": 4200.0,
+          "consumed": 800.0,
+          "total": 5000.0,
+          "units": "Flex"
+        }
+      }
+    ],
+    "status": "Frozen"
+  },
+  {
+    "characteristic": [
+      {
+        "name": "MainBalance",
+        "value": "0"
+      }
+    ],
+    "isBundle": false,
+    "isCustomerVisible": false,
+    "productPrice": [],
+    "productSpecification": {
+      "name": "باقة فليكس علي النوتة"
+    },
+    "productTerm": [
+      {
+        "@baseType": "Monetary",
+        "@type": "Monetary",
+        "characteristic": [],
+        "name": "ACP",
+        "quota": {
+          "amount": 49550.0,
+          "consumed": 10450.0,
+          "total": 60000.0,
+          "units": "PT"
+        }
+      }
+    ],
+    "status": "BadDebt"
+  },
+  {
+    "characteristic": [
+      {
+        "name": "OfferFlag",
+        "value": "0"
+      },
+      {
+        "name": "MainBalance",
+        "value": "0"
+      },
+      {
+        "name": "AFBRemainingDays",
+        "value": "20"
+      },
+      {
+        "name": "isFlexTariff",
+        "value": "Y"
+      },
+      {
+        "name": "isMigrationTariff",
+        "value": "N"
+      },
+      {
+        "name": "isRepurchaseTariff",
+        "value": "N"
+      },
+      {
+        "name": "OriginalQuota",
+        "value": "5000"
+      }
+    ],
+    "id": "Flex_2024_631",
+    "isBundle": false,
+    "isCustomerVisible": false,
+    "productOffering": {
+      "encProductId": "x",
+      "id": "Flex_2024_631"
+    },
+    "productPrice": [
+      {
+        "id": "MainBalancePrice",
+        "price": {
+          "taxIncludedAmount": {
+            "value": "115"
+          }
+        },
+        "priceCharacteristic": [
+          {
+            "name": "paymentMethod",
+            "value": "balance"
+          },
+          {
+            "name": "amountToPay",
+            "value": "115.00"
+          },
+          {
+            "name": "bundleFees",
+            "value": "115.00"
+          }
+        ],
+        "unitOfMeasure": "LE"
+      },
+      {
+        "id": "ACPPrice",
+        "price": {
+          "taxIncludedAmount": {
+            "value": "115"
+          }
+        },
+        "priceCharacteristic": [
+          {
+            "name": "paymentMethod",
+            "value": "ACP"
+          },
+          {
+            "name": "amountToPay",
+            "value": "115.00"
+          },
+          {
+            "name": "bundleFees",
+            "value": "115.00"
+          }
+        ],
+        "unitOfMeasure": "LE"
+      },
+      {
+        "id": "CashPrice",
+        "price": {
+          "taxIncludedAmount": {
+            "value": "164.28555"
+          }
+        },
+        "priceCharacteristic": [
+          {
+            "name": "paymentMethod",
+            "value": "digitalWallet"
+          },
+          {
+            "name": "tax",
+            "value": "49.29"
+          },
+          {
+            "name": "amountToPay",
+            "value": "164.29"
+          },
+          {
+            "name": "bundleFees",
+            "value": "115.00"
+          }
+        ],
+        "unitOfMeasure": "LE"
+      },
+      {
+        "id": "CardPrice",
+        "price": {
+          "taxIncludedAmount": {
+            "value": "164.28555"
+          }
+        },
+        "priceCharacteristic": [
+          {
+            "name": "paymentMethod",
+            "value": "bankCard"
+          },
+          {
+            "name": "tax",
+            "value": "49.29"
+          },
+          {
+            "name": "amountToPay",
+            "value": "164.29"
+          },
+          {
+            "name": "bundleFees",
+            "value": "115.00"
+          }
+        ],
+        "unitOfMeasure": "LE"
+      },
+      {
+        "id": "ApplePay",
+        "price": {
+          "taxIncludedAmount": {
+            "value": "164.28555"
+          }
+        },
+        "priceCharacteristic": [
+          {
+            "name": "paymentMethod",
+            "value": "applePay"
+          },
+          {
+            "name": "tax",
+            "value": "49.29"
+          },
+          {
+            "name": "amountToPay",
+            "value": "164.29"
+          },
+          {
+            "name": "bundleFees",
+            "value": "115.00"
+          }
+        ],
+        "unitOfMeasure": "LE"
+      }
+    ],
+    "productSpecification": {
+      "name": "فليكس 115"
+    },
+    "productTerm": [
+      {
+        "@baseType": "DataFlexes",
+        "@type": "DataFlexes",
+        "characteristic": [],
+        "name": "DataFlexes",
+        "quota": {
+          "amount": -700.0,
+          "consumed": 700.0,
+          "total": 0.0,
+          "units": "DataFlexes"
+        }
+      },
+      {
+        "@baseType": "VoiceFlexes",
+        "@type": "VoiceFlexes",
+        "characteristic": [],
+        "name": "VoiceFlexes",
+        "quota": {
+          "amount": -100.0,
+          "consumed": 100.0,
+          "total": 0.0,
+          "units": "VoiceFlexes"
+        }
+      }
+    ],
+    "status": "Frozen"
+  }
+]

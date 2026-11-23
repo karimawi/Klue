@@ -587,7 +587,7 @@ fn alerts<'a>(ctx: &Ctx<'a>, f: &'a AlertsForm, account: &'a klue_core::store::A
         let row_el = ctx
             .row(vec![
                 container(ctx.toggle(alert.enabled, Message::Modal(Msg::AlertEnabled(key.clone())))).width(40).into(),
-                container(column![ctx.semi(bundle.name.clone(), 13.5), ctx.muted(sub, 11.5)].spacing(0).align_x(ctx.start())).width(Length::Fill).align_x(ctx.start()).into(),
+                container(column![ctx.semi(bundle.name_in(ctx.lang).to_string(), 13.5), ctx.muted(sub, 11.5)].spacing(0).align_x(ctx.start())).width(Length::Fill).align_x(ctx.start()).into(),
                 field,
                 modes,
             ])
@@ -617,7 +617,7 @@ fn alerts<'a>(ctx: &Ctx<'a>, f: &'a AlertsForm, account: &'a klue_core::store::A
     let renewal = column![ctx.caps(s.renewal_reminder), gap(6.0), hline(p.dv, 2.0), container(reminder).padding([10, 0]), hline(p.dvs, 1.0), container(renew_day).padding([10, 0]), hline(p.dvs, 1.0)]
         .align_x(ctx.start());
 
-    let package = usage.package_name.clone().unwrap_or_default();
+    let package = usage.package_in(ctx.lang).unwrap_or_default().to_string();
     let preview_body = account
         .main_bundle()
         .map(|b| {

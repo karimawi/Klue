@@ -79,6 +79,13 @@ pub fn tidy_name(raw: &str) -> Option<String> {
     Some(collapsed.split(' ').map(|w| if shouting(w) { title(w) } else { w.to_string() }).collect::<Vec<_>>().join(" "))
 }
 
+/// `name` tidied, if it's written in Arabic. Asked for Arabic, carriers still answer in
+/// English for names they haven't translated, and those aren't Arabic names.
+pub fn arabic(name: &str) -> Option<String> {
+    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    name.chars().any(|c| matches!(c, '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}' | '\u{FB50}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}')).then_some(name)
+}
+
 /// Amount without its unit, in the unit the carrier stated: one decimal for GB, two for
 /// money, whole numbers otherwise (MB, minutes, units), with thousands separators.
 pub fn amount(v: f64, unit: Unit) -> String {
@@ -152,6 +159,14 @@ mod tests {
         assert_eq!(pretty_number("01001285532"), "010 0128 5532");
         assert_eq!(pretty_number("0223584417"), "02 2358 4417");
         assert_eq!(pretty_number("0403456789"), "040 345 6789");
+    }
+
+    #[test]
+    fn keeps_only_names_written_in_arabic() {
+        assert_eq!(arabic("  فليكس   115 ").as_deref(), Some("فليكس 115"));
+        assert_eq!(arabic("سرعة سوبر 3-(250 جيجابايت)").as_deref(), Some("سرعة سوبر 3-(250 جيجابايت)"));
+        assert_eq!(arabic("Top-up 400 GB – 30 days"), None);
+        assert_eq!(arabic(""), None);
     }
 
     #[test]
