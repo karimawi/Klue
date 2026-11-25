@@ -47,7 +47,7 @@
 
 | Carrier | Works today | Coming |
 | --- | --- | --- |
-| WE | Home internet (DSL) | Mobile, OneHome, Ardy |
+| WE | Home internet (DSL) | Mobile, OneHome, Gold, Ardy |
 | Vodafone | Mobile | DSL, USB |
 | Orange | Mobile, home internet (DSL) | |
 | e& | | DSL, Mobile |
