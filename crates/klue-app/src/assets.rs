@@ -67,7 +67,8 @@ static TILES: LazyLock<[Tile; 4]> = LazyLock::new(|| {
     [
         tile(include_bytes!("../assets/logos/we.svg"), 0x5C2D91, 36.0, 20.0, 27.0),
         tile(include_bytes!("../assets/logos/vf.svg"), 0xE60000, 36.0, 20.0, 27.0),
-        tile(include_bytes!("../assets/logos/orange.svg"), 0x000000, 46.0, 24.0, 34.0),
+        // The logo fills its tile, so the tile is Orange's orange where their corners differ.
+        tile(include_bytes!("../assets/logos/orange.svg"), 0xFF7900, 46.0, 24.0, 34.0),
         tile(include_bytes!("../assets/logos/eand.svg"), 0xFFFFFF, 30.0, 15.0, 22.0),
     ]
 });
