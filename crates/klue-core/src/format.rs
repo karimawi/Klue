@@ -56,14 +56,17 @@ pub fn pretty_number(number: &str) -> String {
 }
 
 /// Collapses whitespace and title-cases SHOUTING Latin words ("MOSTAFA HASSAN",
-/// "Samia NAGUIB"). `None` if it isn't a name.
+/// "Samia NAGUIB") and names written all in lowercase ("mostafa hassan"). `None` if it isn't
+/// a name.
 pub fn tidy_name(raw: &str) -> Option<String> {
     let collapsed = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     if !collapsed.chars().any(char::is_alphabetic) || collapsed.contains('@') {
         return None;
     }
+    let whispering = collapsed.chars().any(|c| c.is_ascii_lowercase()) && !collapsed.chars().any(char::is_uppercase);
     let shouting = |w: &str| {
-        w.is_ascii() && w.chars().filter(char::is_ascii_alphabetic).count() >= 2 && !w.chars().any(|c| c.is_ascii_lowercase())
+        let letters = w.chars().filter(char::is_ascii_alphabetic).count();
+        w.is_ascii() && if whispering { letters >= 1 } else { letters >= 2 && !w.chars().any(|c| c.is_ascii_lowercase()) }
     };
     // "EL-SAYED" -> "El-Sayed".
     let title = |w: &str| {
@@ -195,6 +198,10 @@ mod tests {
         assert_eq!(tidy_name("Samia Fahmy NAGUIB").as_deref(), Some("Samia Fahmy Naguib"));
         assert_eq!(tidy_name("MOSTAFA A EL-SAYED").as_deref(), Some("Mostafa A El-Sayed"));
         assert_eq!(tidy_name("Samir Al-Masri").as_deref(), Some("Samir Al-Masri"));
+        // All lowercase, as Orange has some names; lowercase in a cased name stays.
+        assert_eq!(tidy_name("mostafa  a el-sayed").as_deref(), Some("Mostafa A El-Sayed"));
+        assert_eq!(tidy_name("Mostafa van der Berg").as_deref(), Some("Mostafa van der Berg"));
+        assert_eq!(tidy_name("مصطفى hassan").as_deref(), Some("مصطفى Hassan"));
     }
 
     #[test]

@@ -9,7 +9,7 @@ use iced::{
 };
 use klue_core::{
     Carrier, FetchError, LineType, Unit, Usage, format,
-    store::{AlertPrefs, BundleAlert, Lang, LeadUnit, RefreshEvery, Theme, ThresholdMode},
+    store::{AlertPrefs, BundleAlert, Clock, Lang, LeadUnit, RefreshEvery, Theme, ThresholdMode},
 };
 
 use super::{Ctx, El, gap, hline, tile, window::field};
@@ -65,6 +65,8 @@ enum Phase {
 pub struct RenameForm {
     id: String,
     draft: String,
+    /// The number's own refresh interval; `None` follows Settings.
+    refresh: Option<RefreshEvery>,
     confirm_remove: bool,
 }
 
@@ -88,6 +90,7 @@ pub enum Msg {
     AddResult(Result<Box<Usage>, FetchError>),
 
     RenameInput(String),
+    RenameRefresh(Option<RefreshEvery>),
     RenameUseOwner,
     RenameSave,
     Remove,
@@ -106,6 +109,7 @@ pub enum Msg {
     Startup,
     KeepInTray,
     RefreshEvery(RefreshEvery),
+    Clock(Clock),
     /// Alerts for all numbers: saved as they change, applied to every number on AllApply.
     AllMain,
     AllOthers,
@@ -133,7 +137,7 @@ impl Modal {
                 })
             }
             ModalKind::Rename(id) => match snap.data.account(&id) {
-                Some(a) => Modal::Rename(RenameForm { id, draft: a.nickname.clone().unwrap_or_default(), confirm_remove: false }),
+                Some(a) => Modal::Rename(RenameForm { id, draft: a.nickname.clone().unwrap_or_default(), refresh: a.refresh, confirm_remove: false }),
                 None => Modal::None,
             },
             ModalKind::Alerts(id) => match snap.data.account(&id) {
@@ -225,9 +229,11 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
         }
 
         (Modal::Rename(f), Msg::RenameInput(t)) => f.draft = t,
+        (Modal::Rename(f), Msg::RenameRefresh(r)) => f.refresh = r,
         (Modal::Rename(f), Msg::RenameUseOwner) => f.draft.clear(),
         (Modal::Rename(f), Msg::RenameSave) => {
             shared.rename(&f.id, &f.draft);
+            shared.set_refresh(&f.id, f.refresh);
             app.modal = Modal::None;
         }
         (Modal::Rename(f), Msg::Remove) => {
@@ -291,6 +297,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
         }
         (_, Msg::KeepInTray) => shared.update(|d| d.settings.keep_in_tray = !d.settings.keep_in_tray),
         (_, Msg::RefreshEvery(r)) => shared.update(|d| d.settings.refresh = r),
+        (_, Msg::Clock(c)) => shared.update(|d| d.settings.clock = c),
 
         (Modal::Settings(f), msg @ (Msg::AllMain | Msg::AllOthers | Msg::AllPercent(_) | Msg::AllReminder | Msg::AllLead(_) | Msg::AllLeadUnit(_) | Msg::AllRenewalDay)) => {
             f.applied = false;
@@ -375,7 +382,7 @@ fn label<'a>(ctx: &Ctx<'a>, text: &str) -> El<'a> {
 
 fn notice<'a>(ctx: &Ctx<'a>, e: &FetchError, carrier: Carrier) -> El<'a> {
     let p = ctx.p;
-    let text = column![ctx.bold(i18n::error_title(e, ctx.lang), 14.0), ctx.body(i18n::error_text(e, carrier, ctx.lang), 13.0)].spacing(2).align_x(ctx.start()).width(Length::Fill);
+    let text = column![ctx.bold(i18n::error_title(e, ctx.lang), 14.0), ctx.body(i18n::error_text(e, carrier, ctx.clock, ctx.lang), 13.0)].spacing(2).align_x(ctx.start()).width(Length::Fill);
     container(ctx.row(vec![ctx.icon(Icon::Warning, 18.0, p.danger), text.into()]).spacing(12).align_y(Alignment::Start))
         .padding([12, 14])
         .style(move |_| theme::fill(theme::fade(p.danger, 0.12), 10.0))
@@ -452,7 +459,18 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
         38.0,
         13.0,
     );
-    let placeholder = if f.line == LineType::Mobile { "010 1234 5678" } else { "02 2345 6789" };
+    // Orange home internet signs in with the My Orange number, then Orange names the landline.
+    let signs_in_elsewhere = f.carrier.sign_in_line(f.line) != f.line;
+    let placeholder = match (f.carrier.sign_in_line(f.line), f.carrier) {
+        (LineType::Landline, _) => "02 2345 6789",
+        (LineType::Mobile, Carrier::Orange) => "012 3456 7890",
+        (LineType::Mobile, _) => "010 1234 5678",
+    };
+    let number_label = match (signs_in_elsewhere, ar) {
+        (true, true) => format!("رقم {app_name}"),
+        (true, false) => format!("{app_name} number"),
+        (false, _) => s.number.to_string(),
+    };
     let mut number = field(ctx, placeholder, &f.number, |t| Message::Modal(Msg::AddNumber(t)), false).font(crate::assets::numbers(Weight::Normal)).on_submit(Message::Modal(Msg::AddSubmit));
     if verifying || verified {
         number = text_input(placeholder, &f.number).padding([9, 10]).size(14).font(crate::assets::numbers(Weight::Normal)).style(theme::field(p, false));
@@ -460,7 +478,7 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
     let number = number.id(ADD_NUMBER);
     let pair = ctx.row(vec![
         column![label(ctx, s.line_type), gap(6.0), container(line_seg).width(Length::Shrink)].width(Length::Shrink).into(),
-        column![label(ctx, s.number), gap(6.0), number].width(Length::Fill).into(),
+        column![label(ctx, &number_label), gap(6.0), number].width(Length::Fill).into(),
     ])
     .spacing(12)
     .align_y(Alignment::Start);
@@ -483,7 +501,12 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
         .padding(0)
         .style(theme::ghost(p.mu, p.sf, 9.0))
         .on_press(Message::Modal(Msg::AddShowPassword));
-    let hint = if ar { format!("نفس كلمة المرور المستخدمة في {app_name}.") } else { format!("The same password you use in {app_name}.") };
+    let hint = match (signs_in_elsewhere, ar) {
+        (true, true) => format!("الرقم وكلمة المرور اللذان تستخدمهما في {app_name}. يقرأ Klue الخط الأرضي المربوط بالحساب."),
+        (true, false) => format!("The number and password you use in {app_name}. Klue reads the landline linked to it."),
+        (false, true) => format!("نفس كلمة المرور المستخدمة في {app_name}."),
+        (false, false) => format!("The same password you use in {app_name}."),
+    };
     let mut pass_col = column![label(ctx, s.password), gap(6.0), ctx.row(vec![password.into(), eye.into()]).spacing(6), gap(6.0), ctx.muted(hint, 12.0)].align_x(ctx.start());
     if verifying {
         pass_col = pass_col.push(gap(8.0)).push(ctx.meter(0.35, 3.0, p.ac));
@@ -509,6 +532,12 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
         body = body.push(notice(ctx, e, f.carrier));
     }
     body = body.push(column![ctx.row(owner_label), gap(6.0), readout(ctx, owner, verified, verified)]);
+    if signs_in_elsewhere
+        && let Phase::Verified(u) = &f.phase
+        && let Some(landline) = &u.info.number
+    {
+        body = body.push(column![label(ctx, s.landline_found), gap(6.0), readout(ctx, format::pretty_number(landline), true, true)]);
+    }
     if verified {
         body = body.push(column![
             label(ctx, s.nick_optional),
@@ -568,6 +597,15 @@ fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::A
         st
     });
     let preview = column![container(Space::new()).width(Length::Fill).height(3).style(move |_| theme::fill(p.ac, 2.0)), preview].width(Length::Shrink);
+    let global = ctx.app.snap.data.settings.refresh;
+    let every = ctx.segmented(
+        std::iter::once((None, format!("{} ({})", s.follow_settings, i18n::every_label(global, ctx.lang))))
+            .chain(RefreshEvery::ALL.into_iter().map(|r| (Some(r), i18n::every_label(r, ctx.lang).to_string())))
+            .map(|(r, label)| (label, f.refresh == r, Some(Message::Modal(Msg::RenameRefresh(r)))))
+            .collect(),
+        34.0,
+        12.5,
+    );
     let danger = ctx
         .row(vec![
             container(ctx.muted(s.remove_hint, 12.5)).width(Length::Fill).align_x(ctx.start()).into(),
@@ -589,6 +627,7 @@ fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::A
         ]
         .align_x(ctx.start()),
         column![label(ctx, s.shown_as), gap(6.0), container(preview).width(Length::Fill).align_x(ctx.start())],
+        column![label(ctx, s.check_number_every), gap(6.0), container(every).width(Length::Shrink), gap(6.0), ctx.muted(s.check_number_hint, 12.0)].align_x(ctx.start()),
         column![hline(p.dvs, 1.0), gap(12.0), danger],
     ]
     .spacing(16);
@@ -725,7 +764,6 @@ fn alerts<'a>(ctx: &Ctx<'a>, f: &'a AlertsForm, account: &'a klue_core::store::A
 fn settings<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
     let p = ctx.p;
     let s = ctx.s;
-    let ar = ctx.rtl();
     let settings = &ctx.app.snap.data.settings;
     let cards: Vec<El<'a>> = [(Theme::Light, s.light), (Theme::Dark, s.dark), (Theme::Match, s.match_long)]
         .into_iter()
@@ -746,14 +784,16 @@ fn settings<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
         ("العربية".to_string(), settings.lang == Lang::Ar, Some(Message::SetLang(Lang::Ar))),
     ], 36.0, 13.5);
     let every = ctx.segmented(
-        [
-            (RefreshEvery::Minutes15, if ar { "15 د" } else { "15 min" }),
-            (RefreshEvery::Hour1, if ar { "ساعة" } else { "1 hr" }),
-            (RefreshEvery::Hours6, if ar { "6 س" } else { "6 hr" }),
-        ]
-        .into_iter()
-        .map(|(r, label)| (label.to_string(), settings.refresh == r, Some(Message::Modal(Msg::RefreshEvery(r)))))
-        .collect(),
+        RefreshEvery::ALL.into_iter().map(|r| (i18n::every_label(r, ctx.lang).to_string(), settings.refresh == r, Some(Message::Modal(Msg::RefreshEvery(r))))).collect(),
+        36.0,
+        13.0,
+    );
+    // Each format shown with the time now.
+    let clocks = ctx.segmented(
+        [Clock::H24, Clock::H12]
+            .into_iter()
+            .map(|c| (i18n::clock(ctx.now, c, ctx.lang), settings.clock == c, Some(Message::Modal(Msg::Clock(c)))))
+            .collect(),
         36.0,
         13.0,
     );
@@ -766,10 +806,11 @@ fn settings<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
         column![label(ctx, s.theme), gap(8.0), ctx.row(cards).spacing(8), gap(8.0), ctx.muted(s.match_hint, 12.0)].align_x(ctx.start()),
         ctx.row(vec![
             column![label(ctx, s.language), gap(6.0), langs].width(Length::FillPortion(1)).into(),
-            column![label(ctx, s.check_every), gap(6.0), every].width(Length::FillPortion(1)).into(),
+            column![label(ctx, s.time_format), gap(6.0), clocks].width(Length::FillPortion(1)).into(),
         ])
         .spacing(12)
         .align_y(Alignment::Start),
+        column![label(ctx, s.check_every), gap(6.0), ctx.row(vec![every, ctx.muted(s.check_every_hint, 12.0).into()]).spacing(12)].align_x(ctx.start()),
         column![
             hline(p.dv, 2.0),
             sys(s.startup, settings.launch_at_startup, Msg::Startup),

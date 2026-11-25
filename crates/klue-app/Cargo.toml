@@ -55,7 +55,7 @@ winresource = "0.1"
 name = "klue"
 section = "net"
 priority = "optional"
-extended-description = "Quota, package and renewal info for your WE and Vodafone Egypt lines in one window, with low-quota and renewal notifications."
+extended-description = "Quota, package and renewal info for your WE, Vodafone and Orange Egypt lines in one window, with low-quota and renewal notifications."
 # winit and softbuffer load the X11, xkbcommon and Wayland libraries at run time, so
 # cargo-deb can't see them.
 depends = "$auto, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libx11-6, libx11-xcb1, libxcursor1, libxrandr2, libxi6, libxcb1"

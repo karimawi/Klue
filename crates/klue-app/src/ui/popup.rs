@@ -30,9 +30,11 @@ pub fn view(app: &App) -> El<'_> {
         ])
         .spacing(10);
 
+    // Carriers and their numbers in the order the user put them, like the main window.
     let rows: Vec<El<'_>> = data
-        .accounts
-        .iter()
+        .carriers()
+        .into_iter()
+        .flat_map(|carrier| data.accounts_for(carrier))
         .map(|account| {
             let t = crate::assets::tile(account.carrier);
             let main = account.main_bundle();

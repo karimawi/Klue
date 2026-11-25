@@ -18,7 +18,7 @@ use klue_core::{
     captcha::{BoxFuture, CaptchaSolver, default_solver},
     carriers::{self, FetchContext},
     format,
-    store::{Account, AppData, Secrets, Settings, Store},
+    store::{Account, AppData, RefreshEvery, Secrets, Settings, Store},
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -169,16 +169,25 @@ impl Shared {
         }
     }
 
-    /// Signs in with new credentials (Add a number).
+    /// Signs in with new credentials (Add a number). `number` is the one the line signs in
+    /// with; an Orange home internet line is only known, and checked, once Orange names it.
     pub async fn verify(&self, carrier: Carrier, line: LineType, number: &str, password: &str) -> Result<Usage, FetchError> {
-        let number = format::normalize(number, line)?;
-        if self.data.lock().expect("data lock").accounts.iter().any(|a| a.carrier == carrier && a.number == number) {
-            return Err(FetchError::Carrier(crate::i18n::strings(self.settings().lang).already_added.into()));
+        let sign_in = format::normalize(number, carrier.sign_in_line(line))?;
+        let added = |number: &str| self.data.lock().expect("data lock").accounts.iter().any(|a| a.carrier == carrier && a.number == number);
+        let already = || FetchError::Carrier(crate::i18n::strings(self.settings().lang).already_added.into());
+        if carrier.sign_in_line(line) == line && added(&sign_in) {
+            return Err(already());
         }
-        if self.demo {
-            return demo::verify(carrier, &number, password).await;
+        let usage = if self.demo {
+            demo::verify(carrier, line, &sign_in, password).await?
+        } else {
+            carriers::fetch(carrier, line, &sign_in, password, &self.context(true)).await?
+        };
+        let own = carriers::line_number(carrier, line, &sign_in, &usage)?;
+        if own != sign_in && added(&own) {
+            return Err(already());
         }
-        carriers::fetch(carrier, line, &number, password, &self.context(true)).await
+        Ok(usage)
     }
 
     /// Saves a verified number. Returns its id.
@@ -191,8 +200,10 @@ impl Shared {
         nickname: Option<String>,
         usage: Usage,
     ) -> Result<String, FetchError> {
-        let number = format::normalize(number, line)?;
-        let mut account = Account::new(carrier, line, number);
+        let sign_in = format::normalize(number, carrier.sign_in_line(line))?;
+        let own = carriers::line_number(carrier, line, &sign_in, &usage)?;
+        let mut account = Account::new(carrier, line, own.clone());
+        account.login = (own != sign_in).then_some(sign_in);
         account.nickname = nickname.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
         // New numbers start with the alert settings for all numbers.
         let defaults = self.settings().alerts;
@@ -215,6 +226,26 @@ impl Shared {
                 a.nickname = nickname;
             }
         });
+        self.save_vault_index();
+    }
+
+    /// `None` follows the interval for all numbers.
+    pub fn set_refresh(&self, id: &str, every: Option<RefreshEvery>) {
+        self.update(|d| {
+            if let Some(a) = d.account_mut(id) {
+                a.refresh = every;
+            }
+        });
+    }
+
+    /// Puts `carrier` where `onto` is in the carrier rail.
+    pub fn move_carrier(&self, carrier: Carrier, onto: Carrier) {
+        self.update(|d| d.move_carrier(carrier, onto));
+    }
+
+    /// Puts number `id` where number `onto` is among its carrier's tabs.
+    pub fn move_account(&self, id: &str, onto: &str) {
+        self.update(|d| d.move_account(id, onto));
         self.save_vault_index();
     }
 
@@ -280,9 +311,7 @@ impl Shared {
         } else {
             match self.secrets.get(&account) {
                 None => Err(FetchError::Carrier(crate::i18n::strings(self.settings().lang).no_password.into())),
-                Some(password) => {
-                    carriers::fetch(account.carrier, account.line, &account.number, &password, &self.context(interactive)).await
-                }
+                Some(password) => carriers::fetch_account(&account, &password, &self.context(interactive)).await,
             }
         };
         if let Err(e) = &result {
@@ -300,24 +329,25 @@ impl Shared {
         self.set_refreshing(id, false);
     }
 
-    /// Refreshes everything that's due, one at a time.
+    /// Refreshes everything that's due, one at a time. Each number has its own interval, or
+    /// the one for all numbers.
     pub async fn refresh_due(&self) {
-        let (interval, due): (chrono::Duration, Vec<String>) = {
+        let due: Vec<String> = {
             let data = self.data.lock().expect("data lock");
-            let interval = chrono::Duration::from_std(data.settings.refresh.duration()).unwrap_or(chrono::Duration::hours(1));
             let now = Utc::now();
-            let due = data
-                .accounts
+            data.accounts
                 .iter()
                 .filter(|a| a.carrier.supports_line(a.line))
                 // A rejected password stays rejected: retrying in the background could lock the account.
                 .filter(|a| !matches!(a.last_error, Some(FetchError::BadCredentials)))
-                .filter(|a| a.last_attempt.is_none_or(|t| now - t >= interval))
+                .filter(|a| {
+                    let interval = chrono::Duration::from_std(a.refresh_every(&data.settings).duration()).unwrap_or(chrono::Duration::hours(1));
+                    a.last_attempt.is_none_or(|t| now - t >= interval)
+                })
                 .map(|a| a.id.clone())
-                .collect();
-            (interval, due)
+                .collect()
         };
-        tracing::debug!(?interval, count = due.len(), "background refresh");
+        tracing::debug!(count = due.len(), "background refresh");
         for id in due {
             self.refresh(&id, false).await;
         }

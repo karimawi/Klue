@@ -5,8 +5,11 @@
 //! ```
 //!
 //! Keys: `TENUMBER`/`TEPASSWORD` (WE) and `VFNUMBER`/`VFPWD` (Vodafone), with suffixes 2, 3...
-//! for more accounts (`we1`, `we2`, `vf1`... for `--only`). Passwords aren't printed.
-//! `KLUE_DEBUG_DIR` also saves the raw responses. WE counts failed sign-ins, so don't loop it.
+//! for more accounts (`we1`, `we2`, `vf1`... for `--only`). Orange accounts use `orange.py`'s
+//! keys, `num1`/`pass1`, `num2`/`pass2`... (`or1`, `or2`...): the My Orange number and
+//! password, and `numN_lnd` for a home internet account, naming the landline it should find.
+//! Passwords aren't printed. `KLUE_DEBUG_DIR` also saves the raw responses. WE counts failed
+//! sign-ins and Orange blocks an address that signs in too often, so don't loop it.
 
 use std::{collections::BTreeMap, path::PathBuf, time::Instant};
 
@@ -23,6 +26,8 @@ struct Account {
     label: String,
     number: String,
     password: String,
+    /// The landline an Orange home internet account should name.
+    landline: Option<String>,
 }
 
 fn parse_env(text: &str) -> BTreeMap<String, String> {
@@ -52,8 +57,16 @@ fn accounts(vars: &BTreeMap<String, String>) -> Vec<Account> {
             let (Some(number), Some(password)) = (vars.get(&format!("{number_key}{suffix}")), vars.get(&format!("{password_key}{suffix}"))) else {
                 continue;
             };
-            out.push(Account { carrier, line, label: format!("{tag}{i}"), number: number.clone(), password: password.clone() });
+            out.push(Account { carrier, line, label: format!("{tag}{i}"), number: number.clone(), password: password.clone(), landline: None });
         }
+    }
+    for i in 1..10 {
+        let (Some(number), Some(password)) = (vars.get(&format!("num{i}")), vars.get(&format!("pass{i}"))) else {
+            continue;
+        };
+        let landline = vars.get(&format!("num{i}_lnd")).cloned();
+        let line = if landline.is_some() { LineType::Landline } else { LineType::Mobile };
+        out.push(Account { carrier: Carrier::Orange, line, label: format!("or{i}"), number: number.clone(), password: password.clone(), landline });
     }
     out
 }
@@ -172,6 +185,18 @@ async fn main() {
             Ok(usage) => {
                 println!("  ok in {:.1}s", started.elapsed().as_secs_f32());
                 report(&usage);
+                if let Some(expected) = &account.landline {
+                    let found = carriers::line_number(account.carrier, account.line, &account.number, &usage);
+                    let expected = format::normalize(expected, LineType::Landline);
+                    match (found, expected) {
+                        (Ok(found), Ok(expected)) if found == expected => println!("  landline:   {} as expected", short(&found)),
+                        (found, expected) => {
+                            failures += 1;
+                            let found = found.map(|f| short(&f)).unwrap_or_else(|e| e.to_string());
+                            println!("  landline MISMATCH: found {found}, expected {}", expected.map(|e| short(&e)).unwrap_or_default());
+                        }
+                    }
+                }
             }
             Err(e) => {
                 failures += 1;

@@ -18,7 +18,9 @@ Linux needs `cmake clang pkg-config`; the GUI libraries are loaded at run time (
 KLUE_DEBUG_DIR=/tmp/klue-debug cargo run --release -p klue-core --example live_check -- accounts.env [--only we2]
 ```
 
-`accounts.env` holds `TENUMBER`/`TEPASSWORD` and `VFNUMBER`/`VFPWD`, with `2`, `3`... appended for more accounts. `KLUE_DEBUG_DIR` saves every response with secrets blanked. Keep both out of git: they have names and numbers. WE counts failed sign-ins, so run each account once.
+`accounts.env` holds `TENUMBER`/`TEPASSWORD` and `VFNUMBER`/`VFPWD`, with `2`, `3`... appended for more accounts. Orange accounts use the keys `orange.py` reads: `num1`/`pass1`, `num2`/`pass2`... with the My Orange number and password, and `numN_lnd` for a home internet account, holding the landline it should find. `KLUE_DEBUG_DIR` saves every response with secrets blanked. Keep both out of git: they have names and numbers. WE counts failed sign-ins, and Orange's firewall blocks an address for 15 to 30 minutes after too many sign-ins, so run each account once.
+
+Orange only answers clients that look like its Android app, so its client uses okhttp's TLS fingerprint. A proxy that inspects TLS replaces that fingerprint with its own, and Orange may then answer with "Request Rejected".
 
 Behind a proxy that inspects TLS, point `SSL_CERT_FILE` or `SSL_CERT_DIR` at its CA.
 

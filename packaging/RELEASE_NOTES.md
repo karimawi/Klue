@@ -1,14 +1,15 @@
-Klue keeps the quota, balance and renewal date of your Egyptian telecom lines in one window, and tells you before anything runs out. It works with WE home internet (DSL) and Vodafone mobile lines.
+Klue keeps the quota, balance and renewal date of your Egyptian telecom lines in one window, and tells you before anything runs out. It works with WE home internet (DSL), Vodafone mobile, and Orange mobile and home internet (DSL) lines.
 
 This is a beta. If something looks off, please open an issue.
 
-## New in 0.3.0
-- Usage graphs: what was left after every refresh, and what you used per day and per hour
-- Daily and hourly averages, and the day your quota runs out at that rate
-- WE package speeds, and arrows to flip through a number's bundles
-- Alert settings for all numbers at once; alerts missed while Klue was closed arrive when it's back
-- Notification sounds, an About page and built-in updates
-- Klue shows up in Windows search
+## New in 0.4.0
+- Orange: mobile lines, and home internet (DSL) through your My Orange account, which finds the linked landline
+- Each number can refresh on its own schedule, and the title bar shows when the number you're looking at last updated
+- A 3-hour option for how often Klue checks
+- Drag carriers and numbers to put them in your order
+- 12-hour time, if you prefer it (Settings → Time format)
+- The usage graph's tooltips no longer leave thin lines behind on Windows
+- The Orange logo fits its tile
 
 <!-- The app's update dialog stops here. -->
 

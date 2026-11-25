@@ -249,28 +249,31 @@ pub fn data() -> AppData {
     AppData { accounts: lines.into_iter().map(build).collect(), ..AppData::default() }
 }
 
-/// Fake sign-in. A password containing "wrong" fails.
-pub async fn verify(carrier: Carrier, number: &str, password: &str) -> Result<Usage, FetchError> {
+/// Fake sign-in. A password containing "wrong" fails. An Orange home internet line names a
+/// made-up landline, like Orange does.
+pub async fn verify(carrier: Carrier, line: LineType, number: &str, password: &str) -> Result<Usage, FetchError> {
     tokio::time::sleep(Duration::from_millis(1700)).await;
     if password.to_lowercase().contains("wrong") {
         return Err(FetchError::BadCredentials);
     }
     let (sub, renew) = (Utc::now() - chrono::Duration::days(6), Utc::now() + chrono::Duration::days(24));
-    let (pkg, pkg_ar, total, rem, kind, name, plan, plan_ar) = match carrier {
-        Carrier::We => ("Super 200", "سرعة سوبر 200", 200.0, 171.3, BundleKind::Data, "Home internet", "WE IOE VDSL Primary Prepaid", None),
+    let (pkg, pkg_ar, total, rem, kind, name, plan, plan_ar) = match (carrier, line) {
+        (Carrier::We, _) => ("Super 200", "سرعة سوبر 200", 200.0, 171.3, BundleKind::Data, "Home internet", "WE IOE VDSL Primary Prepaid", None),
+        (Carrier::Orange, LineType::Landline) => ("Home Internet 660", "Home Internet 660", 500.0, 237.2, BundleKind::Data, "Home Internet 660", "Home Internet 660", None),
         _ => ("Flex 100", "فليكس 100", 30.0, 21.7, BundleKind::Data, "Mobile data", "Flex 100", Some("فليكس 100")),
     };
+    let number = if carrier.sign_in_line(line) == line { number.to_string() } else { "0227531146".to_string() };
     Ok(Usage {
         owner_name: Some("Youssef Adel Mansour".into()),
         package_name: Some(pkg.into()),
-        package_name_ar: Some(pkg_ar.into()),
+        package_name_ar: klue_core::format::arabic(pkg_ar),
         balance_egp: Some(42.5),
         owed_egp: None,
         bundles: vec![Bundle {
             key: format!("demo-{number}"),
             kind,
             name: name.into(),
-            name_ar: bundle_ar(0, kind, name, Some(pkg_ar)),
+            name_ar: bundle_ar(0, kind, name, klue_core::format::arabic(pkg_ar).as_deref()),
             unit: Unit::Gb,
             total,
             remaining: rem,
@@ -288,7 +291,7 @@ pub async fn verify(carrier: Carrier, number: &str, password: &str) -> Result<Us
             speed: (carrier == Carrier::We).then_some(Speed { down_kbps: 30720, up_kbps: Some(3072), throttled_kbps: Some(256) }),
             payment: Some(PaymentKind::Prepaid),
             status: Some("Active".into()),
-            number: Some(number.to_string()),
+            number: Some(number),
             since: Some(Utc::now() - chrono::Duration::days(400)),
         },
         payments: Some(Vec::new()),

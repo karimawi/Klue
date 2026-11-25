@@ -53,6 +53,21 @@ impl CaptchaAsk {
     }
 }
 
+/// What can be dragged to a new place: a carrier in the rail, or a number among its
+/// carrier's tabs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DragItem {
+    Carrier(Carrier),
+    Line(String),
+}
+
+/// A drag in progress: `over` is where it would land.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Drag {
+    pub item: DragItem,
+    pub over: DragItem,
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     Init,
@@ -85,6 +100,12 @@ pub enum Message {
     PopupSettings,
     SelectCarrier(Carrier),
     SelectAccount(String),
+    /// A carrier or tab was pressed: a click, or the start of a drag.
+    DragStart(DragItem),
+    /// The pointer went over a carrier or tab.
+    DragOver(DragItem),
+    /// The left button came up anywhere: drops a drag, or picks what was clicked.
+    PointerUp,
     SetTheme(Theme),
     SetLang(Lang),
     Refresh(String),
@@ -190,6 +211,8 @@ pub struct App {
     pub hero: HashMap<String, String>,
     /// Prefer the hours view when it's available.
     pub usage_hours: bool,
+    /// A carrier or tab being dragged to a new place.
+    pub drag: Option<Drag>,
     pub modal: Modal,
     pub captcha: Option<CaptchaAsk>,
     pub update: UpdateState,
@@ -242,7 +265,7 @@ pub fn run(shared: Arc<Shared>, minimized: bool, quick_view: bool, debug: bool) 
 impl App {
     fn new(shared: Arc<Shared>, minimized: bool, quick_view: bool, debug: bool) -> (Self, Task<Message>) {
         let snap = shared.snapshot();
-        let carrier = Carrier::ALL.into_iter().find(|c| snap.data.accounts_for(*c).next().is_some()).unwrap_or(Carrier::We);
+        let carrier = snap.data.carriers().into_iter().find(|c| snap.data.accounts_for(*c).next().is_some()).unwrap_or(Carrier::We);
         let tray_lang = snap.data.settings.lang;
         let app = Self {
             shared,
@@ -261,6 +284,7 @@ impl App {
             selected: HashMap::new(),
             hero: HashMap::new(),
             usage_hours: false,
+            drag: None,
             modal: Modal::None,
             captcha: None,
             update: UpdateState::Idle,
@@ -287,7 +311,7 @@ impl App {
     pub fn shown_carrier(&self) -> Option<Carrier> {
         let data = &self.snap.data;
         let has_numbers = |c: &Carrier| data.accounts_for(*c).next().is_some();
-        Some(self.carrier).filter(has_numbers).or_else(|| Carrier::ALL.into_iter().find(has_numbers))
+        Some(self.carrier).filter(has_numbers).or_else(|| data.carriers().into_iter().find(has_numbers))
     }
 
     /// The shown account.
@@ -473,6 +497,37 @@ impl App {
                 }
                 Task::none()
             }
+            Message::DragStart(item) => {
+                self.drag = Some(Drag { over: item.clone(), item });
+                Task::none()
+            }
+            Message::DragOver(over) => {
+                if let Some(drag) = &mut self.drag
+                    && matches!((&drag.item, &over), (DragItem::Carrier(_), DragItem::Carrier(_)) | (DragItem::Line(_), DragItem::Line(_)))
+                {
+                    drag.over = over;
+                }
+                Task::none()
+            }
+            Message::PointerUp => {
+                let Some(Drag { item, over }) = self.drag.take() else { return Task::none() };
+                // Dropped somewhere else: it moves there. Either way it's picked, like a click.
+                match (item, over) {
+                    (DragItem::Carrier(carrier), DragItem::Carrier(onto)) => {
+                        if carrier != onto {
+                            self.shared.move_carrier(carrier, onto);
+                        }
+                        self.update(Message::SelectCarrier(carrier))
+                    }
+                    (DragItem::Line(id), DragItem::Line(onto)) => {
+                        if id != onto {
+                            self.shared.move_account(&id, &onto);
+                        }
+                        self.update(Message::SelectAccount(id))
+                    }
+                    _ => Task::none(),
+                }
+            }
             Message::SetTheme(theme) => {
                 self.shared.update(|d| d.settings.theme = theme);
                 Task::none()
@@ -529,6 +584,10 @@ impl App {
             Message::FocusNext => operation::focus_next(),
             Message::FocusPrevious => operation::focus_previous(),
             Message::Escape(_) if self.disclaimer_due() => Task::none(),
+            Message::Escape(_) if self.drag.is_some() => {
+                self.drag = None;
+                Task::none()
+            }
             Message::Escape(window) => {
                 if Some(window) == self.popup {
                     window::close(window)
@@ -947,9 +1006,13 @@ fn platform(popup: bool) -> window::settings::PlatformSpecific {
     }
 }
 
-/// Escape counts even when a text field captured it.
+/// Escape counts even when a text field captured it. A left button release anywhere ends a
+/// drag, wherever the pointer went.
 fn keys(event: iced::Event, _status: iced::event::Status, window: window::Id) -> Option<Message> {
     use iced::keyboard::{Event, Key, key::Named};
+    if let iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) = event {
+        return Some(Message::PointerUp);
+    }
     let iced::Event::Keyboard(Event::KeyPressed { key: Key::Named(named), modifiers, .. }) = event else { return None };
     match named {
         Named::Tab if modifiers.shift() => Some(Message::FocusPrevious),

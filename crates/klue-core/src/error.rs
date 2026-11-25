@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::LineType;
+
 /// Why a refresh failed. Serializable so it can be shown after a restart.
 #[derive(Debug, Clone, PartialEq, thiserror::Error, Serialize, Deserialize)]
 #[serde(tag = "type", content = "detail", rename_all = "snake_case")]
@@ -14,9 +16,14 @@ pub enum FetchError {
     /// The carrier rejected the captcha code.
     #[error("the carrier didn't accept the captcha code")]
     CaptchaRejected,
-    /// Too many sign-ins; no captchas until this time.
+    /// Too many sign-ins: WE gives no captchas, or Orange's firewall rejects requests, until
+    /// this time.
     #[error("the carrier is blocking sign-ins until {0}")]
     CaptchaBlocked(DateTime<Utc>),
+    /// The account has no line of this type: an Orange account without an Orange mobile line,
+    /// or without a linked landline (or linked to another one now).
+    #[error("the account has no {0:?} line to read")]
+    NoLine(LineType),
     /// A carrier error message we don't recognise.
     #[error("the carrier said: {0}")]
     Carrier(String),

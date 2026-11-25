@@ -17,7 +17,7 @@ use iced::{
 use klue_core::{
     Unit, format,
     history::{Period, Point as Reading},
-    store::Lang,
+    store::{Clock, Lang},
 };
 
 use crate::{
@@ -56,6 +56,7 @@ pub struct Chart {
     pub unit: Unit,
     pub p: Palette,
     pub lang: Lang,
+    pub clock: Clock,
 }
 
 /// Whether the pointer was over the graph, so leaving it redraws once.
@@ -81,6 +82,11 @@ impl canvas::Program<Message> for Chart {
 
     fn draw(&self, _state: &State, renderer: &Renderer, _theme: &Theme, bounds: Rectangle, cursor: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
+        // tiny-skia only repaints what changed, by each shape's bare bounds. The anti-aliased
+        // edge of a shape at a fractional pixel (any scaling like 125%) falls outside them, so a
+        // tooltip that moved left slivers of its edges behind. A clear shape over the whole
+        // graph makes every redraw repaint all of it.
+        frame.fill_rectangle(Point::ORIGIN, bounds.size(), Color::TRANSPARENT);
         self.paint(&mut frame, cursor.position_in(bounds));
         vec![frame.into_geometry()]
     }
@@ -359,11 +365,11 @@ impl Chart {
             dot(frame, point, DOT + 1.5, mark, p.bg);
             let reading = self.readings[j];
             let mut lines = vec![
-                (i18n::moment(reading.at, self.lang), 12.0, Weight::Normal, false),
+                (i18n::moment(reading.at, self.clock, self.lang), 12.0, Weight::Normal, false),
                 (i18n::left_of(reading.remaining, self.unit, self.lang), 14.0, Weight::ExtraBold, true),
             ];
             if let Some(before) = j.checked_sub(1).map(|k| self.readings[k]) {
-                lines.push((i18n::used_since((reading.used - before.used).max(0.0), self.unit, before.at, self.lang), 12.0, Weight::Normal, false));
+                lines.push((i18n::used_since((reading.used - before.used).max(0.0), self.unit, before.at, self.clock, self.lang), 12.0, Weight::Normal, false));
             }
             self.tooltip(frame, point, &lines);
         }
@@ -374,7 +380,7 @@ impl Chart {
             let h = (period.used * used.factor - used.lo()) as f32 / (used.hi() - used.lo()) as f32 * (COLUMNS.1 - COLUMNS.0);
             let when = match self.span {
                 Span::Days => i18n::day_label(period.start, self.lang),
-                Span::Hours => i18n::hour_span(period.start, period.end, self.lang),
+                Span::Hours => i18n::hour_span(period.start, period.end, self.clock, self.lang),
             };
             let mut lines = vec![(when, 12.0, Weight::Normal, false), (i18n::used_of(period.used, self.unit, self.lang), 14.0, Weight::ExtraBold, true)];
             let first_at = self.readings.first().map(|r| r.at);
@@ -384,9 +390,9 @@ impl Chart {
             } else if i + 1 == self.periods.len()
                 && let Some(t) = last_at.filter(|t| *t < period.end)
             {
-                lines.push((i18n::until_clock(t, self.lang), 12.0, Weight::Normal, false));
+                lines.push((i18n::until_clock(t, self.clock, self.lang), 12.0, Weight::Normal, false));
             } else if let Some(t) = first_at.filter(|t| *t > period.start && *t < period.end) {
-                lines.push((i18n::from_clock(t, self.lang), 12.0, Weight::Normal, false));
+                lines.push((i18n::from_clock(t, self.clock, self.lang), 12.0, Weight::Normal, false));
             }
             self.tooltip(frame, Point::new((l + r) / 2.0, COLUMNS.1 - h.max(0.0)), &lines);
         }
@@ -412,7 +418,7 @@ impl Chart {
         let slot = (axis.right - axis.left) / n as f32;
         let midnight = |q: &Period| q.start.with_timezone(&Local).hour() == 0;
         let full = |q: &Period| match self.span {
-            Span::Hours if !midnight(q) => i18n::clock(q.start),
+            Span::Hours if !midnight(q) => i18n::hour_label(q.start, self.clock, self.lang),
             _ => i18n::axis_day(q.start, true, self.lang),
         };
         let font_for = |s: &str| if s.is_ascii() { assets::numbers(Weight::Normal) } else { assets::font(self.lang, Weight::Normal) };

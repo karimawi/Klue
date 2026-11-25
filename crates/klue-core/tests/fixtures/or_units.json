@@ -1,0 +1,37 @@
+{
+  "GetConsumptionResult": {
+    "CoinUnits": null,
+    "ErrorCode": 0,
+    "ErrorDescription": "Success",
+    "ErrorText": null,
+    "HardToReachText": null,
+    "InternationalSummary": null,
+    "IsCoin": false,
+    "IsPostpaidEligible": false,
+    "IsSalefnyCallsEligible": false,
+    "MinutesUsageSummary": null,
+    "RoamingSummary": null,
+    "SMSSummary": null,
+    "Units": [
+      {
+        "ConsumptionText": "Units",
+        "ConsumptionTextParams": "Units",
+        "DestinationID": "195",
+        "ExpiryDate": "30/11/2026",
+        "ID": null,
+        "IsCarryOverUnit": false,
+        "IsGranted": false,
+        "Name": "Kart El Kebir Bundles",
+        "Remaining": 425,
+        "Showable": false,
+        "Status": false,
+        "TemplateCode": "4",
+        "Title": "Kart El Kebir Bundles",
+        "TotalSize": 0,
+        "UOM": 4,
+        "UOMString": "Units",
+        "Usage": -425
+      }
+    ]
+  }
+}

@@ -1,0 +1,119 @@
+{
+  "ErrorCode": 0,
+  "ErrorDescription": "Success",
+  "Balance": null,
+  "MainPackage": {
+    "ProductId": "5220",
+    "Name": "Home Internet 660",
+    "Balance": "536870912000.0",
+    "Consumed": "282211510272.0",
+    "Remaining": "254659401728.0",
+    "NextRecharge": "20261216000000",
+    "PurchaseSequenceNumber": null,
+    "IsRenewable": false,
+    "RemainingValueUnit": "bytes",
+    "Status": null
+  },
+  "Extensions": [
+    {
+      "ProductId": null,
+      "Name": "Extra Quota 20 GB",
+      "Balance": "21474836480",
+      "Consumed": "4664644608.0",
+      "Remaining": "16810191872",
+      "NextRecharge": "20261215000000",
+      "PurchaseSequenceNumber": null,
+      "IsRenewable": false,
+      "RemainingValueUnit": "bytes",
+      "Status": null
+    },
+    {
+      "ProductId": null,
+      "Name": "Extra Quota 20 GB",
+      "Balance": "21474836480",
+      "Consumed": "21474836480.0",
+      "Remaining": "0",
+      "NextRecharge": "20261214000000",
+      "PurchaseSequenceNumber": null,
+      "IsRenewable": false,
+      "RemainingValueUnit": "bytes",
+      "Status": null
+    },
+    {
+      "ProductId": null,
+      "Name": "Extra Quota 20 GB",
+      "Balance": "21474836480",
+      "Consumed": "21474836480.0",
+      "Remaining": "0",
+      "NextRecharge": "20261212000000",
+      "PurchaseSequenceNumber": null,
+      "IsRenewable": false,
+      "RemainingValueUnit": "bytes",
+      "Status": null
+    },
+    {
+      "ProductId": null,
+      "Name": "Extra Quota 20 GB",
+      "Balance": "21474836480",
+      "Consumed": "21474836480.0",
+      "Remaining": "0",
+      "NextRecharge": "20261212000000",
+      "PurchaseSequenceNumber": null,
+      "IsRenewable": false,
+      "RemainingValueUnit": "bytes",
+      "Status": null
+    },
+    {
+      "ProductId": null,
+      "Name": "Extra Quota 60 GB",
+      "Balance": "64424509440",
+      "Consumed": "64424509440.0",
+      "Remaining": "0",
+      "NextRecharge": "20261206000000",
+      "PurchaseSequenceNumber": null,
+      "IsRenewable": false,
+      "RemainingValueUnit": "bytes",
+      "Status": null
+    },
+    {
+      "ProductId": null,
+      "Name": "Extra Quota 100 GB",
+      "Balance": "107374182400",
+      "Consumed": "107374182400.0",
+      "Remaining": "0",
+      "NextRecharge": "20261208000000",
+      "PurchaseSequenceNumber": null,
+      "IsRenewable": false,
+      "RemainingValueUnit": "bytes",
+      "Status": null
+    },
+    {
+      "ProductId": null,
+      "Name": "Extra Quota 5 GB",
+      "Balance": "5368709120",
+      "Consumed": "5368709120.0",
+      "Remaining": "0",
+      "NextRecharge": "20261207235900",
+      "PurchaseSequenceNumber": null,
+      "IsRenewable": false,
+      "RemainingValueUnit": "bytes",
+      "Status": null
+    }
+  ],
+  "Compensations": null,
+  "DoubleQuota": null,
+  "DSLFeatures": [
+    {
+      "Artwork": "https://cdn.orange.eg/images/DSLOffers/193699_20261104121628075.png",
+      "Ribbon": true,
+      "RibbonText": "New",
+      "RibbonBackGroundColor": "0000FF",
+      "RibbonFontColor": "FF0000",
+      "Title": "Complain",
+      "SubTitle": "hgk small",
+      "Description": "submit your complain through here",
+      "RedirectionLink": "mobinil://main?screen=dslcomplaint",
+      "IsPrePaid": false
+    }
+  ]
+}
