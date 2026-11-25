@@ -16,7 +16,10 @@ use iced::{
     font::Weight,
     widget::{Row, Space, button, column, container, svg, text, tooltip},
 };
-use klue_core::{Carrier, store::Lang};
+use klue_core::{
+    Carrier,
+    store::{Clock, Lang},
+};
 
 use crate::{
     app::{App, Message},
@@ -27,12 +30,13 @@ use crate::{
 
 pub type El<'a> = Element<'a, Message>;
 
-/// Palette, language, strings and the time.
+/// Palette, language, clock format, strings and the time.
 #[derive(Clone, Copy)]
 pub struct Ctx<'a> {
     pub app: &'a App,
     pub p: Palette,
     pub lang: Lang,
+    pub clock: Clock,
     pub s: &'static Strings,
     pub now: DateTime<Utc>,
 }
@@ -44,6 +48,7 @@ impl<'a> Ctx<'a> {
             app,
             p: theme::palette(settings.theme, carrier, popup),
             lang: settings.lang,
+            clock: settings.clock,
             s: i18n::strings(settings.lang),
             now: app.now,
         }

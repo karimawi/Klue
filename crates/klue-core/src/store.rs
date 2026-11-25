@@ -53,18 +53,35 @@ pub enum RefreshEvery {
     #[default]
     #[serde(rename = "1h")]
     Hour1,
+    #[serde(rename = "3h")]
+    Hours3,
     #[serde(rename = "6h")]
     Hours6,
 }
 
 impl RefreshEvery {
+    pub const ALL: [RefreshEvery; 4] = [RefreshEvery::Minutes15, RefreshEvery::Hour1, RefreshEvery::Hours3, RefreshEvery::Hours6];
+
     pub fn duration(self) -> std::time::Duration {
         std::time::Duration::from_secs(match self {
             RefreshEvery::Minutes15 => 15 * 60,
             RefreshEvery::Hour1 => 60 * 60,
+            RefreshEvery::Hours3 => 3 * 60 * 60,
             RefreshEvery::Hours6 => 6 * 60 * 60,
         })
     }
+}
+
+/// How times of day are written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Clock {
+    /// "14:07".
+    #[default]
+    #[serde(rename = "24h")]
+    H24,
+    /// "2:07 PM".
+    #[serde(rename = "12h")]
+    H12,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -72,7 +89,12 @@ impl RefreshEvery {
 pub struct Settings {
     pub theme: Theme,
     pub lang: Lang,
+    pub clock: Clock,
+    /// How often numbers refresh, unless they have their own [`Account::refresh`].
     pub refresh: RefreshEvery,
+    /// The carriers in the order the user put them; carriers missing here follow in
+    /// [`Carrier::ALL`] order. See [`AppData::carriers`].
+    pub carrier_order: Vec<Carrier>,
     pub launch_at_startup: bool,
     pub keep_in_tray: bool,
     /// Alert settings for all numbers; new numbers start with them.
@@ -88,7 +110,9 @@ impl Default for Settings {
         Self {
             theme: Theme::Light,
             lang: Lang::En,
+            clock: Clock::H24,
             refresh: RefreshEvery::Hour1,
+            carrier_order: Vec::new(),
             launch_at_startup: false,
             keep_in_tray: true,
             alerts: AlertDefaults::default(),
@@ -232,6 +256,9 @@ pub struct Account {
     pub nickname: Option<String>,
     #[serde(default)]
     pub owner_name: Option<String>,
+    /// How often this number refreshes; `None` follows [`Settings::refresh`].
+    #[serde(default)]
+    pub refresh: Option<RefreshEvery>,
     #[serde(default)]
     pub alerts: AlertPrefs,
     #[serde(default)]
@@ -265,6 +292,7 @@ impl Account {
             login: None,
             nickname: None,
             owner_name: None,
+            refresh: None,
             alerts: AlertPrefs::default(),
             usage: None,
             last_error: None,
@@ -285,6 +313,16 @@ impl Account {
     /// What the line signs in with: [`Account::login`], else its own number.
     pub fn sign_in_number(&self) -> &str {
         self.login.as_deref().unwrap_or(&self.number)
+    }
+
+    /// How often this number refreshes: its own setting, else the one for all numbers.
+    pub fn refresh_every(&self, settings: &Settings) -> RefreshEvery {
+        self.refresh.unwrap_or(settings.refresh)
+    }
+
+    /// When the last successful refresh was.
+    pub fn updated_at(&self) -> Option<DateTime<Utc>> {
+        self.usage.as_ref().map(|u| u.fetched_at)
     }
 
     /// Nickname, else registered owner, else the number.
@@ -406,8 +444,41 @@ impl AppData {
         }
     }
 
+    /// A carrier's numbers, in the order the user put them.
     pub fn accounts_for(&self, carrier: Carrier) -> impl Iterator<Item = &Account> {
         self.accounts.iter().filter(move |a| a.carrier == carrier)
+    }
+
+    /// Every carrier, in the order the user put them.
+    pub fn carriers(&self) -> Vec<Carrier> {
+        let mut out: Vec<Carrier> = Vec::with_capacity(Carrier::ALL.len());
+        for c in self.settings.carrier_order.iter().copied().chain(Carrier::ALL) {
+            if !out.contains(&c) {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    /// Puts `carrier` where `onto` is; the ones between shift over.
+    pub fn move_carrier(&mut self, carrier: Carrier, onto: Carrier) {
+        let mut order = self.carriers();
+        if let (Some(from), Some(to)) = (order.iter().position(|c| *c == carrier), order.iter().position(|c| *c == onto)) {
+            let moved = order.remove(from);
+            order.insert(to, moved);
+            self.settings.carrier_order = order;
+        }
+    }
+
+    /// Puts number `id` where number `onto` is, among the same carrier's numbers.
+    pub fn move_account(&mut self, id: &str, onto: &str) {
+        let position = |id: &str| self.accounts.iter().position(|a| a.id == id);
+        let (Some(from), Some(to)) = (position(id), position(onto)) else { return };
+        if self.accounts[from].carrier != self.accounts[to].carrier {
+            return;
+        }
+        let moved = self.accounts.remove(from);
+        self.accounts.insert(to, moved);
     }
 
     pub fn account(&self, id: &str) -> Option<&Account> {
@@ -683,6 +754,68 @@ mod tests {
         a.apply_usage(usage(vec![bundle(140.0, 60.0)]), &defaults);
         a.apply_usage(usage(vec![bundle(25.0, 25.0)]), &defaults);
         assert_eq!(a.usage.as_ref().unwrap().bundles[0].total, 25.0);
+    }
+
+    #[test]
+    fn carriers_keep_the_users_order() {
+        let mut data = AppData::default();
+        assert_eq!(data.carriers(), Carrier::ALL);
+        data.move_carrier(Carrier::Orange, Carrier::We);
+        assert_eq!(data.carriers(), [Carrier::Orange, Carrier::We, Carrier::Vodafone, Carrier::Etisalat]);
+        // Dragged down past the others, it takes the last one's place.
+        data.move_carrier(Carrier::We, Carrier::Etisalat);
+        assert_eq!(data.carriers(), [Carrier::Orange, Carrier::Vodafone, Carrier::Etisalat, Carrier::We]);
+        // An order saved before a carrier existed, or with repeats, still lists each once.
+        data.settings.carrier_order = vec![Carrier::Vodafone, Carrier::Vodafone];
+        assert_eq!(data.carriers(), [Carrier::Vodafone, Carrier::We, Carrier::Orange, Carrier::Etisalat]);
+    }
+
+    #[test]
+    fn numbers_move_among_their_carriers_numbers() {
+        let mut data = AppData::default();
+        for (carrier, number) in [(Carrier::We, "0223584417"), (Carrier::Vodafone, "01000000000"), (Carrier::We, "0348712290"), (Carrier::We, "0403456789")] {
+            data.accounts.push(Account::new(carrier, carrier.default_line(), number.into()));
+        }
+        let id = |data: &AppData, n: usize| data.accounts[n].id.clone();
+        let we = |data: &AppData| data.accounts_for(Carrier::We).map(|a| a.number.clone()).collect::<Vec<_>>();
+        let (first, vodafone, last) = (id(&data, 0), id(&data, 1), id(&data, 3));
+        data.move_account(&last, &first);
+        assert_eq!(we(&data), ["0403456789", "0223584417", "0348712290"]);
+        // Forward too: it takes the other one's place.
+        data.move_account(&first, &id(&data, 3));
+        assert_eq!(we(&data), ["0403456789", "0348712290", "0223584417"]);
+        // Not across carriers, and Vodafone's number stays put.
+        let before = data.accounts.clone();
+        data.move_account(&first, &vodafone);
+        data.move_account(&first, "gone");
+        assert_eq!(data.accounts, before);
+        assert_eq!(data.accounts_for(Carrier::Vodafone).count(), 1);
+    }
+
+    #[test]
+    fn numbers_can_refresh_on_their_own_schedule() {
+        let settings = Settings::default();
+        let mut a = Account::new(Carrier::Orange, LineType::Mobile, "01200000000".into());
+        assert_eq!(a.refresh_every(&settings), RefreshEvery::Hour1);
+        a.refresh = Some(RefreshEvery::Hours6);
+        assert_eq!(a.refresh_every(&settings), RefreshEvery::Hours6);
+        // 3 hours, between 1 and 6.
+        let three: RefreshEvery = serde_json::from_str(r#""3h""#).unwrap();
+        assert_eq!((three, three.duration().as_secs()), (RefreshEvery::Hours3, 3 * 60 * 60));
+        assert_eq!(RefreshEvery::ALL, [RefreshEvery::Minutes15, RefreshEvery::Hour1, RefreshEvery::Hours3, RefreshEvery::Hours6]);
+        assert_eq!(a.updated_at(), None);
+    }
+
+    #[test]
+    fn older_settings_get_the_new_defaults() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"dark","lang":"ar","refresh":"6h"}"#).unwrap();
+        assert_eq!((old.clock, old.carrier_order.len(), old.refresh), (Clock::H24, 0, RefreshEvery::Hours6));
+        let twelve: Settings = serde_json::from_str(r#"{"clock":"12h","carrier_order":["orange","we"]}"#).unwrap();
+        assert_eq!((twelve.clock, twelve.carrier_order.as_slice()), (Clock::H12, [Carrier::Orange, Carrier::We].as_slice()));
+        let saved = serde_json::to_string(&Settings { clock: Clock::H12, carrier_order: vec![Carrier::Orange], ..Settings::default() }).unwrap();
+        assert!(saved.contains(r#""clock":"12h""#) && saved.contains(r#""carrier_order":["orange"]"#), "{saved}");
+        let account: Account = serde_json::from_str(&serde_json::to_string(&Account::new(Carrier::We, LineType::Landline, "0223584417".into())).unwrap()).unwrap();
+        assert_eq!(account.refresh, None);
     }
 
     #[test]

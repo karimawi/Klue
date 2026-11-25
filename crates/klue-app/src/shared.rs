@@ -18,7 +18,7 @@ use klue_core::{
     captcha::{BoxFuture, CaptchaSolver, default_solver},
     carriers::{self, FetchContext},
     format,
-    store::{Account, AppData, Secrets, Settings, Store},
+    store::{Account, AppData, RefreshEvery, Secrets, Settings, Store},
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -229,6 +229,26 @@ impl Shared {
         self.save_vault_index();
     }
 
+    /// `None` follows the interval for all numbers.
+    pub fn set_refresh(&self, id: &str, every: Option<RefreshEvery>) {
+        self.update(|d| {
+            if let Some(a) = d.account_mut(id) {
+                a.refresh = every;
+            }
+        });
+    }
+
+    /// Puts `carrier` where `onto` is in the carrier rail.
+    pub fn move_carrier(&self, carrier: Carrier, onto: Carrier) {
+        self.update(|d| d.move_carrier(carrier, onto));
+    }
+
+    /// Puts number `id` where number `onto` is among its carrier's tabs.
+    pub fn move_account(&self, id: &str, onto: &str) {
+        self.update(|d| d.move_account(id, onto));
+        self.save_vault_index();
+    }
+
     /// `None` resets to the default main quota.
     pub fn set_main_bundle(&self, id: &str, bundle: Option<String>) {
         self.update(|d| {
@@ -309,24 +329,25 @@ impl Shared {
         self.set_refreshing(id, false);
     }
 
-    /// Refreshes everything that's due, one at a time.
+    /// Refreshes everything that's due, one at a time. Each number has its own interval, or
+    /// the one for all numbers.
     pub async fn refresh_due(&self) {
-        let (interval, due): (chrono::Duration, Vec<String>) = {
+        let due: Vec<String> = {
             let data = self.data.lock().expect("data lock");
-            let interval = chrono::Duration::from_std(data.settings.refresh.duration()).unwrap_or(chrono::Duration::hours(1));
             let now = Utc::now();
-            let due = data
-                .accounts
+            data.accounts
                 .iter()
                 .filter(|a| a.carrier.supports_line(a.line))
                 // A rejected password stays rejected: retrying in the background could lock the account.
                 .filter(|a| !matches!(a.last_error, Some(FetchError::BadCredentials)))
-                .filter(|a| a.last_attempt.is_none_or(|t| now - t >= interval))
+                .filter(|a| {
+                    let interval = chrono::Duration::from_std(a.refresh_every(&data.settings).duration()).unwrap_or(chrono::Duration::hours(1));
+                    a.last_attempt.is_none_or(|t| now - t >= interval)
+                })
                 .map(|a| a.id.clone())
-                .collect();
-            (interval, due)
+                .collect()
         };
-        tracing::debug!(?interval, count = due.len(), "background refresh");
+        tracing::debug!(count = due.len(), "background refresh");
         for id in due {
             self.refresh(&id, false).await;
         }

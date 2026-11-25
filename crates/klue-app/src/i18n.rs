@@ -1,7 +1,10 @@
 //! English and Arabic strings.
 
-use chrono::{DateTime, Datelike, Local, Utc};
-use klue_core::{BundleKind, BundleState, Carrier, FetchError, LineType, Unit, format, store::Lang};
+use chrono::{DateTime, Datelike, Local, Timelike, Utc};
+use klue_core::{
+    BundleKind, BundleState, Carrier, FetchError, LineType, Unit, format,
+    store::{Clock, Lang},
+};
 
 pub struct Strings {
     pub app: &'static str,
@@ -70,6 +73,13 @@ pub struct Strings {
     pub match_hint: &'static str,
     pub language: &'static str,
     pub check_every: &'static str,
+    /// Under "Check quotas every": numbers can have their own.
+    pub check_every_hint: &'static str,
+    /// Edit dialog: this number's own refresh interval.
+    pub check_number_every: &'static str,
+    pub follow_settings: &'static str,
+    pub check_number_hint: &'static str,
+    pub time_format: &'static str,
     pub startup: &'static str,
     pub tray: &'static str,
     pub disclaimer: &'static str,
@@ -210,7 +220,7 @@ pub struct Strings {
 pub static EN: Strings = Strings {
     app: "Klue", light: "Light", dark: "Dark", match_long: "Match carrier", add: "Add", settings: "Settings",
     add_number: "Add number", mobile: "Mobile", landline: "DSL", registered_to: "Registered to", refresh: "Refresh",
-    rename: "Rename", alerts: "Alerts", package: "Package", below_alert: "Below alert", remaining: "remaining", change: "Change",
+    rename: "Edit", alerts: "Alerts", package: "Package", below_alert: "Below alert", remaining: "remaining", change: "Change",
     next_renewal: "Next renewal", cycle: "Billing cycle", subscribed: "Subscribed", renews: "Renews", bundles: "Bundles & add-ons",
     col_bundle: "Bundle", col_rem: "Remaining", col_total: "Total", col_left: "Left", col_alert: "Alert", off: "Off",
     empty_body: "Add a number and its account password. Klue signs in, reads the quota, and fills in the registered owner for you. Mobile lines and DSL both work.",
@@ -219,12 +229,12 @@ pub static EN: Strings = Strings {
     password: "Account password", owner_name: "Owner name", from_account: "From the account",
     auto_fill: "Filled in after the password is verified", fetching: "Reading account…", nick_optional: "Nickname (optional)",
     nick_ph: "e.g. Home internet", verify: "Verify password", verifying: "Verifying…", cancel: "Cancel", verified: "Password verified",
-    try_again: "Try again", err_title: "Password not accepted", rename_title: "Rename number", nickname: "Nickname",
+    try_again: "Try again", err_title: "Password not accepted", rename_title: "Edit number", nickname: "Nickname",
     nick_hint: "Only changes how the number appears in Klue.", shown_as: "Shown as", use_owner: "Use owner name", save: "Save",
     quota_alerts: "Quota alerts", renewal_reminder: "Renewal reminder", remind_me: "Remind me",
     before_renewal: "before renewal", days: "Days", hours: "Hours", renew_day: "Also notify on renewal day", preview: "Preview",
     theme: "Theme", match_hint: "Match carrier recolors the app to each carrier’s colors as you switch tabs.", language: "Language",
-    check_every: "Check quotas every", startup: "Launch at startup", tray: "Keep running in the tray",
+    check_every: "Check quotas every", check_every_hint: "Numbers can have their own, from their Edit dialog.", check_number_every: "Check this number every", follow_settings: "As in Settings", check_number_hint: "Klue checks the number in the background this often. Refresh checks it now.", time_format: "Time format", startup: "Launch at startup", tray: "Keep running in the tray",
     disclaimer: "Unofficial app. Not affiliated with any carrier.", done: "Done", open_app: "Open Klue", settings_title: "Settings",
     empty_kicker: "No numbers",
     coming_soon_body: "Klue can’t sign in to this carrier yet. WE home internet, Vodafone mobile and Orange lines work today; e& is next.",
@@ -331,7 +341,7 @@ pub static EN: Strings = Strings {
 
 pub static AR: Strings = Strings {
     app: "Klue", light: "فاتح", dark: "داكن", match_long: "ألوان الشركة", add: "إضافة", settings: "الإعدادات",
-    add_number: "إضافة رقم", mobile: "محمول", landline: "DSL", registered_to: "مسجّل باسم", refresh: "تحديث", rename: "تغيير الاسم",
+    add_number: "إضافة رقم", mobile: "محمول", landline: "DSL", registered_to: "مسجّل باسم", refresh: "تحديث", rename: "تعديل",
     alerts: "التنبيهات", package: "الباقة", below_alert: "أقل من حد التنبيه", remaining: "متبقي", change: "تعديل",
     next_renewal: "التجديد القادم", cycle: "دورة الاشتراك", subscribed: "تاريخ الاشتراك", renews: "يتجدد", bundles: "الباقات والإضافات",
     col_bundle: "الباقة", col_rem: "المتبقي", col_total: "الإجمالي", col_left: "النسبة", col_alert: "التنبيه", off: "غير مفعّل",
@@ -342,12 +352,12 @@ pub static AR: Strings = Strings {
     auto_fill: "يُملأ تلقائياً بعد التحقق من كلمة المرور", fetching: "جارٍ قراءة الحساب…", nick_optional: "اسم مختصر (اختياري)",
     nick_ph: "مثال: إنترنت البيت", verify: "تحقق من كلمة المرور", verifying: "جارٍ التحقق…", cancel: "إلغاء",
     verified: "تم التحقق من كلمة المرور", try_again: "إعادة المحاولة", err_title: "كلمة المرور غير صحيحة",
-    rename_title: "تغيير اسم الرقم", nickname: "الاسم المختصر", nick_hint: "يغيّر طريقة ظهور الرقم في Klue فقط.",
+    rename_title: "تعديل الرقم", nickname: "الاسم المختصر", nick_hint: "يغيّر طريقة ظهور الرقم في Klue فقط.",
     shown_as: "يظهر باسم", use_owner: "استخدام اسم صاحب الخط", save: "حفظ",
     quota_alerts: "تنبيهات الرصيد", renewal_reminder: "تذكير التجديد", remind_me: "ذكّرني قبل", before_renewal: "من التجديد",
     days: "أيام", hours: "ساعات", renew_day: "تنبيه يوم التجديد أيضاً", preview: "معاينة", theme: "المظهر",
     match_hint: "ألوان الشركة: يتغيّر لون التطبيق حسب الشركة عند التنقل بين التبويبات.", language: "اللغة",
-    check_every: "تحديث الرصيد كل", startup: "التشغيل مع بدء النظام", tray: "العمل في الخلفية",
+    check_every: "تحديث الرصيد كل", check_every_hint: "يمكن أن يكون لكل رقم توقيته الخاص من نافذة تعديله.", check_number_every: "تحديث هذا الرقم كل", follow_settings: "كما في الإعدادات", check_number_hint: "يحدّث Klue الرقم في الخلفية بهذا التوقيت، وزر التحديث يحدّثه الآن.", time_format: "صيغة الوقت", startup: "التشغيل مع بدء النظام", tray: "العمل في الخلفية",
     disclaimer: "تطبيق غير رسمي وغير تابع لأي شركة اتصالات.", done: "تم", open_app: "فتح Klue", settings_title: "الإعدادات",
     empty_kicker: "لا توجد أرقام",
     coming_soon_body: "لا يستطيع Klue تسجيل الدخول إلى هذه الشركة بعد. يعمل حالياً إنترنت وي المنزلي وخطوط فودافون المحمول وخطوط أورنج، وإي آند في الطريق.",
@@ -508,6 +518,21 @@ pub fn speeds(s: &klue_core::model::Speed, lang: Lang) -> String {
         (Some(up), false) => format!("{down} down, {} up", speed(up, lang)),
         (Some(up), true) => format!("{down} تحميل، {} رفع", speed(up, lang)),
         (None, _) => down,
+    }
+}
+
+/// "15 min" / "15 د".
+pub fn every_label(every: klue_core::store::RefreshEvery, lang: Lang) -> &'static str {
+    use klue_core::store::RefreshEvery as R;
+    match (every, is_ar(lang)) {
+        (R::Minutes15, false) => "15 min",
+        (R::Hour1, false) => "1 hr",
+        (R::Hours3, false) => "3 hr",
+        (R::Hours6, false) => "6 hr",
+        (R::Minutes15, true) => "15 د",
+        (R::Hour1, true) => "ساعة",
+        (R::Hours3, true) => "3 س",
+        (R::Hours6, true) => "6 س",
     }
 }
 
@@ -757,7 +782,7 @@ pub fn countdown(until: DateTime<Utc>, now: DateTime<Utc>, lang: Lang) -> String
 }
 
 /// Explanation of a failed refresh or sign-in.
-pub fn error_text(e: &FetchError, carrier: Carrier, lang: Lang) -> String {
+pub fn error_text(e: &FetchError, carrier: Carrier, c: Clock, lang: Lang) -> String {
     let name = carrier_name(carrier, lang);
     let app = carrier_app(carrier, lang);
     let ar = is_ar(lang);
@@ -784,7 +809,7 @@ pub fn error_text(e: &FetchError, carrier: Carrier, lang: Lang) -> String {
             }
         }
         FetchError::CaptchaBlocked(until) => {
-            let t = until.with_timezone(&Local).format("%H:%M");
+            let t = clock(*until, c, lang);
             if ar {
                 format!("أوقفت {name} تسجيل الدخول مؤقتاً بعد محاولات كثيرة. سيحاول Klue مرة أخرى بعد {t}.")
             } else {
@@ -857,24 +882,53 @@ pub fn day_label(dt: DateTime<Utc>, lang: Lang) -> String {
     }
 }
 
-/// "14:07", local.
-pub fn clock(dt: DateTime<Utc>) -> String {
-    dt.with_timezone(&Local).format("%H:%M").to_string()
+/// "14:07", or "2:07 PM" / "2:07 م", in local time.
+pub fn clock(dt: DateTime<Utc>, clock: Clock, lang: Lang) -> String {
+    let t = dt.with_timezone(&Local);
+    match clock {
+        Clock::H24 => t.format("%H:%M").to_string(),
+        Clock::H12 => format!("{}:{:02} {}", hour12(t.hour()), t.minute(), am_pm(t.hour(), lang)),
+    }
+}
+
+/// An hour on the graph's time axis: "14:00", or "2 PM" / "2 م".
+pub fn hour_label(dt: DateTime<Utc>, clock: Clock, lang: Lang) -> String {
+    let t = dt.with_timezone(&Local);
+    match clock {
+        Clock::H24 => t.format("%H:%M").to_string(),
+        Clock::H12 => format!("{} {}", hour12(t.hour()), am_pm(t.hour(), lang)),
+    }
+}
+
+fn hour12(hour: u32) -> u32 {
+    match hour % 12 {
+        0 => 12,
+        h => h,
+    }
+}
+
+fn am_pm(hour: u32, lang: Lang) -> &'static str {
+    match (hour < 12, lang) {
+        (true, Lang::En) => "AM",
+        (false, Lang::En) => "PM",
+        (true, Lang::Ar) => "ص",
+        (false, Lang::Ar) => "م",
+    }
 }
 
 /// "Mon 23 Nov, 14:07" / "الاثنين 23 نوفمبر، 14:07".
-pub fn moment(dt: DateTime<Utc>, lang: Lang) -> String {
+pub fn moment(dt: DateTime<Utc>, c: Clock, lang: Lang) -> String {
     match lang {
-        Lang::En => format!("{}, {}", day_label(dt, lang), clock(dt)),
-        Lang::Ar => format!("{}، {}", day_label(dt, lang), clock(dt)),
+        Lang::En => format!("{}, {}", day_label(dt, lang), clock(dt, c, lang)),
+        Lang::Ar => format!("{}، {}", day_label(dt, lang), clock(dt, c, lang)),
     }
 }
 
 /// "Mon 23 Nov, 14:00–15:00".
-pub fn hour_span(start: DateTime<Utc>, end: DateTime<Utc>, lang: Lang) -> String {
+pub fn hour_span(start: DateTime<Utc>, end: DateTime<Utc>, c: Clock, lang: Lang) -> String {
     match lang {
-        Lang::En => format!("{}, {}–{}", day_label(start, lang), clock(start), clock(end)),
-        Lang::Ar => format!("{}، {}–{}", day_label(start, lang), clock(start), clock(end)),
+        Lang::En => format!("{}, {}–{}", day_label(start, lang), clock(start, c, lang), clock(end, c, lang)),
+        Lang::Ar => format!("{}، {}–{}", day_label(start, lang), clock(start, c, lang), clock(end, c, lang)),
     }
 }
 
@@ -908,9 +962,10 @@ pub fn used_of(v: f64, unit: Unit, lang: Lang) -> String {
 }
 
 /// "1.2 GB since 11:52".
-pub fn used_since(v: f64, unit: Unit, since: DateTime<Utc>, lang: Lang) -> String {
+pub fn used_since(v: f64, unit: Unit, since: DateTime<Utc>, c: Clock, lang: Lang) -> String {
     let q = quantity(v, unit, lang);
-    if is_ar(lang) { format!("{q} منذ {}", clock(since)) } else { format!("{q} since {}", clock(since)) }
+    let t = clock(since, c, lang);
+    if is_ar(lang) { format!("{q} منذ {t}") } else { format!("{q} since {t}") }
 }
 
 /// "Spread over a 9-hour wait between refreshes".
@@ -924,12 +979,14 @@ pub fn spread_over(gap: chrono::Duration, lang: Lang) -> String {
 }
 
 /// "From 09:12" / "Until 14:07".
-pub fn from_clock(t: DateTime<Utc>, lang: Lang) -> String {
-    if is_ar(lang) { format!("من {}", clock(t)) } else { format!("From {}", clock(t)) }
+pub fn from_clock(t: DateTime<Utc>, c: Clock, lang: Lang) -> String {
+    let t = clock(t, c, lang);
+    if is_ar(lang) { format!("من {t}") } else { format!("From {t}") }
 }
 
-pub fn until_clock(t: DateTime<Utc>, lang: Lang) -> String {
-    if is_ar(lang) { format!("حتى {}", clock(t)) } else { format!("Until {}", clock(t)) }
+pub fn until_clock(t: DateTime<Utc>, c: Clock, lang: Lang) -> String {
+    let t = clock(t, c, lang);
+    if is_ar(lang) { format!("حتى {t}") } else { format!("Until {t}") }
 }
 
 /// What an average is over: "Over 16 days" / "على مدى 16 يوم".
@@ -965,6 +1022,22 @@ mod tests {
         assert_eq!(date_long(dt, Lang::Ar), "الثلاثاء، 8 ديسمبر 2026");
         assert_eq!(date_short(dt, Lang::En), "08 Dec 2026");
         assert_eq!(date_short(dt, Lang::Ar), "08 ديسمبر 2026");
+    }
+
+    #[test]
+    fn clock_formats() {
+        let at = |h, m| Local.with_ymd_and_hms(2026, 11, 25, h, m, 0).unwrap().with_timezone(&Utc);
+        assert_eq!(clock(at(14, 7), Clock::H24, Lang::En), "14:07");
+        assert_eq!(clock(at(14, 7), Clock::H12, Lang::En), "2:07 PM");
+        assert_eq!(clock(at(0, 57), Clock::H12, Lang::En), "12:57 AM");
+        assert_eq!(clock(at(12, 0), Clock::H12, Lang::En), "12:00 PM");
+        assert_eq!(clock(at(9, 5), Clock::H12, Lang::Ar), "9:05 ص");
+        assert_eq!(clock(at(21, 5), Clock::H12, Lang::Ar), "9:05 م");
+        assert_eq!(hour_label(at(14, 0), Clock::H12, Lang::En), "2 PM");
+        assert_eq!(hour_label(at(0, 0), Clock::H12, Lang::En), "12 AM");
+        assert_eq!(hour_label(at(14, 0), Clock::H24, Lang::Ar), "14:00");
+        assert_eq!(moment(at(0, 57), Clock::H12, Lang::En), "Wed 25 Nov, 12:57 AM");
+        assert_eq!(used_since(1.6, Unit::Gb, at(23, 56), Clock::H12, Lang::En), "1.6 GB since 11:56 PM");
     }
 
     #[test]

@@ -32,7 +32,7 @@ pub fn view<'a>(ctx: &Ctx<'a>, account: &'a Account) -> El<'a> {
 
     let mut page = column![header(ctx, account, refreshing), hline(p.dv, 2.0)].spacing(0);
     if let Some(error) = &account.last_error {
-        page = page.push(gap(16.0)).push(notice(ctx, Icon::Warning, ctx.p.danger, i18n::error_title(error, ctx.lang), i18n::error_text(error, account.carrier, ctx.lang)));
+        page = page.push(gap(16.0)).push(notice(ctx, Icon::Warning, ctx.p.danger, i18n::error_title(error, ctx.lang), i18n::error_text(error, account.carrier, ctx.clock, ctx.lang)));
     }
     if let Some(usage) = &account.usage
         && let Some(state) = state_notice(ctx, account, usage)
@@ -458,7 +458,7 @@ fn usage_graph<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<
     }
     if a.enough() {
         let (span, periods) = if hours { (chart::Span::Hours, a.hourly.clone()) } else { (chart::Span::Days, a.daily.clone()) };
-        let graph = Chart { span, readings: a.points.clone(), periods, unit: bundle.unit, p, lang: ctx.lang };
+        let graph = Chart { span, readings: a.points.clone(), periods, unit: bundle.unit, p, lang: ctx.lang, clock: ctx.clock };
         let note = if graph.has_gaps() { format!("{} {}", s.chart_dots, s.chart_gaps) } else { s.chart_dots.to_string() };
         section = section.push(canvas(graph).width(Length::Fill).height(chart::HEIGHT)).push(ctx.muted(note, 12.0));
     }
