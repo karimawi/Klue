@@ -91,7 +91,7 @@ pub(crate) fn iso_datetime(v: &Value) -> Option<DateTime<Utc>> {
 
 /// A naive timestamp as Egypt local time. Uses the machine's zone: no tz database, and
 /// users are in Egypt.
-fn cairo(naive: NaiveDateTime) -> Option<DateTime<Utc>> {
+pub(crate) fn cairo(naive: NaiveDateTime) -> Option<DateTime<Utc>> {
     chrono::Local
         .from_local_datetime(&naive)
         .earliest()

@@ -169,16 +169,25 @@ impl Shared {
         }
     }
 
-    /// Signs in with new credentials (Add a number).
+    /// Signs in with new credentials (Add a number). `number` is the one the line signs in
+    /// with; an Orange home internet line is only known, and checked, once Orange names it.
     pub async fn verify(&self, carrier: Carrier, line: LineType, number: &str, password: &str) -> Result<Usage, FetchError> {
-        let number = format::normalize(number, line)?;
-        if self.data.lock().expect("data lock").accounts.iter().any(|a| a.carrier == carrier && a.number == number) {
-            return Err(FetchError::Carrier(crate::i18n::strings(self.settings().lang).already_added.into()));
+        let sign_in = format::normalize(number, carrier.sign_in_line(line))?;
+        let added = |number: &str| self.data.lock().expect("data lock").accounts.iter().any(|a| a.carrier == carrier && a.number == number);
+        let already = || FetchError::Carrier(crate::i18n::strings(self.settings().lang).already_added.into());
+        if carrier.sign_in_line(line) == line && added(&sign_in) {
+            return Err(already());
         }
-        if self.demo {
-            return demo::verify(carrier, &number, password).await;
+        let usage = if self.demo {
+            demo::verify(carrier, line, &sign_in, password).await?
+        } else {
+            carriers::fetch(carrier, line, &sign_in, password, &self.context(true)).await?
+        };
+        let own = carriers::line_number(carrier, line, &sign_in, &usage)?;
+        if own != sign_in && added(&own) {
+            return Err(already());
         }
-        carriers::fetch(carrier, line, &number, password, &self.context(true)).await
+        Ok(usage)
     }
 
     /// Saves a verified number. Returns its id.
@@ -191,8 +200,10 @@ impl Shared {
         nickname: Option<String>,
         usage: Usage,
     ) -> Result<String, FetchError> {
-        let number = format::normalize(number, line)?;
-        let mut account = Account::new(carrier, line, number);
+        let sign_in = format::normalize(number, carrier.sign_in_line(line))?;
+        let own = carriers::line_number(carrier, line, &sign_in, &usage)?;
+        let mut account = Account::new(carrier, line, own.clone());
+        account.login = (own != sign_in).then_some(sign_in);
         account.nickname = nickname.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
         // New numbers start with the alert settings for all numbers.
         let defaults = self.settings().alerts;
@@ -280,9 +291,7 @@ impl Shared {
         } else {
             match self.secrets.get(&account) {
                 None => Err(FetchError::Carrier(crate::i18n::strings(self.settings().lang).no_password.into())),
-                Some(password) => {
-                    carriers::fetch(account.carrier, account.line, &account.number, &password, &self.context(interactive)).await
-                }
+                Some(password) => carriers::fetch_account(&account, &password, &self.context(interactive)).await,
             }
         };
         if let Err(e) = &result {

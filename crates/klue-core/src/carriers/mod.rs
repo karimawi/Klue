@@ -1,6 +1,7 @@
 //! Carrier clients. Each signs in with the account's own credentials and returns a
 //! [`Usage`].
 
+pub mod orange;
 pub mod vodafone;
 pub mod we;
 
@@ -8,7 +9,7 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-use crate::{Carrier, FetchError, LineType, Usage, captcha::CaptchaSolver};
+use crate::{Carrier, FetchError, LineType, Usage, captcha::CaptchaSolver, format, store::Account};
 
 #[derive(Default)]
 pub struct FetchContext<'a> {
@@ -55,6 +56,7 @@ fn redact(v: &mut Value) {
     }
 }
 
+/// `number` is the one the line signs in with (see [`Carrier::sign_in_line`]).
 pub async fn fetch(
     carrier: Carrier,
     line: LineType,
@@ -68,8 +70,29 @@ pub async fn fetch(
     match carrier {
         Carrier::We => we::fetch(number, password, ctx).await,
         Carrier::Vodafone => vodafone::fetch(number, password, ctx).await,
-        Carrier::Orange | Carrier::Etisalat => Err(FetchError::Unsupported),
+        Carrier::Orange => orange::fetch(line, number, password, ctx).await,
+        Carrier::Etisalat => Err(FetchError::Unsupported),
     }
+}
+
+/// Reads a saved line, and checks the carrier still names it for its sign-in number.
+pub async fn fetch_account(account: &Account, password: &str, ctx: &FetchContext<'_>) -> Result<Usage, FetchError> {
+    let sign_in = account.sign_in_number();
+    let usage = fetch(account.carrier, account.line, sign_in, password, ctx).await?;
+    if line_number(account.carrier, account.line, sign_in, &usage)? != account.number {
+        return Err(FetchError::NoLine(account.line));
+    }
+    Ok(usage)
+}
+
+/// The line's own number: `sign_in` itself, or for a line that signs in with another number
+/// (Orange home internet), the landline the carrier names in [`crate::model::LineInfo::number`].
+pub fn line_number(carrier: Carrier, line: LineType, sign_in: &str, usage: &Usage) -> Result<String, FetchError> {
+    if carrier.sign_in_line(line) == line {
+        return Ok(sign_in.to_string());
+    }
+    let named = usage.info.number.as_deref().ok_or_else(|| FetchError::Unexpected("the carrier didn't say which line this is".into()))?;
+    format::normalize(named, line)
 }
 
 #[cfg(test)]

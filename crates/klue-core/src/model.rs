@@ -27,12 +27,25 @@ impl Carrier {
 
     /// Whether Klue can sign in to this carrier yet.
     pub fn is_supported(self) -> bool {
-        matches!(self, Carrier::We | Carrier::Vodafone)
+        matches!(self, Carrier::We | Carrier::Vodafone | Carrier::Orange)
     }
 
-    /// Line types with a working client: WE home internet and Vodafone mobile.
+    /// Line types with a working client: WE home internet, Vodafone mobile, and Orange mobile
+    /// and home internet.
     pub fn supports_line(self, line: LineType) -> bool {
-        matches!((self, line), (Carrier::We, LineType::Landline) | (Carrier::Vodafone, LineType::Mobile))
+        matches!(
+            (self, line),
+            (Carrier::We, LineType::Landline) | (Carrier::Vodafone, LineType::Mobile) | (Carrier::Orange, _)
+        )
+    }
+
+    /// The kind of number a line signs in with. Orange home internet signs in with the
+    /// account's My Orange (mobile) number, and Orange then names the linked landline.
+    pub fn sign_in_line(self, line: LineType) -> LineType {
+        match self {
+            Carrier::Orange => LineType::Mobile,
+            _ => line,
+        }
     }
 
     pub fn default_line(self) -> LineType {

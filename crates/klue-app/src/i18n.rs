@@ -122,6 +122,8 @@ pub struct Strings {
     /// Add dialog tooltips for line types that aren't supported yet.
     pub we_mobile_soon: &'static str,
     pub vf_dsl_soon: &'static str,
+    /// Add dialog: the landline an Orange account is linked to.
+    pub landline_found: &'static str,
     /// The package's line speed (WE).
     pub speed: &'static str,
     pub after_quota: &'static str,
@@ -225,7 +227,7 @@ pub static EN: Strings = Strings {
     check_every: "Check quotas every", startup: "Launch at startup", tray: "Keep running in the tray",
     disclaimer: "Unofficial app. Not affiliated with any carrier.", done: "Done", open_app: "Open Klue", settings_title: "Settings",
     empty_kicker: "No numbers",
-    coming_soon_body: "Klue can’t sign in to this carrier yet. WE home internet and Vodafone mobile lines work today; Orange and e& are next.",
+    coming_soon_body: "Klue can’t sign in to this carrier yet. WE home internet, Vodafone mobile and Orange lines work today; e& is next.",
     not_synced: "Not synced yet", syncing: "Syncing…", synced_now: "Synced just now", waiting_first_sync: "Waiting for the first sync…", owner_unknown: "Not provided by the carrier", remove: "Remove number",
     remove_hint: "Removes the number and its saved password from this computer.", remove_confirm: "Click again to remove",
     captcha_title: "Type the characters", captcha_body: "WE wants to check you’re human before signing in. Type the characters in the picture.",
@@ -257,6 +259,7 @@ pub static EN: Strings = Strings {
     owed_note: "Your next recharge pays it first.",
     we_mobile_soon: "WE mobile (015) lines are coming soon.",
     vf_dsl_soon: "Vodafone DSL is coming soon.",
+    landline_found: "Linked landline",
     speed: "Speed",
     after_quota: "After the quota",
     main_quota: "The main quota",
@@ -347,7 +350,7 @@ pub static AR: Strings = Strings {
     check_every: "تحديث الرصيد كل", startup: "التشغيل مع بدء النظام", tray: "العمل في الخلفية",
     disclaimer: "تطبيق غير رسمي وغير تابع لأي شركة اتصالات.", done: "تم", open_app: "فتح Klue", settings_title: "الإعدادات",
     empty_kicker: "لا توجد أرقام",
-    coming_soon_body: "لا يستطيع Klue تسجيل الدخول إلى هذه الشركة بعد. يعمل حالياً إنترنت وي المنزلي وخطوط فودافون المحمول، وأورنج وإي آند في الطريق.",
+    coming_soon_body: "لا يستطيع Klue تسجيل الدخول إلى هذه الشركة بعد. يعمل حالياً إنترنت وي المنزلي وخطوط فودافون المحمول وخطوط أورنج، وإي آند في الطريق.",
     not_synced: "لم يتم التحديث بعد", syncing: "جارٍ التحديث…", synced_now: "تم التحديث الآن", waiting_first_sync: "في انتظار أول تحديث…", owner_unknown: "لم توفره الشركة", remove: "حذف الرقم",
     remove_hint: "يحذف الرقم وكلمة المرور المحفوظة من هذا الجهاز.", remove_confirm: "اضغط مرة أخرى للحذف",
     captcha_title: "اكتب الحروف", captcha_body: "تريد وي التأكد من أنك لست برنامجاً قبل تسجيل الدخول. اكتب الحروف الظاهرة في الصورة.",
@@ -379,6 +382,7 @@ pub static AR: Strings = Strings {
     owed_note: "يُخصم أولًا من الشحنة القادمة.",
     we_mobile_soon: "خطوط وي المحمول (015) قريباً.",
     vf_dsl_soon: "فودافون DSL قريباً.",
+    landline_found: "الخط الأرضي المربوط",
     speed: "السرعة",
     after_quota: "بعد انتهاء الباقة",
     main_quota: "الباقة الرئيسية",
@@ -807,6 +811,20 @@ pub fn error_text(e: &FetchError, carrier: Carrier, lang: Lang) -> String {
         FetchError::InvalidNumber(n) => {
             if ar { format!("الرقم \"{n}\" غير صحيح.") } else { format!("\u{201c}{n}\u{201d} doesn’t look like a valid number.") }
         }
+        FetchError::NoLine(LineType::Mobile) => {
+            if ar {
+                format!("لا يوجد خط محمول من {name} على حساب {app} هذا. إن كان للإنترنت المنزلي فاختر DSL.")
+            } else {
+                format!("This {app} account has no {name} mobile line. If it’s for home internet, choose DSL.")
+            }
+        }
+        FetchError::NoLine(LineType::Landline) => {
+            if ar {
+                format!("لا يوجد خط أرضي مربوط بحساب {app} هذا، أو صار مربوطاً بخط آخر. اربط الخط في {app} ثم حاول مرة أخرى.")
+            } else {
+                format!("No landline is linked to this {app} account, or it’s linked to another one now. Link the line in {app}, then try again.")
+            }
+        }
         FetchError::Unsupported => strings(lang).coming_soon_body.into(),
     }
 }
@@ -820,6 +838,7 @@ pub fn error_title(e: &FetchError, lang: Lang) -> &'static str {
         FetchError::CaptchaBlocked(_) => if ar { "تسجيل الدخول متوقف مؤقتاً" } else { "Sign-ins paused" },
         FetchError::CaptchaRejected => if ar { "لم يُقبل رمز التحقق" } else { "Captcha not accepted" },
         FetchError::InvalidNumber(_) => if ar { "رقم غير صحيح" } else { "Check the number" },
+        FetchError::NoLine(_) => if ar { "الخط غير موجود" } else { "Line not found" },
         FetchError::Network(_) => if ar { "لا يوجد اتصال" } else { "No connection" },
         _ => if ar { "تعذّر التحقق" } else { "Couldn’t verify" },
     }

@@ -224,6 +224,10 @@ pub struct Account {
     pub line: LineType,
     /// Normalised local number, e.g. `01001285532`.
     pub number: String,
+    /// The number the line signs in with, when it isn't `number`: an Orange home internet
+    /// line signs in with the account's My Orange number.
+    #[serde(default)]
+    pub login: Option<String>,
     #[serde(default)]
     pub nickname: Option<String>,
     #[serde(default)]
@@ -258,6 +262,7 @@ impl Account {
             carrier,
             line,
             number,
+            login: None,
             nickname: None,
             owner_name: None,
             alerts: AlertPrefs::default(),
@@ -275,6 +280,11 @@ impl Account {
     /// The vault user name: carrier and number.
     pub fn credential_user(&self) -> String {
         format!("{}:{}", self.carrier.id(), self.number)
+    }
+
+    /// What the line signs in with: [`Account::login`], else its own number.
+    pub fn sign_in_number(&self) -> &str {
+        self.login.as_deref().unwrap_or(&self.number)
     }
 
     /// Nickname, else registered owner, else the number.
@@ -305,10 +315,11 @@ impl Account {
     }
 
     /// Records a successful refresh. New bundles get alerts from `defaults`.
-    pub fn apply_usage(&mut self, usage: Usage, defaults: &AlertDefaults) {
+    pub fn apply_usage(&mut self, mut usage: Usage, defaults: &AlertDefaults) {
         if let Some(name) = usage.owner_name.clone() {
             self.owner_name = Some(name);
         }
+        keep_sizes(self.usage.as_ref(), &mut usage);
         self.history.record(usage.fetched_at, &usage.bundles);
         let main = usage.main_for(self.main_bundle.as_deref()).map(|m| m.key.clone());
         for b in &usage.bundles {
@@ -350,6 +361,22 @@ impl Account {
         }
         let excess = self.fired.len().saturating_sub(64);
         self.fired.drain(..excess);
+    }
+}
+
+/// A carrier that doesn't say how big a bundle is (Orange's units) reports it as full. For
+/// such a bundle, the most it had this cycle (same key, unit and end date) stands as its size,
+/// so it shows what was used, and the graphs don't take every refresh for a new cycle. Without
+/// an end date there's no telling a cycle, so the size stays as reported.
+fn keep_sizes(previous: Option<&Usage>, usage: &mut Usage) {
+    let Some(previous) = previous else { return };
+    for b in usage.bundles.iter_mut().filter(|b| b.total <= b.remaining && b.expires_at.is_some()) {
+        let before = previous.bundles.iter().find(|p| p.key == b.key && p.unit == b.unit && p.expires_at == b.expires_at);
+        if let Some(before) = before
+            && before.total > b.total
+        {
+            b.total = before.total;
+        }
     }
 }
 
@@ -459,6 +486,9 @@ pub struct VaultAccount {
     pub carrier: Carrier,
     pub line: LineType,
     pub number: String,
+    /// [`Account::login`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login: Option<String>,
     #[serde(default)]
     pub nickname: Option<String>,
 }
@@ -522,7 +552,13 @@ impl Secrets {
     pub fn save_index(&self, accounts: &[Account]) {
         let list: Vec<VaultAccount> = accounts
             .iter()
-            .map(|a| VaultAccount { carrier: a.carrier, line: a.line, number: a.number.clone(), nickname: a.nickname.clone() })
+            .map(|a| VaultAccount {
+                carrier: a.carrier,
+                line: a.line,
+                number: a.number.clone(),
+                login: a.login.clone(),
+                nickname: a.nickname.clone(),
+            })
             .collect();
         if let Ok(json) = serde_json::to_string(&list)
             && let Err(e) = write_entry(INDEX_USER, &json)
@@ -553,6 +589,7 @@ impl AppData {
                 continue;
             }
             let mut account = Account::new(v.carrier, v.line, v.number);
+            account.login = v.login;
             account.nickname = v.nickname;
             self.accounts.push(account);
             added += 1;
@@ -587,13 +624,65 @@ mod tests {
         let mut data = AppData::default();
         data.accounts.push(Account::new(Carrier::We, LineType::Landline, "0223584417".into()));
         let vault = vec![
-            VaultAccount { carrier: Carrier::We, line: LineType::Landline, number: "0223584417".into(), nickname: None },
-            VaultAccount { carrier: Carrier::Vodafone, line: LineType::Mobile, number: "01000000000".into(), nickname: Some("Work".into()) },
+            VaultAccount { carrier: Carrier::We, line: LineType::Landline, number: "0223584417".into(), login: None, nickname: None },
+            VaultAccount { carrier: Carrier::Vodafone, line: LineType::Mobile, number: "01000000000".into(), login: None, nickname: Some("Work".into()) },
+            VaultAccount { carrier: Carrier::Orange, line: LineType::Landline, number: "0233456789".into(), login: Some("01200000000".into()), nickname: None },
         ];
-        assert_eq!(data.restore(vault), 1);
-        assert_eq!(data.accounts.len(), 2);
+        assert_eq!(data.restore(vault), 2);
+        assert_eq!(data.accounts.len(), 3);
         assert_eq!(data.accounts[1].nickname.as_deref(), Some("Work"));
         assert_eq!(data.accounts[1].credential_user(), "vf:01000000000");
+        assert_eq!(data.accounts[1].sign_in_number(), "01000000000");
+        // An Orange home internet line is its landline, signed in to with the My Orange number.
+        assert_eq!(data.accounts[2].credential_user(), "or:0233456789");
+        assert_eq!(data.accounts[2].sign_in_number(), "01200000000");
+    }
+
+    #[test]
+    fn the_vault_index_keeps_the_sign_in_number() {
+        let mut account = Account::new(Carrier::Orange, LineType::Landline, "0233456789".into());
+        account.login = Some("01200000000".into());
+        let saved = serde_json::to_string(&VaultAccount {
+            carrier: account.carrier,
+            line: account.line,
+            number: account.number.clone(),
+            login: account.login.clone(),
+            nickname: None,
+        })
+        .unwrap();
+        let back: VaultAccount = serde_json::from_str(&saved).unwrap();
+        assert_eq!(back.login.as_deref(), Some("01200000000"));
+        // Older indexes have no `login`, and lines without one don't write it.
+        let old: VaultAccount = serde_json::from_str(r#"{"carrier":"we","line":"landline","number":"0223584417"}"#).unwrap();
+        assert_eq!(old.login, None);
+        assert!(!serde_json::to_string(&old).unwrap().contains("login"));
+    }
+
+    #[test]
+    fn bundles_without_a_size_keep_the_most_they_had_this_cycle() {
+        let end = Utc::now() + chrono::Duration::days(5);
+        let units = |remaining: f64, end| Bundle {
+            key: "kart-el-kebir-bundles".into(),
+            kind: BundleKind::Other,
+            unit: Unit::Units,
+            expires_at: Some(end),
+            ..bundle(remaining, remaining)
+        };
+        let mut a = Account::new(Carrier::Orange, LineType::Mobile, "01200000000".into());
+        let defaults = AlertDefaults::default();
+        a.apply_usage(usage(vec![units(425.0, end)]), &defaults);
+        a.apply_usage(usage(vec![units(380.0, end)]), &defaults);
+        let b = &a.usage.as_ref().unwrap().bundles[0];
+        assert_eq!((b.remaining, b.total), (380.0, 425.0));
+        // A recharge raises it, and a new cycle starts over.
+        a.apply_usage(usage(vec![units(600.0, end)]), &defaults);
+        assert_eq!(a.usage.as_ref().unwrap().bundles[0].total, 600.0);
+        a.apply_usage(usage(vec![units(300.0, end + chrono::Duration::days(30))]), &defaults);
+        assert_eq!(a.usage.as_ref().unwrap().bundles[0].total, 300.0);
+        // Without an end date to tell the cycle by, the size stays as the carrier says.
+        a.apply_usage(usage(vec![bundle(140.0, 60.0)]), &defaults);
+        a.apply_usage(usage(vec![bundle(25.0, 25.0)]), &defaults);
+        assert_eq!(a.usage.as_ref().unwrap().bundles[0].total, 25.0);
     }
 
     #[test]

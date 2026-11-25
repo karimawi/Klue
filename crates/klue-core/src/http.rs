@@ -20,6 +20,33 @@ pub(crate) fn browser_client() -> Result<wreq::Client, FetchError> {
     builder.build().map_err(|e| FetchError::Network(e.to_string()))
 }
 
+/// A client with its own cookie jar that looks like an Android app built on okhttp 4.12:
+/// okhttp's TLS and HTTP/2 fingerprint, its user agent, and gzip as the only encoding.
+/// Callers handle redirects.
+pub(crate) fn okhttp_client() -> Result<wreq::Client, FetchError> {
+    use wreq::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
+    let emulation = wreq_util::Emulation::builder().profile(wreq_util::Profile::OkHttp4_12).headers(false).build();
+    let mut headers = HeaderMap::new();
+    headers.insert(USER_AGENT, HeaderValue::from_static("okhttp/4.12.0"));
+    headers.insert(ACCEPT, HeaderValue::from_static("*/*"));
+    // The emulation sets its own default headers, so these come after it.
+    let mut builder = wreq::Client::builder()
+        .emulation(emulation)
+        .default_headers(headers)
+        .gzip(true)
+        .brotli(false)
+        .deflate(false)
+        .zstd(false)
+        .cookie_store(true)
+        .redirect(wreq::redirect::Policy::none())
+        .timeout(Duration::from_secs(40))
+        .connect_timeout(Duration::from_secs(15));
+    if let Some(store) = env_cert_store() {
+        builder = builder.tls_cert_store(store.clone());
+    }
+    builder.build().map_err(|e| FetchError::Network(e.to_string()))
+}
+
 /// Plain HTTPS for GitHub: follows redirects, `timeout` for the whole response.
 pub(crate) fn plain_client(timeout: Duration) -> Result<wreq::Client, FetchError> {
     let mut builder = wreq::Client::builder()

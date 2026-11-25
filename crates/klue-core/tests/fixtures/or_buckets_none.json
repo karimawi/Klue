@@ -1,0 +1,23 @@
+{
+  "GetCurrentActiveBucketsResult": {
+    "Buckets": null,
+    "CanUseSalefnyNet": true,
+    "ErrorCode": 0,
+    "ErrorDescription": "Success",
+    "GoBucket": null,
+    "GoPasses": null,
+    "IsChangePackageGo": false,
+    "IsChangePackageOnline": false,
+    "IsExtend": false,
+    "IsExtraUnlimited": false,
+    "IsGoPackageInfo": false,
+    "IsGoPackages": true,
+    "IsGoPass": true,
+    "IsOnlineExtra": false,
+    "IsOnlinePackageInfo": false,
+    "IsOnlinePackages": false,
+    "IsRenewNow": false,
+    "IsUnsubscribeGo": false,
+    "IsUnsubscribeOnline": false
+  }
+}

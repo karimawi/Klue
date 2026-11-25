@@ -452,7 +452,18 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
         38.0,
         13.0,
     );
-    let placeholder = if f.line == LineType::Mobile { "010 1234 5678" } else { "02 2345 6789" };
+    // Orange home internet signs in with the My Orange number, then Orange names the landline.
+    let signs_in_elsewhere = f.carrier.sign_in_line(f.line) != f.line;
+    let placeholder = match (f.carrier.sign_in_line(f.line), f.carrier) {
+        (LineType::Landline, _) => "02 2345 6789",
+        (LineType::Mobile, Carrier::Orange) => "012 3456 7890",
+        (LineType::Mobile, _) => "010 1234 5678",
+    };
+    let number_label = match (signs_in_elsewhere, ar) {
+        (true, true) => format!("رقم {app_name}"),
+        (true, false) => format!("{app_name} number"),
+        (false, _) => s.number.to_string(),
+    };
     let mut number = field(ctx, placeholder, &f.number, |t| Message::Modal(Msg::AddNumber(t)), false).font(crate::assets::numbers(Weight::Normal)).on_submit(Message::Modal(Msg::AddSubmit));
     if verifying || verified {
         number = text_input(placeholder, &f.number).padding([9, 10]).size(14).font(crate::assets::numbers(Weight::Normal)).style(theme::field(p, false));
@@ -460,7 +471,7 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
     let number = number.id(ADD_NUMBER);
     let pair = ctx.row(vec![
         column![label(ctx, s.line_type), gap(6.0), container(line_seg).width(Length::Shrink)].width(Length::Shrink).into(),
-        column![label(ctx, s.number), gap(6.0), number].width(Length::Fill).into(),
+        column![label(ctx, &number_label), gap(6.0), number].width(Length::Fill).into(),
     ])
     .spacing(12)
     .align_y(Alignment::Start);
@@ -483,7 +494,12 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
         .padding(0)
         .style(theme::ghost(p.mu, p.sf, 9.0))
         .on_press(Message::Modal(Msg::AddShowPassword));
-    let hint = if ar { format!("نفس كلمة المرور المستخدمة في {app_name}.") } else { format!("The same password you use in {app_name}.") };
+    let hint = match (signs_in_elsewhere, ar) {
+        (true, true) => format!("الرقم وكلمة المرور اللذان تستخدمهما في {app_name}. يقرأ Klue الخط الأرضي المربوط بالحساب."),
+        (true, false) => format!("The number and password you use in {app_name}. Klue reads the landline linked to it."),
+        (false, true) => format!("نفس كلمة المرور المستخدمة في {app_name}."),
+        (false, false) => format!("The same password you use in {app_name}."),
+    };
     let mut pass_col = column![label(ctx, s.password), gap(6.0), ctx.row(vec![password.into(), eye.into()]).spacing(6), gap(6.0), ctx.muted(hint, 12.0)].align_x(ctx.start());
     if verifying {
         pass_col = pass_col.push(gap(8.0)).push(ctx.meter(0.35, 3.0, p.ac));
@@ -509,6 +525,12 @@ fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
         body = body.push(notice(ctx, e, f.carrier));
     }
     body = body.push(column![ctx.row(owner_label), gap(6.0), readout(ctx, owner, verified, verified)]);
+    if signs_in_elsewhere
+        && let Phase::Verified(u) = &f.phase
+        && let Some(landline) = &u.info.number
+    {
+        body = body.push(column![label(ctx, s.landline_found), gap(6.0), readout(ctx, format::pretty_number(landline), true, true)]);
+    }
     if verified {
         body = body.push(column![
             label(ctx, s.nick_optional),
