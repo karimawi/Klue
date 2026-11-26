@@ -6,6 +6,8 @@ use klue_core::{
     store::{Clock, Lang},
 };
 
+use crate::product::Product;
+
 pub struct Strings {
     pub app: &'static str,
     pub light: &'static str,
@@ -38,21 +40,13 @@ pub struct Strings {
     pub empty_body: &'static str,
     pub steps: [&'static str; 3],
     pub new_number: &'static str,
-    pub add_title: &'static str,
-    pub carrier: &'static str,
-    pub line_type: &'static str,
-    pub number: &'static str,
     pub password: &'static str,
     pub owner_name: &'static str,
     pub from_account: &'static str,
-    pub auto_fill: &'static str,
-    pub fetching: &'static str,
     pub nick_optional: &'static str,
     pub nick_ph: &'static str,
-    pub verify: &'static str,
     pub verifying: &'static str,
     pub cancel: &'static str,
-    pub verified: &'static str,
     pub try_again: &'static str,
     pub err_title: &'static str,
     pub rename_title: &'static str,
@@ -140,11 +134,22 @@ pub struct Strings {
     /// Line card: when a prepaid line expires unless recharged.
     pub valid_until: &'static str,
     pub owed_note: &'static str,
-    /// Add dialog tooltips for line types that aren't supported yet.
-    pub we_mobile_soon: &'static str,
-    pub vf_dsl_soon: &'static str,
-    /// Add dialog: the landline an Orange account is linked to.
-    pub landline_found: &'static str,
+    /// The Add wizard: its steps, their titles, and the sign-in fields.
+    pub wizard_steps: [&'static str; 4],
+    pub pick_carrier: &'static str,
+    pub pick_line: &'static str,
+    pub ready_to_add: &'static str,
+    pub soon: &'static str,
+    pub coming_soon: &'static str,
+    pub back: &'static str,
+    pub sign_in: &'static str,
+    pub signed_in: &'static str,
+    pub mobile_number: &'static str,
+    pub landline_number: &'static str,
+    pub area_code_hint: &'static str,
+    /// Finish step: the account's other lines (Orange).
+    pub looking_for_lines: &'static str,
+    pub add_both: &'static str,
     /// The package's line speed (WE).
     pub speed: &'static str,
     pub after_quota: &'static str,
@@ -236,10 +241,10 @@ pub static EN: Strings = Strings {
     col_bundle: "Bundle", col_rem: "Remaining", col_total: "Total", col_left: "Left", col_alert: "Alert", off: "Off",
     empty_body: "Add a number and its account password. Klue signs in, reads the quota, and fills in the registered owner for you. Mobile lines and DSL both work.",
     steps: ["Enter the number", "Enter the account password", "Owner name and quota load automatically"],
-    new_number: "New number", add_title: "Add a number", carrier: "Carrier", line_type: "Line type", number: "Number",
+    new_number: "New number",
     password: "Account password", owner_name: "Owner name", from_account: "From the account",
-    auto_fill: "Filled in after the password is verified", fetching: "Reading account…", nick_optional: "Nickname (optional)",
-    nick_ph: "e.g. Home internet", verify: "Verify password", verifying: "Verifying…", cancel: "Cancel", verified: "Password verified",
+    nick_optional: "Nickname (optional)",
+    nick_ph: "e.g. Home internet", verifying: "Verifying…", cancel: "Cancel",
     try_again: "Try again", err_title: "Password not accepted", rename_title: "Edit number", nickname: "Nickname",
     nick_hint: "Only changes how the number appears in Klue.", shown_as: "Shown as", use_owner: "Use owner name", save: "Save",
     quota_alerts: "Quota alerts", renewal_reminder: "Renewal reminder", remind_me: "Remind me",
@@ -280,9 +285,20 @@ pub static EN: Strings = Strings {
     inactive: "Not active",
     valid_until: "Valid until",
     owed_note: "Your next recharge pays it first.",
-    we_mobile_soon: "WE mobile (015) lines are coming soon.",
-    vf_dsl_soon: "Vodafone DSL is coming soon.",
-    landline_found: "Linked landline",
+    wizard_steps: ["Carrier", "Line", "Sign in", "Finish"],
+    pick_carrier: "Which carrier is it?",
+    pick_line: "What kind of line?",
+    ready_to_add: "Ready to add",
+    soon: "Soon",
+    coming_soon: "Coming soon",
+    back: "Back",
+    sign_in: "Sign in",
+    signed_in: "Signed in",
+    mobile_number: "Mobile number",
+    landline_number: "Landline number",
+    area_code_hint: "With the area code, the way you sign in to My WE.",
+    looking_for_lines: "Looking for other lines on this account…",
+    add_both: "Add both numbers",
     speed: "Speed",
     after_quota: "After the quota",
     main_quota: "The main quota",
@@ -360,11 +376,11 @@ pub static AR: Strings = Strings {
     col_bundle: "الباقة", col_rem: "المتبقي", col_total: "الإجمالي", col_left: "النسبة", col_alert: "التنبيه", off: "غير مفعّل",
     empty_body: "أضف الرقم وكلمة مرور الحساب. يسجّل Klue الدخول ويقرأ الباقة ويملأ اسم صاحب الخط تلقائياً. يدعم خطوط المحمول وDSL.",
     steps: ["أدخل الرقم", "أدخل كلمة مرور الحساب", "يظهر اسم صاحب الخط والرصيد تلقائياً"],
-    new_number: "رقم جديد", add_title: "إضافة رقم", carrier: "الشركة", line_type: "نوع الخط", number: "الرقم",
+    new_number: "رقم جديد",
     password: "كلمة مرور الحساب", owner_name: "اسم صاحب الخط", from_account: "من بيانات الحساب",
-    auto_fill: "يُملأ تلقائياً بعد التحقق من كلمة المرور", fetching: "جارٍ قراءة الحساب…", nick_optional: "اسم مختصر (اختياري)",
-    nick_ph: "مثال: إنترنت البيت", verify: "تحقق من كلمة المرور", verifying: "جارٍ التحقق…", cancel: "إلغاء",
-    verified: "تم التحقق من كلمة المرور", try_again: "إعادة المحاولة", err_title: "كلمة المرور غير صحيحة",
+    nick_optional: "اسم مختصر (اختياري)",
+    nick_ph: "مثال: إنترنت البيت", verifying: "جارٍ التحقق…", cancel: "إلغاء",
+    try_again: "إعادة المحاولة", err_title: "كلمة المرور غير صحيحة",
     rename_title: "تعديل الرقم", nickname: "الاسم المختصر", nick_hint: "يغيّر طريقة ظهور الرقم في Klue فقط.",
     shown_as: "يظهر باسم", use_owner: "استخدام اسم صاحب الخط", save: "حفظ",
     quota_alerts: "تنبيهات الرصيد", renewal_reminder: "تذكير التجديد", remind_me: "ذكّرني قبل", before_renewal: "من التجديد",
@@ -405,9 +421,20 @@ pub static AR: Strings = Strings {
     inactive: "غير مفعّلة",
     valid_until: "صالح حتى",
     owed_note: "يُخصم أولًا من الشحنة القادمة.",
-    we_mobile_soon: "خطوط وي المحمول (015) قريباً.",
-    vf_dsl_soon: "فودافون DSL قريباً.",
-    landline_found: "الخط الأرضي المربوط",
+    wizard_steps: ["الشركة", "نوع الخط", "تسجيل الدخول", "الإنهاء"],
+    pick_carrier: "ما شركة الخط؟",
+    pick_line: "ما نوع الخط؟",
+    ready_to_add: "جاهز للإضافة",
+    soon: "قريباً",
+    coming_soon: "قريباً",
+    back: "رجوع",
+    sign_in: "تسجيل الدخول",
+    signed_in: "تم تسجيل الدخول",
+    mobile_number: "رقم المحمول",
+    landline_number: "رقم الخط الأرضي",
+    area_code_hint: "مع كود المحافظة، كما تسجّل الدخول في My WE.",
+    looking_for_lines: "جارٍ البحث عن خطوط أخرى على هذا الحساب…",
+    add_both: "إضافة الرقمين",
     speed: "السرعة",
     after_quota: "بعد انتهاء الباقة",
     main_quota: "الباقة الرئيسية",
@@ -574,6 +601,70 @@ pub fn carrier_app(c: Carrier, lang: Lang) -> &'static str {
         Carrier::Orange => "My Orange",
         Carrier::Etisalat => if ar { "تطبيق e&" } else { "e& app" },
     }
+}
+
+/// A kind of line in the Add wizard: its name and what it is.
+pub fn product(p: Product, lang: Lang) -> (&'static str, &'static str) {
+    use Product::*;
+    let (en, ar) = match p {
+        WeHomeInternet => (("Home internet", "Your home internet quota (ADSL or VDSL)"), ("الإنترنت المنزلي", "باقة الإنترنت المنزلي (ADSL أو VDSL)")),
+        WeOneHome => (("OneHome", "Home internet and Ardy on one account"), ("وان هوم", "الإنترنت المنزلي والأرضي على حساب واحد")),
+        WeArdy => (("Ardy landline", "Your home phone line"), ("الأرضي", "خط التليفون المنزلي")),
+        WeMobile => (("WE Mobile", "Mobile minutes and internet"), ("وي موبايل", "دقائق وإنترنت المحمول")),
+        WeAir => (("WE Air", "4G home internet"), ("وي إير", "إنترنت منزلي 4G")),
+        WeGold => (("WE Gold", "Mobile minutes, home internet or WE Air"), ("وي جولد", "دقائق المحمول أو الإنترنت المنزلي أو وي إير")),
+        VfMobile => (("Mobile", "Your Vodafone mobile line"), ("المحمول", "خط فودافون المحمول")),
+        VfHomeInternet => (("Home internet", "Vodafone home internet (DSL)"), ("الإنترنت المنزلي", "إنترنت فودافون المنزلي (DSL)")),
+        VfUsb => (("USB and Mobile Wi‑Fi", "Mobile internet on a modem or router"), ("USB و Mobile Wi‑Fi", "إنترنت المحمول على مودم أو راوتر")),
+        OrMobile => (("Mobile", "Your Orange mobile line"), ("المحمول", "خط أورنج المحمول")),
+        OrHomeInternet => (("Home internet", "Orange home internet (DSL), through My Orange"), ("الإنترنت المنزلي", "إنترنت أورنج المنزلي (DSL) من خلال My Orange")),
+        EaMobile => (("Mobile", "Your e& mobile line"), ("المحمول", "خط إي آند المحمول")),
+        EaHomeInternet => (("Home internet", "e& home internet (DSL)"), ("الإنترنت المنزلي", "إنترنت إي آند المنزلي (DSL)")),
+    };
+    if is_ar(lang) { ar } else { en }
+}
+
+/// The sign-in step's title.
+pub fn sign_in_title(app: &str, lang: Lang) -> String {
+    if is_ar(lang) { format!("سجّل الدخول بحساب {app}") } else { format!("Sign in with {app}") }
+}
+
+/// The number a carrier's app signs in with, when it isn't the line's own.
+pub fn app_number(app: &str, lang: Lang) -> String {
+    if is_ar(lang) { format!("رقم {app}") } else { format!("{app} number") }
+}
+
+pub fn same_password(app: &str, lang: Lang) -> String {
+    if is_ar(lang) { format!("نفس كلمة المرور المستخدمة في {app}.") } else { format!("The same password you use in {app}.") }
+}
+
+/// Under the number of an Orange home internet line.
+pub fn linked_landline_hint(app: &str, lang: Lang) -> String {
+    if is_ar(lang) {
+        format!("رقم المحمول الذي يستخدمه حسابك في {app}. يقرأ Klue الخط الأرضي المربوط به.")
+    } else {
+        format!("The mobile number your {app} account uses. Klue reads the landline linked to it.")
+    }
+}
+
+pub fn signing_in(carrier: Carrier, lang: Lang) -> String {
+    let name = carrier_name(carrier, lang);
+    if is_ar(lang) { format!("جارٍ تسجيل الدخول إلى {name}…") } else { format!("Signing in to {name}…") }
+}
+
+/// The finish step's offer of the account's other line.
+pub fn also_has(line: LineType, lang: Lang) -> &'static str {
+    match (line, is_ar(lang)) {
+        (LineType::Landline, false) => "This account also has home internet",
+        (LineType::Mobile, false) => "This account also has a mobile line",
+        (LineType::Landline, true) => "هذا الحساب عليه إنترنت منزلي أيضاً",
+        (LineType::Mobile, true) => "هذا الحساب عليه خط محمول أيضاً",
+    }
+}
+
+/// "388 units left".
+pub fn left(amount: &str, lang: Lang) -> String {
+    if is_ar(lang) { format!("متبقي {amount}") } else { format!("{amount} left") }
 }
 
 pub fn line_name(line: LineType, lang: Lang) -> &'static str {

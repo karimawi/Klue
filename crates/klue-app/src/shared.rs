@@ -198,6 +198,24 @@ impl Shared {
         Ok(usage)
     }
 
+    /// The lines on the account just verified that Klue doesn't have yet (see
+    /// [`carriers::other_lines`]).
+    pub async fn other_lines(&self, carrier: Carrier, line: LineType, number: &str, password: &str) -> Vec<(LineType, Usage)> {
+        let Ok(sign_in) = format::normalize(number, carrier.sign_in_line(line)) else { return Vec::new() };
+        let found = if self.demo {
+            demo::other_lines(carrier, line, &sign_in).await
+        } else {
+            carriers::other_lines(carrier, line, &sign_in, password, &self.context(false)).await
+        };
+        let data = self.data.lock().expect("data lock");
+        found
+            .into_iter()
+            .filter(|(other, usage)| {
+                carriers::line_number(carrier, *other, &sign_in, usage).is_ok_and(|own| !data.accounts.iter().any(|a| a.carrier == carrier && a.number == own))
+            })
+            .collect()
+    }
+
     /// Saves a verified number. Returns its id.
     pub fn add_account(
         &self,

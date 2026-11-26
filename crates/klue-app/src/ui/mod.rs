@@ -1,5 +1,6 @@
 //! Views, drawn from [`App`] through a [`Ctx`] (palette, language, clock, RTL helpers).
 
+pub mod add;
 pub mod chart;
 pub mod console;
 pub mod dashboard;

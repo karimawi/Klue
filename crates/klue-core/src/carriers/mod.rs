@@ -85,6 +85,33 @@ pub async fn fetch_account(account: &Account, password: &str, ctx: &FetchContext
     Ok(usage)
 }
 
+/// The account's lines besides `line`, read right after signing in to it: an Orange account
+/// can hold a mobile line and home internet. Orange keeps the session from that sign-in, so
+/// this doesn't sign in again. Nothing for carriers whose accounts hold one line.
+pub async fn other_lines(carrier: Carrier, line: LineType, sign_in: &str, password: &str, ctx: &FetchContext<'_>) -> Vec<(LineType, Usage)> {
+    if carrier != Carrier::Orange {
+        return Vec::new();
+    }
+    let other = match line {
+        LineType::Mobile => LineType::Landline,
+        LineType::Landline => LineType::Mobile,
+    };
+    match fetch(carrier, other, sign_in, password, ctx).await {
+        Ok(usage) if worth_adding(other, &usage) => vec![(other, usage)],
+        Ok(_) => Vec::new(),
+        Err(e) => {
+            tracing::info!("no {other:?} line on this {carrier:?} account: {e}");
+            Vec::new()
+        }
+    }
+}
+
+/// A mobile line found next to home internet only counts with a plan or a bundle; a number
+/// that only signs in to My Orange has neither.
+fn worth_adding(line: LineType, usage: &Usage) -> bool {
+    line == LineType::Landline || usage.package_name.is_some() || !usage.bundles.is_empty()
+}
+
 /// The line's own number: `sign_in` itself, or for a line that signs in with another number
 /// (Orange home internet), the landline the carrier names in [`crate::model::LineInfo::number`].
 pub fn line_number(carrier: Carrier, line: LineType, sign_in: &str, usage: &Usage) -> Result<String, FetchError> {
@@ -99,6 +126,15 @@ pub fn line_number(carrier: Carrier, line: LineType, sign_in: &str, usage: &Usag
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_mobile_line_needs_a_plan_or_a_bundle() {
+        let mut usage: Usage = serde_json::from_value(json!({"bundles": [], "fetched_at": "2026-11-26T08:00:00Z"})).unwrap();
+        assert!(!worth_adding(LineType::Mobile, &usage));
+        assert!(worth_adding(LineType::Landline, &usage));
+        usage.package_name = Some("FREEmax 80".into());
+        assert!(worth_adding(LineType::Mobile, &usage));
+    }
 
     #[test]
     fn redacts_secrets() {

@@ -35,7 +35,7 @@ pub fn view<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let cta = button(ctx.row(vec![ctx.icon(Icon::Plus, 16.0, p.on), ctx.text(cta, 14.0, Weight::ExtraBold, p.on).into()]).spacing(10))
         .padding([11, 16])
         .style(theme::primary(p))
-        .on_press(Message::OpenModal(ModalKind::Add));
+        .on_press(Message::OpenModal(ModalKind::Add(None)));
     let inner = column![
         ctx.kicker(s.empty_kicker),
         ctx.bold(title, 44.0).line_height(1.1),

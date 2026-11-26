@@ -9,11 +9,11 @@ use iced::{
     widget::{Space, button, column, container, image, row, scrollable, text_input},
 };
 use klue_core::{
-    Carrier, FetchError, LineType, Unit, Usage, format,
+    Carrier, FetchError, LineType, Unit, format,
     store::{AlertPrefs, BundleAlert, Clock, Lang, LeadUnit, RefreshEvery, Theme, ThresholdMode},
 };
 
-use super::{Ctx, El, gap, hline, tile, window::field};
+use super::{Ctx, El, gap, hline, window::field};
 use crate::{
     app::{self, App, CaptchaAsk, Message, ModalKind},
     assets::Icon,
@@ -23,15 +23,12 @@ use crate::{
 };
 
 /// Fields focused when their dialog opens.
-pub const ADD_NUMBER: &str = "add-number";
-const ADD_PASSWORD: &str = "add-password";
-const ADD_NICKNAME: &str = "add-nickname";
 pub const RENAME_INPUT: &str = "rename-nickname";
 pub const CAPTCHA_INPUT: &str = "captcha-input";
 
 pub enum Modal {
     None,
-    Add(AddForm),
+    Add(super::add::Wizard),
     Rename(RenameForm),
     Alerts(AlertsForm),
     Settings(SettingsForm),
@@ -49,24 +46,6 @@ pub struct SettingsForm {
     lead: String,
     /// "Apply to all numbers" was pressed and nothing changed since.
     applied: bool,
-}
-
-pub struct AddForm {
-    carrier: Carrier,
-    line: LineType,
-    number: String,
-    password: String,
-    show_password: bool,
-    nickname: String,
-    phase: Phase,
-}
-
-#[derive(Debug, Clone)]
-enum Phase {
-    Form,
-    Verifying,
-    Verified(Box<Usage>),
-    Error(FetchError),
 }
 
 pub struct RenameForm {
@@ -87,14 +66,7 @@ pub struct AlertsForm {
 
 #[derive(Debug, Clone)]
 pub enum Msg {
-    AddCarrier(Carrier),
-    AddLine(LineType),
-    AddNumber(String),
-    AddPassword(String),
-    AddShowPassword,
-    AddNickname(String),
-    AddSubmit,
-    AddResult(Result<Box<Usage>, FetchError>),
+    Add(super::add::Msg),
 
     RenameInput(String),
     RenameRefresh(Option<RefreshEvery>),
@@ -133,20 +105,9 @@ pub enum Msg {
 }
 
 impl Modal {
-    pub fn open(kind: ModalKind, snap: &Snapshot, carrier: Carrier) -> Self {
+    pub fn open(kind: ModalKind, snap: &Snapshot) -> Self {
         match kind {
-            ModalKind::Add => {
-                let carrier = if carrier.is_supported() { carrier } else { Carrier::We };
-                Modal::Add(AddForm {
-                    carrier,
-                    line: carrier.default_line(),
-                    number: String::new(),
-                    password: String::new(),
-                    show_password: false,
-                    nickname: String::new(),
-                    phase: Phase::Form,
-                })
-            }
+            ModalKind::Add(carrier) => Modal::Add(super::add::Wizard::new(carrier)),
             ModalKind::Rename(id) => match snap.data.account(&id) {
                 Some(a) => Modal::Rename(RenameForm { id, draft: a.nickname.clone().unwrap_or_default(), refresh: a.refresh, confirm_remove: false }),
                 None => Modal::None,
@@ -180,66 +141,12 @@ impl Modal {
 }
 
 pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
+    let msg = match msg {
+        Msg::Add(m) => return super::add::update(app, m),
+        other => other,
+    };
     let shared = app.shared.clone();
     match (&mut app.modal, msg) {
-        (Modal::Add(f), Msg::AddCarrier(c)) if c.is_supported() && !matches!(f.phase, Phase::Verifying) => {
-            f.carrier = c;
-            f.line = c.default_line();
-            f.phase = Phase::Form;
-        }
-        (Modal::Add(f), Msg::AddLine(l)) if f.carrier.supports_line(l) => f.line = l,
-        (Modal::Add(f), Msg::AddNumber(n)) => {
-            f.number = n;
-            if matches!(f.phase, Phase::Error(_)) {
-                f.phase = Phase::Form;
-            }
-        }
-        (Modal::Add(f), Msg::AddPassword(p)) => {
-            f.password = p;
-            if matches!(f.phase, Phase::Error(_)) {
-                f.phase = Phase::Form;
-            }
-        }
-        (Modal::Add(f), Msg::AddShowPassword) => f.show_password = !f.show_password,
-        (Modal::Add(f), Msg::AddNickname(n)) => f.nickname = n,
-        (Modal::Add(f), Msg::AddSubmit) => match &f.phase {
-            Phase::Verifying => {}
-            Phase::Verified(usage) => {
-                let usage = (**usage).clone();
-                match shared.add_account(f.carrier, f.line, &f.number, &f.password, Some(f.nickname.clone()), usage) {
-                    Ok(id) => {
-                        app.modal = Modal::None;
-                        app.snap = shared.snapshot();
-                        return Task::done(Message::SelectAccount(id));
-                    }
-                    Err(e) => f.phase = Phase::Error(e),
-                }
-            }
-            Phase::Form | Phase::Error(_) => {
-                if f.number.trim().is_empty() || f.password.is_empty() {
-                    return Task::none();
-                }
-                f.phase = Phase::Verifying;
-                let (carrier, line, number, password) = (f.carrier, f.line, f.number.clone(), f.password.clone());
-                return Task::perform(async move { shared.verify(carrier, line, &number, &password).await }, |r| Message::Modal(Msg::AddResult(r.map(Box::new))));
-            }
-        },
-        (Modal::Add(f), Msg::AddResult(result)) => {
-            // Move on to the nickname, or back to the password.
-            let next = match &result {
-                Ok(_) => Some(ADD_NICKNAME),
-                Err(FetchError::BadCredentials) => Some(ADD_PASSWORD),
-                Err(_) => None,
-            };
-            f.phase = match result {
-                Ok(usage) => Phase::Verified(usage),
-                Err(e) => Phase::Error(e),
-            };
-            if let Some(id) = next {
-                return iced::widget::operation::focus(id);
-            }
-        }
-
         (Modal::Rename(f), Msg::RenameInput(t)) => f.draft = t,
         (Modal::Rename(f), Msg::RenameRefresh(r)) => f.refresh = r,
         (Modal::Rename(f), Msg::RenameUseOwner) => f.draft.clear(),
@@ -379,7 +286,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
 pub fn view<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
     match &ctx.app.modal {
         Modal::None => None,
-        Modal::Add(f) => Some(add(ctx, f)),
+        Modal::Add(w) => Some(super::add::view(ctx, w)),
         Modal::Rename(f) => ctx.app.snap.data.account(&f.id).map(|a| rename(ctx, f, a)),
         Modal::Alerts(f) => ctx.app.snap.data.account(&f.id).map(|a| alerts(ctx, f, a)),
         Modal::Settings(f) => Some(settings(ctx, f)),
@@ -390,7 +297,7 @@ pub fn view<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
 // ---------------------------------------------------------------------------------------
 // Frame
 
-fn dialog<'a>(ctx: &Ctx<'a>, width: f32, kicker: String, title: String, close: Option<Message>, body: El<'a>, foot: El<'a>) -> El<'a> {
+pub(super) fn dialog<'a>(ctx: &Ctx<'a>, width: f32, kicker: String, title: String, close: Option<Message>, body: El<'a>, foot: El<'a>) -> El<'a> {
     let p = ctx.p;
     let close = close.map(|close| {
         Element::from(button(container(ctx.icon(Icon::Close, 16.0, p.tx)).center(Length::Fill)).width(32).height(32).padding(0).style(theme::ghost(p.tx, p.sf, 9.0)).on_press(close))
@@ -414,11 +321,11 @@ fn dialog<'a>(ctx: &Ctx<'a>, width: f32, kicker: String, title: String, close: O
         .into()
 }
 
-fn label<'a>(ctx: &Ctx<'a>, text: &str) -> El<'a> {
+pub(super) fn label<'a>(ctx: &Ctx<'a>, text: &str) -> El<'a> {
     container(ctx.muted(text.to_string(), 12.0)).width(Length::Fill).align_x(ctx.start()).into()
 }
 
-fn notice<'a>(ctx: &Ctx<'a>, e: &FetchError, carrier: Carrier) -> El<'a> {
+pub(super) fn notice<'a>(ctx: &Ctx<'a>, e: &FetchError, carrier: Carrier) -> El<'a> {
     let p = ctx.p;
     let text = column![ctx.bold(i18n::error_title(e, ctx.lang), 14.0), ctx.body(i18n::error_text(e, carrier, ctx.clock, ctx.lang), 13.0)].spacing(2).align_x(ctx.start()).width(Length::Fill);
     container(ctx.row(vec![ctx.icon(Icon::Warning, 18.0, p.danger), text.into()]).spacing(12).align_y(Alignment::Start))
@@ -428,7 +335,7 @@ fn notice<'a>(ctx: &Ctx<'a>, e: &FetchError, carrier: Carrier) -> El<'a> {
 }
 
 /// A read-only box shaped like a field (owner name).
-fn readout<'a>(ctx: &Ctx<'a>, text: String, highlight: bool, check: bool) -> El<'a> {
+pub(super) fn readout<'a>(ctx: &Ctx<'a>, text: String, highlight: bool, check: bool) -> El<'a> {
     let p = ctx.p;
     let mut items = vec![container(ctx.text(text, 14.0, if highlight { Weight::Semibold } else { Weight::Normal }, if highlight { p.tx } else { p.mu })).width(Length::Fill).align_x(ctx.start()).into()];
     if check {
@@ -440,175 +347,6 @@ fn readout<'a>(ctx: &Ctx<'a>, text: String, highlight: bool, check: bool) -> El<
         .align_y(Alignment::Center)
         .style(move |_| theme::outlined(if highlight { p.sf } else { Color::TRANSPARENT }, if highlight { p.ac } else { p.dv }, 9.0))
         .into()
-}
-
-// ---------------------------------------------------------------------------------------
-// Add a number
-
-fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
-    let p = ctx.p;
-    let s = ctx.s;
-    let ar = ctx.rtl();
-    let verifying = matches!(f.phase, Phase::Verifying);
-    let verified = matches!(f.phase, Phase::Verified(_));
-    let error = match &f.phase {
-        Phase::Error(e) => Some(e),
-        _ => None,
-    };
-    let carrier_name = i18n::carrier_name(f.carrier, ctx.lang);
-    let app_name = i18n::carrier_app(f.carrier, ctx.lang);
-
-    // Only carriers that work.
-    let carriers: Vec<El<'a>> = Carrier::ALL
-        .into_iter()
-        .filter(|c| c.is_supported())
-        .map(|c| {
-            let on = c == f.carrier;
-            let t = crate::assets::tile(c);
-            let content = ctx.row(vec![tile(c, 24.0, t.small, 7.0, false), ctx.text(i18n::carrier_name(c, ctx.lang), 13.0, Weight::Semibold, p.tx).into()]).spacing(8);
-            let b = button(content)
-                .width(Length::Fill)
-                .padding([7, 8])
-                .style(move |_, status| {
-                    let hovered = matches!(status, button::Status::Hovered);
-                    button::Style {
-                        background: (on || hovered).then_some(iced::Background::Color(p.sf)),
-                        border: theme::border(if on { p.ac } else { p.dv }, 2.0, 9.0),
-                        text_color: p.tx,
-                        ..Default::default()
-                    }
-                })
-                .on_press_maybe((!verifying).then_some(Message::Modal(Msg::AddCarrier(c))));
-            container(container(b).padding(super::pad4(8.0, 0.0, 0.0, 0.0))).width(Length::FillPortion(1)).into()
-        })
-        .collect();
-
-    // Unsupported line types are disabled, with a tooltip.
-    let soon = |l: LineType| match (f.carrier, l) {
-        (Carrier::We, LineType::Mobile) => Some(s.we_mobile_soon),
-        (Carrier::Vodafone, LineType::Landline) => Some(s.vf_dsl_soon),
-        _ => None,
-    };
-    let line_seg = ctx.segmented_tips(
-        [(LineType::Mobile, s.mobile), (LineType::Landline, s.landline)]
-            .into_iter()
-            .map(|(l, label)| (label.to_string(), f.line == l, (f.carrier.supports_line(l) && !verifying).then_some(Message::Modal(Msg::AddLine(l))), soon(l)))
-            .collect(),
-        38.0,
-        13.0,
-    );
-    // Orange home internet signs in with the My Orange number, then Orange names the landline.
-    let signs_in_elsewhere = f.carrier.sign_in_line(f.line) != f.line;
-    let placeholder = match (f.carrier.sign_in_line(f.line), f.carrier) {
-        (LineType::Landline, _) => "02 2345 6789",
-        (LineType::Mobile, Carrier::Orange) => "012 3456 7890",
-        (LineType::Mobile, _) => "010 1234 5678",
-    };
-    let number_label = match (signs_in_elsewhere, ar) {
-        (true, true) => format!("رقم {app_name}"),
-        (true, false) => format!("{app_name} number"),
-        (false, _) => s.number.to_string(),
-    };
-    let mut number = field(ctx, placeholder, &f.number, |t| Message::Modal(Msg::AddNumber(t)), false).font(crate::assets::numbers(Weight::Normal)).on_submit(Message::Modal(Msg::AddSubmit));
-    if verifying || verified {
-        number = text_input(placeholder, &f.number).padding([9, 10]).size(14).font(crate::assets::numbers(Weight::Normal)).style(theme::field(p, false));
-    }
-    let number = number.id(ADD_NUMBER);
-    let pair = ctx.row(vec![
-        column![label(ctx, s.line_type), gap(6.0), container(line_seg).width(Length::Shrink)].width(Length::Shrink).into(),
-        column![label(ctx, &number_label), gap(6.0), number].width(Length::Fill).into(),
-    ])
-    .spacing(12)
-    .align_y(Alignment::Start);
-
-    let bad_password = error == Some(&FetchError::BadCredentials);
-    let mut password = text_input("", &f.password)
-        .id(ADD_PASSWORD)
-        .secure(!f.show_password)
-        .padding([9, 10])
-        .size(14)
-        .font(crate::assets::numbers(Weight::Normal))
-        .style(theme::field(p, bad_password))
-        .on_submit(Message::Modal(Msg::AddSubmit));
-    if !(verifying || verified) {
-        password = password.on_input(|t| Message::Modal(Msg::AddPassword(t)));
-    }
-    let eye = button(container(ctx.icon(if f.show_password { Icon::EyeOff } else { Icon::Eye }, 16.0, p.mu)).center(Length::Fill))
-        .width(38)
-        .height(38)
-        .padding(0)
-        .style(theme::ghost(p.mu, p.sf, 9.0))
-        .on_press(Message::Modal(Msg::AddShowPassword));
-    let hint = match (signs_in_elsewhere, ar) {
-        (true, true) => format!("الرقم وكلمة المرور اللذان تستخدمهما في {app_name}. يقرأ Klue الخط الأرضي المربوط بالحساب."),
-        (true, false) => format!("The number and password you use in {app_name}. Klue reads the landline linked to it."),
-        (false, true) => format!("نفس كلمة المرور المستخدمة في {app_name}."),
-        (false, false) => format!("The same password you use in {app_name}."),
-    };
-    let mut pass_col = column![label(ctx, s.password), gap(6.0), ctx.row(vec![password.into(), eye.into()]).spacing(6), gap(6.0), ctx.muted(hint, 12.0)].align_x(ctx.start());
-    if verifying {
-        pass_col = pass_col.push(gap(8.0)).push(ctx.meter(0.35, 3.0, p.ac));
-    }
-
-    let owner = match &f.phase {
-        Phase::Verified(u) => u.owner_name.clone().unwrap_or_else(|| s.owner_unknown.into()),
-        Phase::Verifying => s.fetching.into(),
-        _ => s.auto_fill.into(),
-    };
-    let mut owner_label = vec![label(ctx, s.owner_name)];
-    if verified {
-        owner_label.push(container(ctx.text(s.from_account, 11.0, Weight::Semibold, p.ac_tx)).width(Length::Shrink).into());
-    }
-
-    let mut body = column![
-        column![label(ctx, s.carrier), ctx.row(carriers).spacing(6)].spacing(0),
-        pair,
-        pass_col,
-    ]
-    .spacing(16);
-    if let Some(e) = error {
-        body = body.push(notice(ctx, e, f.carrier));
-    }
-    body = body.push(column![ctx.row(owner_label), gap(6.0), readout(ctx, owner, verified, verified)]);
-    if signs_in_elsewhere
-        && let Phase::Verified(u) = &f.phase
-        && let Some(landline) = &u.info.number
-    {
-        body = body.push(column![label(ctx, s.landline_found), gap(6.0), readout(ctx, format::pretty_number(landline), true, true)]);
-    }
-    if verified {
-        body = body.push(column![
-            label(ctx, s.nick_optional),
-            gap(6.0),
-            field(ctx, s.nick_ph, &f.nickname, |t| Message::Modal(Msg::AddNickname(t)), false).on_submit(Message::Modal(Msg::AddSubmit)).id(ADD_NICKNAME)
-        ]);
-    }
-
-    let status = match &f.phase {
-        Phase::Verified(_) => format!("✓ {}", s.verified),
-        Phase::Verifying => {
-            if ar {
-                format!("جارٍ تسجيل الدخول إلى {carrier_name}…")
-            } else {
-                format!("Signing in to {carrier_name}…")
-            }
-        }
-        _ => String::new(),
-    };
-    let primary = match &f.phase {
-        Phase::Verified(_) => s.add_number,
-        Phase::Verifying => s.verifying,
-        Phase::Error(_) => s.try_again,
-        Phase::Form => s.verify,
-    };
-    let ready = !f.number.trim().is_empty() && !f.password.is_empty();
-    let foot = ctx.row(vec![
-        container(ctx.muted(status, 12.5)).width(Length::Fill).align_x(ctx.start()).into(),
-        ctx.outline(s.cancel, Some(Message::CloseModal)).into(),
-        ctx.primary(primary, (!verifying && (verified || ready)).then_some(Message::Modal(Msg::AddSubmit))).width(150).into(),
-    ])
-    .spacing(8);
-    dialog(ctx, 520.0, s.new_number.to_string(), s.add_title.to_string(), Some(Message::CloseModal), body.into(), foot.into())
 }
 
 // ---------------------------------------------------------------------------------------

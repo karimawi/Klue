@@ -184,7 +184,8 @@ impl UpdateState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModalKind {
-    Add,
+    /// The Add wizard, from the kind of line when the carrier is given.
+    Add(Option<Carrier>),
     Rename(String),
     Alerts(String),
     Settings,
@@ -485,7 +486,7 @@ impl App {
             }
             Message::PopupSettings => {
                 let show = self.update(Message::ShowMain(None));
-                self.modal = Modal::open(ModalKind::Settings, &self.snap, self.shown_carrier().unwrap_or(Carrier::We));
+                self.modal = Modal::open(ModalKind::Settings, &self.snap);
                 show
             }
             Message::SelectCarrier(carrier) => {
@@ -571,11 +572,10 @@ impl App {
             }
             Message::OpenModal(kind) => {
                 let first = match kind {
-                    ModalKind::Add => Some(ui::modals::ADD_NUMBER),
                     ModalKind::Rename(_) => Some(ui::modals::RENAME_INPUT),
                     _ => None,
                 };
-                self.modal = Modal::open(kind, &self.snap, self.shown_carrier().unwrap_or(Carrier::We));
+                self.modal = Modal::open(kind, &self.snap);
                 first.map(operation::focus).unwrap_or_else(Task::none)
             }
             Message::CloseModal => {

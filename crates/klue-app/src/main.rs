@@ -16,6 +16,7 @@ mod i18n;
 mod install;
 mod instance;
 mod notify;
+mod product;
 mod shared;
 mod sound;
 mod systray;

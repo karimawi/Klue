@@ -224,7 +224,7 @@ fn rail<'a>(ctx: &Ctx<'a>) -> El<'a> {
         container(button(content).width(Length::Fill).padding([10, 0]).style(theme::plain(p.ch_act, None, 12.0)).on_press(msg)).padding([0, 8]).into()
     };
     let archived = data.archived().count();
-    let mut col = column(items).spacing(4).push(Space::new().height(Length::Fill)).push(tool(Icon::Plus, s.add, Message::OpenModal(ModalKind::Add), None));
+    let mut col = column(items).spacing(4).push(Space::new().height(Length::Fill)).push(tool(Icon::Plus, s.add, Message::OpenModal(ModalKind::Add(None)), None));
     // Only once something is archived.
     if archived > 0 {
         col = col.push(tool(Icon::Archive, s.archived_rail, Message::OpenModal(ModalKind::Archived), Some(archived)));
@@ -301,7 +301,7 @@ fn tabs<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let add = button(ctx.row(vec![ctx.icon(Icon::Plus, 15.0, p.mu), ctx.text(ctx.s.add_number, 13.0, Weight::Normal, p.mu).into()]).spacing(8))
         .padding([8, 12])
         .style(theme::ghost(p.mu, p.bg, 10.0))
-        .on_press(Message::OpenModal(ModalKind::Add));
+        .on_press(Message::OpenModal(ModalKind::Add(shown)));
     items.push(container(add).padding(ctx.pad(0.0, 0.0, 6.0, 4.0)).into());
     let strip = ctx.row(items).spacing(4).align_y(Alignment::End).height(58);
     let scroller = scrollable(container(strip).padding([0, 22])).direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::new().width(0).scroller_width(0)));

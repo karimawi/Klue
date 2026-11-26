@@ -303,6 +303,15 @@ pub async fn verify(carrier: Carrier, line: LineType, number: &str, password: &s
     })
 }
 
+/// Fake look for the account's other line: every Orange account has both.
+pub async fn other_lines(carrier: Carrier, line: LineType, number: &str) -> Vec<(LineType, Usage)> {
+    if carrier != Carrier::Orange {
+        return Vec::new();
+    }
+    let other = if line == LineType::Mobile { LineType::Landline } else { LineType::Mobile };
+    verify(carrier, other, number, "demo").await.map(|usage| vec![(other, usage)]).unwrap_or_default()
+}
+
 /// An Orange units line like FREEmax: Kart El Kebir units without a stated size, and a GO
 /// bundle that waits for a recharge.
 fn orange_units_line(number: String, renew: DateTime<Utc>) -> Usage {
