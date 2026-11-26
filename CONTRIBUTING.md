@@ -47,17 +47,15 @@ You'll do this walk-through once in Part 1 and once in Part 2. The more of the s
 
 4. Go back to the carrier's page and refresh it (**F5**). The website may have spotted DevTools before you moved it.
 
-5. In DevTools, open the **Network** tab.
+5. In DevTools, open the **Network** tab. Tick **Preserve log**, so the list keeps going when the website changes pages. Then click **Clear** (🚫) to empty the list.
 
-   ![The Network tab in DevTools](docs/contributing/network-tab.png)
+   ![Network tab with Preserve log ticked](docs/contributing/preserve-log.png)
 
-6. Tick **Keep log**, so the list keeps going when the website changes pages. Then click **Clear** (🚫) to empty the list.
+   ![The Clear button in the Network tab](docs/contributing/clear-log.png)
 
-   ![The Clear button and the Keep log checkbox](docs/contributing/keep-log-and-clear.png)
+6. Do [the walk-through](#the-walk-through). Leave DevTools open the whole time; you'll see the list fill up.
 
-7. Do [the walk-through](#the-walk-through). Leave DevTools open the whole time; you'll see the list fill up.
-
-8. When you've signed out, click the download arrow (**Export HAR**) in the Network tab's toolbar and save the file. A name like `we-mobile.har` helps.
+7. When you've signed out, click the download arrow (**Export HAR**) in the Network tab's toolbar and save the file. A name like `we-mobile.har` helps.
 
    ![The Export HAR button](docs/contributing/export-har.png)
 
@@ -87,9 +85,11 @@ You'll do this walk-through once in Part 1 and once in Part 2. The more of the s
 
 7. Do [the walk-through](#the-walk-through) again.
 
-8. Open settings again with the same settings icon at the bottom, and click **Export**. The recording is copied to your clipboard.
+8. Open settings again and click **Export**. The recording is copied to your clipboard.
 
-   ![The Export button in settings](docs/contributing/openapi-export.png)
+   ![Settings with the Export button](docs/contributing/openapi-export.png)
+
+   ![Export confirmation](docs/contributing/openapi-exported.png)
 
 9. Paste it into an empty text file and save it with a `.json` ending, for example `we-mobile-openapi.json`.
 
