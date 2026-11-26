@@ -712,12 +712,25 @@ fn archived<'a>(ctx: &Ctx<'a>, f: &'a ArchivedList) -> El<'a> {
             ]
             .spacing(1)
             .align_x(ctx.start());
+            // A bin beside Restore; the first click turns it red and the second removes.
             let confirming = f.confirm_remove.as_deref() == Some(a.id.as_str());
-            let remove = button(ctx.text(if confirming { s.remove_confirm } else { s.remove }, 12.5, Weight::ExtraBold, p.danger))
-                .padding([4, 6])
-                .style(theme::ghost(p.danger, p.sf, 8.0))
+            let bin = button(container(ctx.icon(Icon::Trash, 16.0, if confirming { Color::WHITE } else { p.danger })).center(Length::Fill))
+                .width(38)
+                .height(38)
+                .padding(0)
+                .style(move |_, status| {
+                    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                    let fill = if confirming { p.danger } else if hovered { theme::fade(p.danger, 0.12) } else { Color::TRANSPARENT };
+                    button::Style {
+                        background: Some(iced::Background::Color(fill)),
+                        border: theme::border(if confirming || hovered { p.danger } else { p.dv }, 2.0, 9.0),
+                        ..Default::default()
+                    }
+                })
                 .on_press(Message::Modal(Msg::RemoveArchived(a.id.clone())));
-            let actions = column![ctx.outline(s.restore, Some(Message::Modal(Msg::Restore(a.id.clone())))), remove].spacing(4).align_x(ctx.end());
+            let actions = ctx
+                .row(vec![ctx.outline(s.restore, Some(Message::Modal(Msg::Restore(a.id.clone())))).into(), ctx.tip(bin, if confirming { s.remove_confirm } else { s.remove })])
+                .spacing(8);
             let row = ctx
                 .row(vec![super::tile(a.carrier, 40.0, t.small * 1.35, 11.0, true), container(who).width(Length::Fill).align_x(ctx.start()).into(), actions.into()])
                 .spacing(14);
