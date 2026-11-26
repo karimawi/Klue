@@ -327,7 +327,7 @@ pub fn export_view<'a>(ctx: &Ctx<'a>, f: &'a ExportForm) -> El<'a> {
         .iter()
         .enumerate()
         .map(|(i, a)| {
-            let note = a.archived.then(|| (s.archived_rail.to_string(), false));
+            let note = a.archived.then(|| (s.archived_note.to_string(), false));
             let end = many.then(|| ctx.toggle(f.picks[i], wrap(Msg::Toggle(i))));
             line_row(ctx, a.carrier, a.display_name(), &a.number, note, end)
         })
