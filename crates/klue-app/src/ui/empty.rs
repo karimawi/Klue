@@ -41,7 +41,7 @@ pub fn view<'a>(ctx: &Ctx<'a>) -> El<'a> {
         ctx.bold(title, 44.0).line_height(1.1),
         ctx.muted(s.empty_body, 15.0).line_height(1.6),
         column![hline(p.dv, 2.0), ctx.row(steps).align_y(Alignment::Start), hline(p.dv, 2.0)],
-        cta,
+        ctx.row(vec![cta.into(), ctx.link(s.import_file, Message::Modal(super::modals::Msg::Transfer(super::transfer::Msg::Pick))).into()]).spacing(14),
     ]
     .spacing(18)
     .max_width(560)

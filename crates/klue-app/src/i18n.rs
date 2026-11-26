@@ -150,6 +150,36 @@ pub struct Strings {
     /// Finish step: the account's other lines (Orange).
     pub looking_for_lines: &'static str,
     pub add_both: &'static str,
+    /// Export and import.
+    pub your_numbers: &'static str,
+    pub export_number: &'static str,
+    pub export_hint: &'static str,
+    pub export_numbers: &'static str,
+    pub export_numbers_hint: &'static str,
+    pub select_all: &'static str,
+    pub select_none: &'static str,
+    pub export_button: &'static str,
+    pub import_button: &'static str,
+    pub import_numbers: &'static str,
+    pub import_hint: &'static str,
+    pub import_file: &'static str,
+    pub export_contents: &'static str,
+    pub with_passwords: &'static str,
+    pub with_passwords_hint: &'static str,
+    pub passphrase: &'static str,
+    pub passphrase_hint: &'static str,
+    pub import_passphrase_hint: &'static str,
+    pub save_file: &'static str,
+    pub saving: &'static str,
+    pub importing: &'static str,
+    pub devices_title: &'static str,
+    pub devices_body: &'static str,
+    pub line_new: &'static str,
+    pub line_here: &'static str,
+    pub line_no_password: &'static str,
+    pub line_unsupported: &'static str,
+    pub choose_file: &'static str,
+    pub import: &'static str,
     /// The package's line speed (WE).
     pub speed: &'static str,
     pub after_quota: &'static str,
@@ -299,6 +329,35 @@ pub static EN: Strings = Strings {
     area_code_hint: "With the area code, the way you sign in to My WE.",
     looking_for_lines: "Looking for other lines on this account…",
     add_both: "Add both numbers",
+    your_numbers: "Your numbers",
+    export_number: "Export number",
+    export_hint: "Saves it to a file you can import on another computer.",
+    export_numbers: "Export numbers",
+    export_numbers_hint: "Several numbers, or all of them, in one file, to move them to another computer.",
+    select_all: "Select all",
+    select_none: "Select none",
+    export_button: "Export…",
+    import_button: "Import…",
+    import_numbers: "Import numbers",
+    import_hint: "From a file Klue exported on another computer.",
+    import_file: "Import from a file",
+    export_contents: "The file holds each number’s settings, its latest reading and its usage history.",
+    with_passwords: "Include the passwords",
+    with_passwords_hint: "Sealed with a passphrase you choose. Without them, a number has to be added on the other computer before its file is imported.",
+    passphrase: "Passphrase",
+    passphrase_hint: "At least 8 characters. You’ll type it when you import the file.",
+    import_passphrase_hint: "The one chosen when the file was exported.",
+    save_file: "Save file…",
+    saving: "Saving…",
+    importing: "Importing…",
+    devices_title: "Each computer signs in on its own",
+    devices_body: "Klue doesn’t put your data online, so every computer with a number signs in to the carrier and reads it by itself. The more computers check the same account, the more sign-ins the carrier sees, and the likelier it is to slow them down or block them for a while.",
+    line_new: "New on this computer",
+    line_here: "Already here: gets the file’s history",
+    line_no_password: "No password in the file: add it first, then import",
+    line_unsupported: "This version of Klue can’t read it",
+    choose_file: "Choose another file",
+    import: "Import",
     speed: "Speed",
     after_quota: "After the quota",
     main_quota: "The main quota",
@@ -435,6 +494,35 @@ pub static AR: Strings = Strings {
     area_code_hint: "مع كود المحافظة، كما تسجّل الدخول في My WE.",
     looking_for_lines: "جارٍ البحث عن خطوط أخرى على هذا الحساب…",
     add_both: "إضافة الرقمين",
+    your_numbers: "أرقامك",
+    export_number: "تصدير الرقم",
+    export_hint: "يحفظه في ملف يمكنك استيراده على جهاز آخر.",
+    export_numbers: "تصدير الأرقام",
+    export_numbers_hint: "عدة أرقام أو كلها في ملف واحد، لنقلها إلى جهاز آخر.",
+    select_all: "تحديد الكل",
+    select_none: "إلغاء التحديد",
+    export_button: "تصدير…",
+    import_button: "استيراد…",
+    import_numbers: "استيراد أرقام",
+    import_hint: "من ملف صدّره Klue على جهاز آخر.",
+    import_file: "استيراد من ملف",
+    export_contents: "يحفظ الملف إعدادات كل رقم وآخر قراءة له وسجل استخدامه.",
+    with_passwords: "تضمين كلمات المرور",
+    with_passwords_hint: "تُحمى بعبارة مرور تختارها. بدونها، يجب إضافة الرقم على الجهاز الآخر قبل استيراد ملفه.",
+    passphrase: "عبارة المرور",
+    passphrase_hint: "8 أحرف على الأقل. ستكتبها عند استيراد الملف.",
+    import_passphrase_hint: "العبارة التي اختيرت عند تصدير الملف.",
+    save_file: "حفظ الملف…",
+    saving: "جارٍ الحفظ…",
+    importing: "جارٍ الاستيراد…",
+    devices_title: "كل جهاز يسجّل الدخول بنفسه",
+    devices_body: "لا يرفع Klue بياناتك إلى الإنترنت، لذا يسجّل كل جهاز عليه الرقم الدخول إلى الشركة ويقرأ بياناته بنفسه. كلما زادت الأجهزة التي تتابع الحساب نفسه زادت مرات تسجيل الدخول، وزادت فرصة أن تبطئها الشركة أو توقفها مؤقتاً.",
+    line_new: "جديد على هذا الجهاز",
+    line_here: "موجود بالفعل: يُضاف إليه سجل الملف",
+    line_no_password: "لا توجد كلمة مرور في الملف: أضفه أولاً ثم استورد الملف",
+    line_unsupported: "هذا الإصدار من Klue لا يقرؤه",
+    choose_file: "اختيار ملف آخر",
+    import: "استيراد",
     speed: "السرعة",
     after_quota: "بعد انتهاء الباقة",
     main_quota: "الباقة الرئيسية",
@@ -660,6 +748,36 @@ pub fn also_has(line: LineType, lang: Lang) -> &'static str {
         (LineType::Landline, true) => "هذا الحساب عليه إنترنت منزلي أيضاً",
         (LineType::Mobile, true) => "هذا الحساب عليه خط محمول أيضاً",
     }
+}
+
+/// Why an export file couldn't be used.
+pub fn transfer_error(e: &klue_core::transfer::TransferError, lang: Lang) -> &'static str {
+    use klue_core::transfer::TransferError as E;
+    match (e, is_ar(lang)) {
+        (E::NotAnExport, false) => "This isn’t a Klue export file.",
+        (E::TooNew, false) => "This file comes from a newer Klue. Update Klue, then import it.",
+        (E::WrongPassphrase, false) => "That passphrase doesn’t open the passwords.",
+        (E::Seal, false) => "The passwords couldn’t be sealed.",
+        (E::NotAnExport, true) => "هذا ليس ملف تصدير من Klue.",
+        (E::TooNew, true) => "هذا الملف من إصدار أحدث من Klue. حدّث Klue ثم استورده.",
+        (E::WrongPassphrase, true) => "عبارة المرور هذه لا تفتح كلمات المرور.",
+        (E::Seal, true) => "تعذّرت حماية كلمات المرور.",
+    }
+}
+
+/// Export: how many of the numbers go in the file.
+pub fn picked_of(picked: usize, of: usize, lang: Lang) -> String {
+    if is_ar(lang) { format!("تم تحديد {picked} من {of}") } else { format!("{picked} of {of} selected") }
+}
+
+pub fn saved_to(path: &str, lang: Lang) -> String {
+    if is_ar(lang) { format!("حُفظ في {path}") } else { format!("Saved to {path}") }
+}
+
+/// Under an export file's name.
+pub fn exported_on(at: DateTime<Utc>, version: &str, lang: Lang) -> String {
+    let day = date_short(at, lang);
+    if is_ar(lang) { format!("صُدّر في {day} من Klue {version}") } else { format!("Exported {day} from Klue {version}") }
 }
 
 /// "388 units left".

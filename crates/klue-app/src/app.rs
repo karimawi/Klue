@@ -191,6 +191,8 @@ pub enum ModalKind {
     Settings,
     /// The numbers put away with Archive.
     Archived,
+    /// Export these numbers to a file.
+    Export(Vec<String>),
 }
 
 pub struct App {
@@ -573,6 +575,7 @@ impl App {
             Message::OpenModal(kind) => {
                 let first = match kind {
                     ModalKind::Rename(_) => Some(ui::modals::RENAME_INPUT),
+                    ModalKind::Export(_) => Some(ui::transfer::PASSPHRASE),
                     _ => None,
                 };
                 self.modal = Modal::open(kind, &self.snap);

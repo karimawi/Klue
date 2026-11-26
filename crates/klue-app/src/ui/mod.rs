@@ -8,6 +8,7 @@ pub mod empty;
 pub mod modals;
 pub mod popup;
 pub mod smooth;
+pub mod transfer;
 pub mod window;
 
 use chrono::{DateTime, Utc};

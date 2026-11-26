@@ -27,3 +27,10 @@ uuid = { version = "1", features = ["v4", "serde"] }
 lto = "thin"
 codegen-units = 4
 strip = true
+
+# Deriving an export file's key would take seconds in a debug build.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

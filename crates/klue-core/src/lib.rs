@@ -10,6 +10,7 @@ mod http;
 mod json;
 pub mod model;
 pub mod store;
+pub mod transfer;
 pub mod update;
 
 pub use error::FetchError;

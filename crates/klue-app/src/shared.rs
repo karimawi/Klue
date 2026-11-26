@@ -2,7 +2,7 @@
 //! Windows watch a revision counter and re-read a [`Snapshot`].
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     sync::{
         Arc, Mutex,
@@ -19,6 +19,7 @@ use klue_core::{
     carriers::{self, FetchContext},
     format,
     store::{Account, AppData, RefreshEvery, Secrets, Settings, Store},
+    transfer::{self, Export, TransferError},
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -242,6 +243,53 @@ impl Shared {
         self.update(|d| d.accounts.push(account));
         self.save_vault_index();
         Ok(id)
+    }
+
+    /// An export file with the numbers `ids`, their passwords sealed with `passphrase` when
+    /// there is one. Making the key takes a moment, so this runs off the UI thread.
+    pub fn export(&self, ids: &[String], passphrase: Option<&str>) -> Result<Vec<u8>, TransferError> {
+        let data = self.data.lock().expect("data lock").clone();
+        let accounts: Vec<&Account> = ids.iter().filter_map(|id| data.account(id)).collect();
+        let passwords: BTreeMap<String, String> = match passphrase {
+            // Demo numbers have no saved passwords.
+            Some(_) => accounts
+                .iter()
+                .filter_map(|a| if self.demo { Some("demo".to_string()) } else { self.secrets.get(a) }.map(|p| (a.id.clone(), p)))
+                .collect(),
+            None => BTreeMap::new(),
+        };
+        Ok(Export::new(&accounts, crate::about::VERSION, passphrase.map(|p| (p, &passwords)))?.to_json())
+    }
+
+    /// Takes in lines from an export file, each with its password if the file had one. A
+    /// number already here gets the file's history; a new one is added as it was, archived
+    /// or not. Returns their ids.
+    pub fn import(&self, lines: Vec<(transfer::Line, Option<String>)>) -> Vec<String> {
+        let mut added = Vec::new();
+        let ids = self.update(|d| {
+            let mut ids = Vec::new();
+            for (line, password) in &lines {
+                if let Some(account) = d.accounts.iter_mut().find(|a| line.is(a)) {
+                    line.merge_into(account);
+                    ids.push(account.id.clone());
+                } else if let Some(password) = password
+                    && line.carrier.supports_line(line.line)
+                {
+                    let account = line.to_account();
+                    ids.push(account.id.clone());
+                    added.push((account.clone(), password.clone()));
+                    d.accounts.push(account);
+                }
+            }
+            ids
+        });
+        for (account, password) in &added {
+            if !self.demo && !self.secrets.set(account, password) {
+                tracing::warn!("password for {} is kept in memory only", account.id);
+            }
+        }
+        self.save_vault_index();
+        ids
     }
 
     /// An empty nickname clears it.

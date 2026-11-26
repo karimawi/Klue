@@ -35,6 +35,8 @@ pub enum Modal {
     Alerts(AlertsForm),
     Settings(SettingsForm),
     Archived(ArchivedList),
+    Export(super::transfer::ExportForm),
+    Import(super::transfer::ImportForm),
 }
 
 pub struct ArchivedList {
@@ -69,6 +71,7 @@ pub struct AlertsForm {
 #[derive(Debug, Clone)]
 pub enum Msg {
     Add(super::add::Msg),
+    Transfer(super::transfer::Msg),
 
     RenameInput(String),
     RenameRefresh(Option<RefreshEvery>),
@@ -130,6 +133,7 @@ impl Modal {
                 None => Modal::None,
             },
             ModalKind::Archived => Modal::Archived(ArchivedList { confirm_remove: None }),
+            ModalKind::Export(ids) => Modal::Export(super::transfer::ExportForm::new(ids)),
             ModalKind::Settings => {
                 let alerts = snap.data.settings.alerts;
                 Modal::Settings(SettingsForm {
@@ -145,6 +149,7 @@ impl Modal {
 pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
     let msg = match msg {
         Msg::Add(m) => return super::add::update(app, m),
+        Msg::Transfer(m) => return super::transfer::update(app, m),
         other => other,
     };
     let shared = app.shared.clone();
@@ -293,6 +298,8 @@ pub fn view<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
         Modal::Alerts(f) => ctx.app.snap.data.account(&f.id).map(|a| alerts(ctx, f, a)),
         Modal::Settings(f) => Some(settings(ctx, f)),
         Modal::Archived(f) => Some(archived(ctx, f)),
+        Modal::Export(f) => Some(super::transfer::export_view(ctx, f)),
+        Modal::Import(f) => Some(super::transfer::import_view(ctx, f)),
     }
 }
 
@@ -390,6 +397,16 @@ fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::A
         34.0,
         12.5,
     );
+    let export = ctx
+        .row(vec![
+            container(ctx.muted(s.export_hint, 12.5)).width(Length::Fill).align_x(ctx.start()).into(),
+            button(ctx.text(s.export_number, 13.0, Weight::ExtraBold, p.tx))
+                .padding([4, 6])
+                .style(theme::ghost(p.tx, p.sf, 9.0))
+                .on_press(Message::OpenModal(ModalKind::Export(vec![f.id.clone()])))
+                .into(),
+        ])
+        .spacing(10);
     let archive = ctx
         .row(vec![
             container(ctx.muted(s.archive_hint, 12.5)).width(Length::Fill).align_x(ctx.start()).into(),
@@ -418,7 +435,7 @@ fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::A
         .align_x(ctx.start()),
         column![label(ctx, s.shown_as), gap(6.0), container(preview).width(Length::Fill).align_x(ctx.start())],
         column![label(ctx, s.check_number_every), gap(6.0), container(every).width(Length::Shrink), gap(6.0), ctx.muted(s.check_number_hint, 12.0)].align_x(ctx.start()),
-        column![hline(p.dvs, 1.0), gap(12.0), archive, gap(12.0), danger],
+        column![hline(p.dvs, 1.0), gap(12.0), export, gap(12.0), archive, gap(12.0), danger],
     ]
     .spacing(16);
     let foot = ctx.row(vec![
@@ -609,6 +626,7 @@ fn settings<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
             hline(p.dvs, 1.0)
         ],
         all_alerts(ctx, f),
+        super::transfer::settings_section(ctx),
         about(ctx),
     ]
     .spacing(16);

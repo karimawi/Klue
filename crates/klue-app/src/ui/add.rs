@@ -541,6 +541,9 @@ fn foot<'a>(ctx: &Ctx<'a>, w: &'a Wizard, primary: Option<El<'a>>) -> El<'a> {
     let mut items: Vec<El<'a>> = Vec::new();
     if w.step > Step::Carrier {
         items.push(ctx.outline(s.back, (!w.busy()).then(|| wrap(Msg::Back))).into());
+    } else {
+        // A number exported on another computer comes in from here too.
+        items.push(ctx.link(s.import_file, Message::Modal(modals::Msg::Transfer(super::transfer::Msg::Pick))).into());
     }
     items.push(super::fill_x());
     match primary {
