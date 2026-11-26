@@ -2484,7 +2484,7 @@ dependencies = [
 
 [[package]]
 name = "klue-app"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "auto-launch",
  "chrono",
@@ -2510,7 +2510,7 @@ dependencies = [
 
 [[package]]
 name = "klue-core"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "argon2",
  "base64 0.22.1",

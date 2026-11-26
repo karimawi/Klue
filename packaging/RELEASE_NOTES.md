@@ -2,21 +2,20 @@ Klue keeps the quota, balance and renewal date of your Egyptian telecom lines in
 
 This is a beta. If something looks off, please open an issue.
 
+## New in 0.5.0
+- Adding a number is a step-by-step wizard: pick the carrier and the kind of line, then sign in the way its app does. Lines Klue can't read yet (WE OneHome, Ardy, WE Mobile, WE Air and WE Gold; Vodafone home internet and USB; e&) show as coming soon
+- Signing in to an Orange account finds its other line too, and offers to add the home internet linked to a mobile number, or the mobile line behind a home internet account
+- Export numbers to a file, one from its Edit dialog or several at once from Settings, with their settings, usage history and, if you like, their passwords sealed with a passphrase. Import the file on another computer to pick up where you left off
+- Archived numbers have their own button under Add, and a bin beside Restore removes one
+- Dialogs open at the top instead of where the last one was scrolled to
+- When Orange says to try again later, home internet tries once more before giving up
+
 ## New in 0.4.1
-- Archive a number you don't need checked for now: Klue stops refreshing it and hides it but keeps its password, and Settings → Archived numbers brings it back
+- Archive a number you don't need checked for now: Klue stops refreshing it and hides it, but keeps its password
 - Orange mobile lines show every bundle Orange lists: internet add-ons, extras, bonuses, Kart El Kebir units and roaming
 - An Orange bundle that renews when you recharge shows as not active until then, without a low-quota alert
 - Orange mobile lines show the date the line stays valid until
 - Orange home internet counts the double-quota add-on
-
-## New in 0.4.0
-- Orange: mobile lines, and home internet (DSL) through your My Orange account, which finds the linked landline
-- Each number can refresh on its own schedule, and the title bar shows when the number you're looking at last updated
-- A 3-hour option for how often Klue checks
-- Drag carriers and numbers to put them in your order
-- 12-hour time, if you prefer it (Settings → Time format)
-- The usage graph's tooltips no longer leave thin lines behind on Windows
-- The Orange logo fits its tile
 
 <!-- The app's update dialog stops here. -->
 
