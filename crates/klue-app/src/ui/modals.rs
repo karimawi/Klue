@@ -1,4 +1,5 @@
-//! Dialogs: add a number, rename, alerts, settings, and the captcha prompt.
+//! Dialogs: add a number, rename, alerts, settings, archived numbers, and the captcha
+//! prompt.
 
 use std::collections::BTreeMap;
 
@@ -34,6 +35,12 @@ pub enum Modal {
     Rename(RenameForm),
     Alerts(AlertsForm),
     Settings(SettingsForm),
+    Archived(ArchivedList),
+}
+
+pub struct ArchivedList {
+    /// The number whose Remove was pressed once.
+    confirm_remove: Option<String>,
 }
 
 pub struct SettingsForm {
@@ -95,8 +102,9 @@ pub enum Msg {
     RenameSave,
     Remove,
     Archive,
-    /// Settings: bring an archived number back.
+    /// Archived numbers: bring one back, or remove it (pressed twice).
     Restore(String),
+    RemoveArchived(String),
 
     AlertEnabled(String),
     AlertValue(String, String),
@@ -158,6 +166,7 @@ impl Modal {
                 }
                 None => Modal::None,
             },
+            ModalKind::Archived => Modal::Archived(ArchivedList { confirm_remove: None }),
             ModalKind::Settings => {
                 let alerts = snap.data.settings.alerts;
                 Modal::Settings(SettingsForm {
@@ -243,7 +252,27 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
             shared.set_archived(&f.id, true);
             app.modal = Modal::None;
         }
-        (_, Msg::Restore(id)) => shared.set_archived(&id, false),
+        (_, Msg::Restore(id)) => {
+            shared.set_archived(&id, false);
+            app.snap = shared.snapshot();
+            if app.snap.data.archived().next().is_none() {
+                app.modal = Modal::None;
+            }
+            // It shows behind the list, where it was.
+            return Task::done(Message::SelectAccount(id));
+        }
+        (Modal::Archived(f), Msg::RemoveArchived(id)) => {
+            if f.confirm_remove.as_deref() == Some(id.as_str()) {
+                shared.remove_account(&id);
+                app.snap = shared.snapshot();
+                f.confirm_remove = None;
+                if app.snap.data.archived().next().is_none() {
+                    app.modal = Modal::None;
+                }
+            } else {
+                f.confirm_remove = Some(id);
+            }
+        }
         (Modal::Rename(f), Msg::Remove) => {
             if f.confirm_remove {
                 shared.remove_account(&f.id);
@@ -354,6 +383,7 @@ pub fn view<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
         Modal::Rename(f) => ctx.app.snap.data.account(&f.id).map(|a| rename(ctx, f, a)),
         Modal::Alerts(f) => ctx.app.snap.data.account(&f.id).map(|a| alerts(ctx, f, a)),
         Modal::Settings(f) => Some(settings(ctx, f)),
+        Modal::Archived(f) => Some(archived(ctx, f)),
     }
 }
 
@@ -833,13 +863,9 @@ fn settings<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
             hline(p.dvs, 1.0)
         ],
         all_alerts(ctx, f),
+        about(ctx),
     ]
     .spacing(16);
-    let body = match archived(ctx) {
-        Some(list) => body.push(list),
-        None => body,
-    };
-    let body = body.push(about(ctx));
     let foot = ctx.row(vec![container(ctx.muted(s.disclaimer, 11.5)).width(Length::Fill).align_x(ctx.start()).into(), ctx.primary(s.done, Some(Message::CloseModal)).into()]).spacing(12);
     dialog(ctx, 540.0, s.app.to_string(), s.settings_title.to_string(), Some(Message::CloseModal), body.into(), foot.into())
 }
@@ -885,32 +911,6 @@ fn all_alerts<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
     .into()
 }
 
-/// Archived numbers, each with Restore. Nothing when there are none.
-fn archived<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
-    let p = ctx.p;
-    let s = ctx.s;
-    let rows: Vec<El<'a>> = ctx
-        .app
-        .snap
-        .data
-        .archived()
-        .map(|a| {
-            let t = crate::assets::tile(a.carrier);
-            let who = column![ctx.semi(a.display_name(), 13.5), ctx.num(a.pretty_number(), 11.5, Weight::Normal, p.mu)].spacing(0).align_x(ctx.start());
-            let row = ctx.row(vec![
-                super::tile(a.carrier, 28.0, t.small, 8.0, true),
-                container(who).width(Length::Fill).align_x(ctx.start()).into(),
-                ctx.outline(s.restore, Some(Message::Modal(Msg::Restore(a.id.clone())))).into(),
-            ]);
-            column![container(row.spacing(12)).padding([10, 0]), hline(p.dvs, 1.0)].into()
-        })
-        .collect();
-    if rows.is_empty() {
-        return None;
-    }
-    Some(column![ctx.caps(s.archived_title), gap(6.0), hline(p.dv, 2.0), ctx.muted(s.archived_hint, 12.0), column(rows)].spacing(6).align_x(ctx.start()).into())
-}
-
 /// Version, author, links and the update check.
 fn about<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let p = ctx.p;
@@ -950,6 +950,45 @@ fn about<'a>(ctx: &Ctx<'a>) -> El<'a> {
     ]
     .align_x(ctx.start())
     .into()
+}
+
+// ---------------------------------------------------------------------------------------
+// Archived numbers
+
+/// The numbers put away with Archive, each with Restore and Remove.
+fn archived<'a>(ctx: &Ctx<'a>, f: &'a ArchivedList) -> El<'a> {
+    let p = ctx.p;
+    let s = ctx.s;
+    let rows: Vec<El<'a>> = ctx
+        .app
+        .snap
+        .data
+        .archived()
+        .map(|a| {
+            let t = crate::assets::tile(a.carrier);
+            let what = format!("{} · {}", i18n::carrier_name(a.carrier, ctx.lang), i18n::line_name(a.line, ctx.lang));
+            let who = column![
+                ctx.semi(a.display_name(), 14.0),
+                ctx.num(a.pretty_number(), 12.0, Weight::Normal, p.mu),
+                ctx.muted(format!("{what} · {}", i18n::synced(a.updated_at(), ctx.now, ctx.lang)), 11.5),
+            ]
+            .spacing(1)
+            .align_x(ctx.start());
+            let confirming = f.confirm_remove.as_deref() == Some(a.id.as_str());
+            let remove = button(ctx.text(if confirming { s.remove_confirm } else { s.remove }, 12.5, Weight::ExtraBold, p.danger))
+                .padding([4, 6])
+                .style(theme::ghost(p.danger, p.sf, 8.0))
+                .on_press(Message::Modal(Msg::RemoveArchived(a.id.clone())));
+            let actions = column![ctx.outline(s.restore, Some(Message::Modal(Msg::Restore(a.id.clone())))), remove].spacing(4).align_x(ctx.end());
+            let row = ctx
+                .row(vec![super::tile(a.carrier, 40.0, t.small * 1.35, 11.0, true), container(who).width(Length::Fill).align_x(ctx.start()).into(), actions.into()])
+                .spacing(14);
+            column![container(row).padding([12, 0]), hline(p.dvs, 1.0)].into()
+        })
+        .collect();
+    let body = column![ctx.muted(s.archived_hint, 13.0), column![hline(p.dvs, 1.0), column(rows)]].spacing(10).align_x(ctx.start());
+    let foot = ctx.row(vec![super::fill_x(), ctx.primary(s.done, Some(Message::CloseModal)).into()]);
+    dialog(ctx, 520.0, s.app.to_string(), s.archived_title.to_string(), Some(Message::CloseModal), body.into(), foot.into())
 }
 
 // ---------------------------------------------------------------------------------------

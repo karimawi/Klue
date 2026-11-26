@@ -112,6 +112,7 @@ pub enum Icon {
     Terminal,
     Chart,
     Link,
+    Archive,
 }
 
 const fn source(icon: Icon) -> &'static str {
@@ -142,11 +143,12 @@ const fn source(icon: Icon) -> &'static str {
         Icon::Terminal => r##"<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg>"##,
         Icon::Chart => r##"<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg>"##,
         Icon::Link => r##"<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>"##,
+        Icon::Archive => r##"<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>"##,
         Icon::Clock => r##"<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>"##,
     }
 }
 
-const ALL: [Icon; 27] = [
+const ALL: [Icon; 28] = [
     Icon::Refresh,
     Icon::Pencil,
     Icon::Bell,
@@ -174,6 +176,7 @@ const ALL: [Icon; 27] = [
     Icon::Terminal,
     Icon::Chart,
     Icon::Link,
+    Icon::Archive,
 ];
 
 static HANDLES: LazyLock<Vec<(Icon, svg::Handle)>> =

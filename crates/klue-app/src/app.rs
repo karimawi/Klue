@@ -188,6 +188,8 @@ pub enum ModalKind {
     Rename(String),
     Alerts(String),
     Settings,
+    /// The numbers put away with Archive.
+    Archived,
 }
 
 pub struct App {

@@ -209,18 +209,27 @@ fn rail<'a>(ctx: &Ctx<'a>) -> El<'a> {
         })
         .collect();
 
-    let tool = |icon: Icon, label: &'a str, msg: Message| -> El<'a> {
-        let content = column![ctx.icon(icon, 18.0, p.chm), ctx.text(label, 11.0, Weight::Normal, p.chm)].spacing(4).align_x(Alignment::Center).width(Length::Fill);
+    // `count` puts a badge on the icon.
+    let tool = |icon: Icon, label: &'a str, msg: Message, count: Option<usize>| -> El<'a> {
+        let glyph: El<'a> = match count {
+            Some(n) => stack([
+                container(ctx.icon(icon, 18.0, p.chm)).center_x(Length::Fill).padding([3, 0]).into(),
+                container(badge(ctx, &n.to_string(), 10.0)).width(Length::Fill).align_x(Horizontal::Center).padding(ctx.pad(0.0, 0.0, 0.0, 30.0)).into(),
+            ])
+            .width(Length::Fill)
+            .into(),
+            None => ctx.icon(icon, 18.0, p.chm),
+        };
+        let content = column![glyph, ctx.text(label, 11.0, Weight::Normal, p.chm)].spacing(4).align_x(Alignment::Center).width(Length::Fill);
         container(button(content).width(Length::Fill).padding([10, 0]).style(theme::plain(p.ch_act, None, 12.0)).on_press(msg)).padding([0, 8]).into()
     };
-    let col = column(items)
-        .spacing(4)
-        .push(Space::new().height(Length::Fill))
-        .push(tool(Icon::Plus, s.add, Message::OpenModal(ModalKind::Add)))
-        .push(tool(Icon::Sliders, s.settings, Message::OpenModal(ModalKind::Settings)))
-        .padding([8, 0])
-        .width(92)
-        .height(Length::Fill);
+    let archived = data.archived().count();
+    let mut col = column(items).spacing(4).push(Space::new().height(Length::Fill)).push(tool(Icon::Plus, s.add, Message::OpenModal(ModalKind::Add), None));
+    // Only once something is archived.
+    if archived > 0 {
+        col = col.push(tool(Icon::Archive, s.archived_rail, Message::OpenModal(ModalKind::Archived), Some(archived)));
+    }
+    let col = col.push(tool(Icon::Sliders, s.settings, Message::OpenModal(ModalKind::Settings), None)).padding([8, 0]).width(92).height(Length::Fill);
     container(col).height(Length::Fill).style(move |_| theme::fill(p.ch, 0.0)).into()
 }
 
