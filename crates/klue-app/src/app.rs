@@ -318,7 +318,7 @@ impl App {
     pub fn current(&self) -> Option<&Account> {
         let data = &self.snap.data;
         let carrier = self.shown_carrier()?;
-        let picked = self.selected.get(&carrier).and_then(|id| data.account(id)).filter(|a| a.carrier == carrier);
+        let picked = self.selected.get(&carrier).and_then(|id| data.account(id)).filter(|a| a.carrier == carrier && !a.archived);
         picked.or_else(|| data.accounts_for(carrier).next())
     }
 

@@ -173,10 +173,16 @@ impl Shared {
     /// with; an Orange home internet line is only known, and checked, once Orange names it.
     pub async fn verify(&self, carrier: Carrier, line: LineType, number: &str, password: &str) -> Result<Usage, FetchError> {
         let sign_in = format::normalize(number, carrier.sign_in_line(line))?;
-        let added = |number: &str| self.data.lock().expect("data lock").accounts.iter().any(|a| a.carrier == carrier && a.number == number);
-        let already = || FetchError::Carrier(crate::i18n::strings(self.settings().lang).already_added.into());
-        if carrier.sign_in_line(line) == line && added(&sign_in) {
-            return Err(already());
+        // Whether the number is in Klue already, and if so whether it's archived.
+        let added = |number: &str| self.data.lock().expect("data lock").accounts.iter().find(|a| a.carrier == carrier && a.number == number).map(|a| a.archived);
+        let already = |archived: bool| {
+            let s = crate::i18n::strings(self.settings().lang);
+            FetchError::Carrier(if archived { s.already_archived } else { s.already_added }.into())
+        };
+        if carrier.sign_in_line(line) == line
+            && let Some(archived) = added(&sign_in)
+        {
+            return Err(already(archived));
         }
         let usage = if self.demo {
             demo::verify(carrier, line, &sign_in, password).await?
@@ -184,8 +190,10 @@ impl Shared {
             carriers::fetch(carrier, line, &sign_in, password, &self.context(true)).await?
         };
         let own = carriers::line_number(carrier, line, &sign_in, &usage)?;
-        if own != sign_in && added(&own) {
-            return Err(already());
+        if own != sign_in
+            && let Some(archived) = added(&own)
+        {
+            return Err(already(archived));
         }
         Ok(usage)
     }
@@ -224,6 +232,16 @@ impl Shared {
         self.update(|d| {
             if let Some(a) = d.account_mut(id) {
                 a.nickname = nickname;
+            }
+        });
+        self.save_vault_index();
+    }
+
+    /// Archives a number (it keeps its password but isn't checked or listed), or brings it back.
+    pub fn set_archived(&self, id: &str, archived: bool) {
+        self.update(|d| {
+            if let Some(a) = d.account_mut(id) {
+                a.archived = archived;
             }
         });
         self.save_vault_index();
@@ -291,7 +309,7 @@ impl Shared {
     /// ones don't.
     pub async fn refresh(&self, id: &str, interactive: bool) {
         let Some(account) = self.data.lock().expect("data lock").account(id).cloned() else { return };
-        if !account.carrier.supports_line(account.line) {
+        if !account.carrier.supports_line(account.line) || account.archived {
             return;
         }
         let now = Utc::now();
@@ -337,7 +355,7 @@ impl Shared {
             let now = Utc::now();
             data.accounts
                 .iter()
-                .filter(|a| a.carrier.supports_line(a.line))
+                .filter(|a| a.carrier.supports_line(a.line) && !a.archived)
                 // A rejected password stays rejected: retrying in the background could lock the account.
                 .filter(|a| !matches!(a.last_error, Some(FetchError::BadCredentials)))
                 .filter(|a| {
@@ -360,7 +378,7 @@ impl Shared {
             return;
         }
         self.bump();
-        let ids: Vec<String> = self.data.lock().expect("data lock").accounts.iter().map(|a| a.id.clone()).collect();
+        let ids: Vec<String> = self.data.lock().expect("data lock").accounts.iter().filter(|a| !a.archived).map(|a| a.id.clone()).collect();
         for id in ids {
             self.refresh(&id, true).await;
         }
@@ -374,6 +392,7 @@ impl Shared {
             let data = self.data.lock().expect("data lock");
             data.accounts
                 .iter()
+                .filter(|a| !a.archived)
                 .flat_map(|a| alerts::due(a, now).into_iter().map(move |e| (a.clone(), e)))
                 .collect()
         };

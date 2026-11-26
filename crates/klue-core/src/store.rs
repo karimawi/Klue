@@ -259,6 +259,9 @@ pub struct Account {
     /// How often this number refreshes; `None` follows [`Settings::refresh`].
     #[serde(default)]
     pub refresh: Option<RefreshEvery>,
+    /// Put away: its password stays saved, but it isn't checked or listed until it's restored.
+    #[serde(default)]
+    pub archived: bool,
     #[serde(default)]
     pub alerts: AlertPrefs,
     #[serde(default)]
@@ -293,6 +296,7 @@ impl Account {
             nickname: None,
             owner_name: None,
             refresh: None,
+            archived: false,
             alerts: AlertPrefs::default(),
             usage: None,
             last_error: None,
@@ -444,9 +448,14 @@ impl AppData {
         }
     }
 
-    /// A carrier's numbers, in the order the user put them.
+    /// A carrier's numbers, in the order the user put them. Archived ones aren't listed.
     pub fn accounts_for(&self, carrier: Carrier) -> impl Iterator<Item = &Account> {
-        self.accounts.iter().filter(move |a| a.carrier == carrier)
+        self.accounts.iter().filter(move |a| a.carrier == carrier && !a.archived)
+    }
+
+    /// The archived numbers, in the order the user put them.
+    pub fn archived(&self) -> impl Iterator<Item = &Account> {
+        self.accounts.iter().filter(|a| a.archived)
     }
 
     /// Every carrier, in the order the user put them.
@@ -489,9 +498,9 @@ impl AppData {
         self.accounts.iter_mut().find(|a| a.id == id)
     }
 
-    /// Most recent successful refresh across all accounts.
+    /// Most recent successful refresh across the numbers still checked.
     pub fn last_sync(&self) -> Option<DateTime<Utc>> {
-        self.accounts.iter().filter_map(|a| a.usage.as_ref().map(|u| u.fetched_at)).max()
+        self.accounts.iter().filter(|a| !a.archived).filter_map(|a| a.usage.as_ref().map(|u| u.fetched_at)).max()
     }
 }
 
@@ -560,6 +569,9 @@ pub struct VaultAccount {
     /// [`Account::login`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login: Option<String>,
+    /// [`Account::archived`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
     #[serde(default)]
     pub nickname: Option<String>,
 }
@@ -628,6 +640,7 @@ impl Secrets {
                 line: a.line,
                 number: a.number.clone(),
                 login: a.login.clone(),
+                archived: a.archived,
                 nickname: a.nickname.clone(),
             })
             .collect();
@@ -661,6 +674,7 @@ impl AppData {
             }
             let mut account = Account::new(v.carrier, v.line, v.number);
             account.login = v.login;
+            account.archived = v.archived;
             account.nickname = v.nickname;
             self.accounts.push(account);
             added += 1;
@@ -695,9 +709,9 @@ mod tests {
         let mut data = AppData::default();
         data.accounts.push(Account::new(Carrier::We, LineType::Landline, "0223584417".into()));
         let vault = vec![
-            VaultAccount { carrier: Carrier::We, line: LineType::Landline, number: "0223584417".into(), login: None, nickname: None },
-            VaultAccount { carrier: Carrier::Vodafone, line: LineType::Mobile, number: "01000000000".into(), login: None, nickname: Some("Work".into()) },
-            VaultAccount { carrier: Carrier::Orange, line: LineType::Landline, number: "0233456789".into(), login: Some("01200000000".into()), nickname: None },
+            VaultAccount { carrier: Carrier::We, line: LineType::Landline, number: "0223584417".into(), login: None, archived: false, nickname: None },
+            VaultAccount { carrier: Carrier::Vodafone, line: LineType::Mobile, number: "01000000000".into(), login: None, archived: false, nickname: Some("Work".into()) },
+            VaultAccount { carrier: Carrier::Orange, line: LineType::Landline, number: "0233456789".into(), login: Some("01200000000".into()), archived: true, nickname: None },
         ];
         assert_eq!(data.restore(vault), 2);
         assert_eq!(data.accounts.len(), 3);
@@ -707,6 +721,8 @@ mod tests {
         // An Orange home internet line is its landline, signed in to with the My Orange number.
         assert_eq!(data.accounts[2].credential_user(), "or:0233456789");
         assert_eq!(data.accounts[2].sign_in_number(), "01200000000");
+        // It was archived, and stays so.
+        assert!(data.accounts[2].archived);
     }
 
     #[test]
@@ -718,6 +734,7 @@ mod tests {
             line: account.line,
             number: account.number.clone(),
             login: account.login.clone(),
+            archived: false,
             nickname: None,
         })
         .unwrap();
@@ -725,8 +742,9 @@ mod tests {
         assert_eq!(back.login.as_deref(), Some("01200000000"));
         // Older indexes have no `login`, and lines without one don't write it.
         let old: VaultAccount = serde_json::from_str(r#"{"carrier":"we","line":"landline","number":"0223584417"}"#).unwrap();
-        assert_eq!(old.login, None);
-        assert!(!serde_json::to_string(&old).unwrap().contains("login"));
+        assert_eq!((old.login.as_deref(), old.archived), (None, false));
+        let written = serde_json::to_string(&old).unwrap();
+        assert!(!written.contains("login") && !written.contains("archived"), "{written}");
     }
 
     #[test]
@@ -790,6 +808,24 @@ mod tests {
         data.move_account(&first, "gone");
         assert_eq!(data.accounts, before);
         assert_eq!(data.accounts_for(Carrier::Vodafone).count(), 1);
+    }
+
+    #[test]
+    fn archived_numbers_arent_listed() {
+        let mut data = AppData::default();
+        for number in ["0223584417", "0348712290"] {
+            data.accounts.push(Account::new(Carrier::We, LineType::Landline, number.into()));
+        }
+        data.accounts[0].apply_usage(usage(vec![bundle(140.0, 60.0)]), &AlertDefaults::default());
+        data.accounts[0].archived = true;
+        assert_eq!(data.accounts_for(Carrier::We).map(|a| a.number.as_str()).collect::<Vec<_>>(), ["0348712290"]);
+        assert_eq!(data.archived().map(|a| a.number.as_str()).collect::<Vec<_>>(), ["0223584417"]);
+        // Its last refresh doesn't count as Klue's.
+        assert_eq!(data.last_sync(), None);
+        // Nor does a carrier with only archived numbers show; the order keeps its place.
+        data.accounts[1].archived = true;
+        assert_eq!(data.accounts_for(Carrier::We).count(), 0);
+        assert_eq!(data.carriers()[0], Carrier::We);
     }
 
     #[test]

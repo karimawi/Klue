@@ -94,6 +94,9 @@ pub enum Msg {
     RenameUseOwner,
     RenameSave,
     Remove,
+    Archive,
+    /// Settings: bring an archived number back.
+    Restore(String),
 
     AlertEnabled(String),
     AlertValue(String, String),
@@ -236,6 +239,11 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
             shared.set_refresh(&f.id, f.refresh);
             app.modal = Modal::None;
         }
+        (Modal::Rename(f), Msg::Archive) => {
+            shared.set_archived(&f.id, true);
+            app.modal = Modal::None;
+        }
+        (_, Msg::Restore(id)) => shared.set_archived(&id, false),
         (Modal::Rename(f), Msg::Remove) => {
             if f.confirm_remove {
                 shared.remove_account(&f.id);
@@ -606,6 +614,12 @@ fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::A
         34.0,
         12.5,
     );
+    let archive = ctx
+        .row(vec![
+            container(ctx.muted(s.archive_hint, 12.5)).width(Length::Fill).align_x(ctx.start()).into(),
+            button(ctx.text(s.archive, 13.0, Weight::ExtraBold, p.tx)).padding([4, 6]).style(theme::ghost(p.tx, p.sf, 9.0)).on_press(Message::Modal(Msg::Archive)).into(),
+        ])
+        .spacing(10);
     let danger = ctx
         .row(vec![
             container(ctx.muted(s.remove_hint, 12.5)).width(Length::Fill).align_x(ctx.start()).into(),
@@ -628,7 +642,7 @@ fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::A
         .align_x(ctx.start()),
         column![label(ctx, s.shown_as), gap(6.0), container(preview).width(Length::Fill).align_x(ctx.start())],
         column![label(ctx, s.check_number_every), gap(6.0), container(every).width(Length::Shrink), gap(6.0), ctx.muted(s.check_number_hint, 12.0)].align_x(ctx.start()),
-        column![hline(p.dvs, 1.0), gap(12.0), danger],
+        column![hline(p.dvs, 1.0), gap(12.0), archive, gap(12.0), danger],
     ]
     .spacing(16);
     let foot = ctx.row(vec![
@@ -819,9 +833,13 @@ fn settings<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
             hline(p.dvs, 1.0)
         ],
         all_alerts(ctx, f),
-        about(ctx),
     ]
     .spacing(16);
+    let body = match archived(ctx) {
+        Some(list) => body.push(list),
+        None => body,
+    };
+    let body = body.push(about(ctx));
     let foot = ctx.row(vec![container(ctx.muted(s.disclaimer, 11.5)).width(Length::Fill).align_x(ctx.start()).into(), ctx.primary(s.done, Some(Message::CloseModal)).into()]).spacing(12);
     dialog(ctx, 540.0, s.app.to_string(), s.settings_title.to_string(), Some(Message::CloseModal), body.into(), foot.into())
 }
@@ -865,6 +883,32 @@ fn all_alerts<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
     ]
     .align_x(ctx.start())
     .into()
+}
+
+/// Archived numbers, each with Restore. Nothing when there are none.
+fn archived<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
+    let p = ctx.p;
+    let s = ctx.s;
+    let rows: Vec<El<'a>> = ctx
+        .app
+        .snap
+        .data
+        .archived()
+        .map(|a| {
+            let t = crate::assets::tile(a.carrier);
+            let who = column![ctx.semi(a.display_name(), 13.5), ctx.num(a.pretty_number(), 11.5, Weight::Normal, p.mu)].spacing(0).align_x(ctx.start());
+            let row = ctx.row(vec![
+                super::tile(a.carrier, 28.0, t.small, 8.0, true),
+                container(who).width(Length::Fill).align_x(ctx.start()).into(),
+                ctx.outline(s.restore, Some(Message::Modal(Msg::Restore(a.id.clone())))).into(),
+            ]);
+            column![container(row.spacing(12)).padding([10, 0]), hline(p.dvs, 1.0)].into()
+        })
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    Some(column![ctx.caps(s.archived_title), gap(6.0), hline(p.dv, 2.0), ctx.muted(s.archived_hint, 12.0), column(rows)].spacing(6).align_x(ctx.start()).into())
 }
 
 /// Version, author, links and the update check.
