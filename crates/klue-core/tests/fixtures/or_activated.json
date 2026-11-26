@@ -1,0 +1,99 @@
+{
+  "mainBucket": {
+    "isRnR": true,
+    "rnRText": "باقتك غير مفعلة اشحن 92 للتجديد",
+    "rnRUnsubscribeConfirmationMessage": "سيتم الغاء باقة الانترنت و لن يتم تشغيلها بعد شحن الرصيد، تأكد من اضافة باقة انترنت لتجنب المحاسبة باسعار الدفع حسب الاستخدام",
+    "mainBucketType": 1,
+    "primaryOptions": {
+      "rnROptions": {
+        "canUnsubscribeRnR": true,
+        "canChangeBucketRnR": true,
+        "canRecharge": true
+      },
+      "canAddExtension": false,
+      "canChangeOnlineBucket": false,
+      "canChangeGOBucket": false,
+      "canUnsubscribeGO": false,
+      "canUnsubscribeOnline": false,
+      "canKeepConnected": false,
+      "canOnlineExtra": false,
+      "canRenew": false,
+      "canRenewHome4G": false,
+      "canMergeQuotaHome4G": false,
+      "canSplitQuotaHome4G": false,
+      "canChangeHome4GBucket": false,
+      "canResetHome4GLocation": false,
+      "canManageLocation": false,
+      "canAddOnlineBuckets": false,
+      "canAddGOBusinessBuckets": false,
+      "canAddDailyAndAnnual": false,
+      "canAddJoinBuckets": false,
+      "canAddGOExtra": false
+    },
+    "secondaryOptions": {
+      "goFeaturesOptions": {
+        "canGOUnits": false,
+        "canGOShare": false,
+        "canGOBonus": false
+      },
+      "extraOptions": {
+        "canAddGOHours": true,
+        "canWasalny": false,
+        "canAddGOExtra": true
+      },
+      "rnROptions": {
+        "canUnsubscribeRnR": false,
+        "canChangeBucketRnR": false,
+        "canRecharge": true
+      },
+      "canAddExtension": false,
+      "canChangeOnlineBucket": false,
+      "canChangeGOBucket": false,
+      "canUnsubscribeGO": false,
+      "canUnsubscribeOnline": false,
+      "canKeepConnected": false,
+      "canOnlineExtra": false,
+      "canRenew": false,
+      "canRenewHome4G": false,
+      "canMergeQuotaHome4G": false,
+      "canSplitQuotaHome4G": false,
+      "canChangeHome4GBucket": false,
+      "canResetHome4GLocation": false,
+      "canManageLocation": false,
+      "canAddOnlineBuckets": false,
+      "canAddGOBusinessBuckets": false,
+      "canAddDailyAndAnnual": false,
+      "canAddJoinBuckets": false,
+      "canAddGOExtra": true
+    },
+    "bucketID": "5103",
+    "bucketName": "GO 92 (4250 MBs)",
+    "bucketSize": null,
+    "remainingSize": null,
+    "sizeUnit": null,
+    "renewalDate": null,
+    "expiryDate": null
+  },
+  "extensionBuckets": null,
+  "bonusBuckets": null,
+  "kartElKebirBuckets": null,
+  "addOnBuckets": null,
+  "outOfBucket": null,
+  "internetOptions": null,
+  "assets": {
+    "backgroudImageURLs": {
+      "tawselaImageURL": "https://cdn.orange.eg/images/InternetAssets/gift_20251028105738.png",
+      "goExtraImageURL": "https://cdn.orange.eg/images/InternetAssets/GOExtraImage-160x72-AR_20260707133738.png",
+      "goHourlyImageURL": "https://cdn.orange.eg/images/InternetAssets/GOHourlyImage-160x72-AR_20260707133743.png",
+      "goPackagesImageURL": "https://cdn.orange.eg/images/InternetAssets/GOPackagesImage-160x72-AR_20260707133749.png",
+      "goUnitsImageURL": "https://cdn.orange.eg/images/ImageUploader/GOUnitsImage-160x72-AR_20260704181841.png",
+      "goShareImageURL": "https://cdn.orange.eg/images/ImageUploader/GOShareImage-160x72-AR_20260704181837.png",
+      "goBonusImageURL": "https://cdn.orange.eg/images/ImageUploader/GOBonusImage-160x72-AR_20260704181817.png"
+    },
+    "cachingFlag": ""
+  },
+  "errorCode": 0,
+  "internalErrorDescription": "Success",
+  "message": null,
+  "isNotPaymentResponsible": false
+}

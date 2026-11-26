@@ -22,7 +22,7 @@
         "IsCarryOverUnit": false,
         "IsGranted": false,
         "Name": "Kart El Kebir Bundles",
-        "Remaining": 425,
+        "Remaining": 388,
         "Showable": false,
         "Status": false,
         "TemplateCode": "4",
@@ -30,7 +30,7 @@
         "TotalSize": 0,
         "UOM": 4,
         "UOMString": "Units",
-        "Usage": -425
+        "Usage": -388
       }
     ]
   }

@@ -100,6 +100,8 @@ pub enum BundleState {
     Borrowed,
     /// Not paid in time; unusable until it is.
     Frozen,
+    /// Not running yet: an Orange recharge-and-renew bundle waits for the next recharge.
+    Inactive,
 }
 
 /// One quota bucket: internet, an add-on, minutes, flexes...
@@ -202,6 +204,9 @@ pub struct LineInfo {
     pub number: Option<String>,
     #[serde(default)]
     pub since: Option<DateTime<Utc>>,
+    /// When a prepaid line expires unless it's recharged (Orange).
+    #[serde(default)]
+    pub valid_until: Option<DateTime<Utc>>,
 }
 
 impl LineInfo {

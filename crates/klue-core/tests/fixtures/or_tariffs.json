@@ -1,0 +1,25 @@
+{
+  "errorCode": 0,
+  "internalErrorDescription": "Success",
+  "message": null,
+  "isB2BPostpaidEligible": false,
+  "b2BPostpaidConsumtionInfo": null,
+  "units": [
+    {
+      "destinationID": "195",
+      "unitTitle": "Kart El Kebir Bundles",
+      "totalSize": 0,
+      "remainingSize": 388,
+      "consumedSize": -388,
+      "renewalDate": "Renews on 01 Dec",
+      "expiryDate": "30/11/2026",
+      "unityType": "Unit",
+      "isAggregateBucket": false
+    }
+  ],
+  "extraUnits": null,
+  "upsellingConsumption": null,
+  "disclaimer": {
+    "description": "You might have additional units available. Tab Here to explore your full consumption details."
+  }
+}

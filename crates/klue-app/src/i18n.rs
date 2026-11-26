@@ -101,6 +101,13 @@ pub struct Strings {
     pub captcha_ph: &'static str,
     pub continue_: &'static str,
     pub already_added: &'static str,
+    pub already_archived: &'static str,
+    /// Archiving: the Edit dialog, and the list in Settings.
+    pub archive: &'static str,
+    pub archive_hint: &'static str,
+    pub archived_title: &'static str,
+    pub archived_hint: &'static str,
+    pub restore: &'static str,
     pub no_password: &'static str,
     pub quick_view: &'static str,
     pub refresh_all: &'static str,
@@ -128,6 +135,9 @@ pub struct Strings {
     /// Bundle states (see [`state_name`]) and the note under an owed amount.
     pub borrowed: &'static str,
     pub frozen: &'static str,
+    pub inactive: &'static str,
+    /// Line card: when a prepaid line expires unless recharged.
+    pub valid_until: &'static str,
     pub owed_note: &'static str,
     /// Add dialog tooltips for line types that aren't supported yet.
     pub we_mobile_soon: &'static str,
@@ -241,7 +251,7 @@ pub static EN: Strings = Strings {
     not_synced: "Not synced yet", syncing: "Syncing…", synced_now: "Synced just now", waiting_first_sync: "Waiting for the first sync…", owner_unknown: "Not provided by the carrier", remove: "Remove number",
     remove_hint: "Removes the number and its saved password from this computer.", remove_confirm: "Click again to remove",
     captcha_title: "Type the characters", captcha_body: "WE wants to check you’re human before signing in. Type the characters in the picture.",
-    captcha_ph: "Characters", continue_: "Continue", already_added: "This number is already in Klue.",
+    captcha_ph: "Characters", continue_: "Continue", already_added: "This number is already in Klue.", already_archived: "This number is archived in Klue. Restore it from Settings.", archive: "Archive number", archive_hint: "Stops checking it and hides it. The password stays saved, and Settings can bring it back.", archived_title: "Archived numbers", archived_hint: "Klue doesn’t check these. Restore one to see it and check it again.", restore: "Restore",
     no_password: "The saved password is missing. Remove the number and add it again.",
     quick_view: "Quick view", refresh_all: "Refresh all", quit: "Quit Klue",
     tray_empty: "No numbers yet. Open Klue to add one.",
@@ -266,6 +276,8 @@ pub static EN: Strings = Strings {
     egp: "EGP",
     borrowed: "Borrowed",
     frozen: "Frozen",
+    inactive: "Not active",
+    valid_until: "Valid until",
     owed_note: "Your next recharge pays it first.",
     we_mobile_soon: "WE mobile (015) lines are coming soon.",
     vf_dsl_soon: "Vodafone DSL is coming soon.",
@@ -364,7 +376,7 @@ pub static AR: Strings = Strings {
     not_synced: "لم يتم التحديث بعد", syncing: "جارٍ التحديث…", synced_now: "تم التحديث الآن", waiting_first_sync: "في انتظار أول تحديث…", owner_unknown: "لم توفره الشركة", remove: "حذف الرقم",
     remove_hint: "يحذف الرقم وكلمة المرور المحفوظة من هذا الجهاز.", remove_confirm: "اضغط مرة أخرى للحذف",
     captcha_title: "اكتب الحروف", captcha_body: "تريد وي التأكد من أنك لست برنامجاً قبل تسجيل الدخول. اكتب الحروف الظاهرة في الصورة.",
-    captcha_ph: "الحروف", continue_: "متابعة", already_added: "هذا الرقم مضاف بالفعل في Klue.",
+    captcha_ph: "الحروف", continue_: "متابعة", already_added: "هذا الرقم مضاف بالفعل في Klue.", already_archived: "هذا الرقم مؤرشف في Klue. استعده من الإعدادات.", archive: "أرشفة الرقم", archive_hint: "يوقف تحديثه ويخفيه، وتبقى كلمة المرور محفوظة ويمكن استعادته من الإعدادات.", archived_title: "الأرقام المؤرشفة", archived_hint: "لا يحدّث Klue هذه الأرقام. استعد رقماً لتراه ويُحدَّث مرة أخرى.", restore: "استعادة",
     no_password: "كلمة المرور المحفوظة غير موجودة. احذف الرقم ثم أضفه مرة أخرى.",
     quick_view: "عرض سريع", refresh_all: "تحديث الكل", quit: "إغلاق Klue",
     tray_empty: "لا توجد أرقام بعد. افتح Klue لإضافة رقم.",
@@ -389,6 +401,8 @@ pub static AR: Strings = Strings {
     egp: "جنيه",
     borrowed: "مستلفة",
     frozen: "موقوفة",
+    inactive: "غير مفعّلة",
+    valid_until: "صالح حتى",
     owed_note: "يُخصم أولًا من الشحنة القادمة.",
     we_mobile_soon: "خطوط وي المحمول (015) قريباً.",
     vf_dsl_soon: "فودافون DSL قريباً.",
@@ -671,6 +685,7 @@ pub fn state_name(state: BundleState, lang: Lang) -> Option<&'static str> {
         BundleState::Active => None,
         BundleState::Borrowed => Some(s.borrowed),
         BundleState::Frozen => Some(s.frozen),
+        BundleState::Inactive => Some(s.inactive),
     }
 }
 
@@ -727,6 +742,8 @@ pub fn state_notice(
         (BundleState::Frozen, true) => {
             Some((format!("باقة {what} موقوفة"), format!("جُددت بالسلف ولم تُسدَّد قيمتها في موعدها. {pay} لتستخدمها مرة أخرى.")))
         }
+        (BundleState::Inactive, false) => Some((format!("{what} isn’t active"), "It renews when you recharge the line.".to_string())),
+        (BundleState::Inactive, true) => Some((format!("باقة {what} غير مفعّلة"), "تتجدد الباقة عند شحن رصيد الخط.".to_string())),
     }
 }
 

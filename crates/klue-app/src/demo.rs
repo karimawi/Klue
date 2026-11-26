@@ -110,6 +110,7 @@ fn build(l: Line) -> Account {
             status: Some("Active".into()),
             number: None,
             since: Local.with_ymd_and_hms(l.since.0, l.since.1, l.since.2, 0, 0, 0).single().map(|d| d.with_timezone(&Utc)),
+            valid_until: None,
         },
         payments: Some(
             l.payments
@@ -263,6 +264,9 @@ pub async fn verify(carrier: Carrier, line: LineType, number: &str, password: &s
         _ => ("Flex 100", "فليكس 100", 30.0, 21.7, BundleKind::Data, "Mobile data", "Flex 100", Some("فليكس 100")),
     };
     let number = if carrier.sign_in_line(line) == line { number.to_string() } else { "0227531146".to_string() };
+    if (carrier, line) == (Carrier::Orange, LineType::Mobile) {
+        return Ok(orange_units_line(number, renew));
+    }
     Ok(Usage {
         owner_name: Some("Youssef Adel Mansour".into()),
         package_name: Some(pkg.into()),
@@ -293,9 +297,53 @@ pub async fn verify(carrier: Carrier, line: LineType, number: &str, password: &s
             status: Some("Active".into()),
             number: Some(number),
             since: Some(Utc::now() - chrono::Duration::days(400)),
+            valid_until: None,
         },
         payments: Some(Vec::new()),
     })
+}
+
+/// An Orange units line like FREEmax: Kart El Kebir units without a stated size, and a GO
+/// bundle that waits for a recharge.
+fn orange_units_line(number: String, renew: DateTime<Utc>) -> Usage {
+    let bundle = |name: &str, kind, unit, total, remaining, state| Bundle {
+        key: name.to_lowercase().replace(' ', "-"),
+        kind,
+        name: name.into(),
+        name_ar: None,
+        unit,
+        total,
+        remaining,
+        starts_at: None,
+        expires_at: Some(renew),
+        state,
+        settle_by: None,
+    };
+    Usage {
+        owner_name: Some("Youssef Adel Mansour".into()),
+        package_name: Some("FREEmax 80".into()),
+        package_name_ar: None,
+        balance_egp: Some(0.0),
+        owed_egp: None,
+        bundles: vec![
+            bundle("Kart El Kebir Bundles", BundleKind::Other, Unit::Units, 388.0, 388.0, BundleState::Active),
+            bundle("GO 92 (4250 MBs)", BundleKind::Data, Unit::Mb, 4250.0, 0.0, BundleState::Inactive),
+        ],
+        subscribed_at: None,
+        renews_at: Some(renew),
+        fetched_at: Utc::now(),
+        info: LineInfo {
+            plan: Some("FREEmax 80".into()),
+            plan_ar: None,
+            speed: None,
+            payment: Some(PaymentKind::Prepaid),
+            status: None,
+            number: Some(number),
+            since: None,
+            valid_until: Some(renew + chrono::Duration::days(100)),
+        },
+        payments: None,
+    }
 }
 
 /// Fake refresh: same numbers, new time.
