@@ -2,6 +2,13 @@ Klue keeps the quota, balance and renewal date of your Egyptian telecom lines in
 
 This is a beta. If something looks off, please open an issue.
 
+## New in 0.4.1
+- Archive a number you don't need checked for now: Klue stops refreshing it and hides it but keeps its password, and Settings → Archived numbers brings it back
+- Orange mobile lines show every bundle Orange lists: internet add-ons, extras, bonuses, Kart El Kebir units and roaming
+- An Orange bundle that renews when you recharge shows as not active until then, without a low-quota alert
+- Orange mobile lines show the date the line stays valid until
+- Orange home internet counts the double-quota add-on
+
 ## New in 0.4.0
 - Orange: mobile lines, and home internet (DSL) through your My Orange account, which finds the linked landline
 - Each number can refresh on its own schedule, and the title bar shows when the number you're looking at last updated
