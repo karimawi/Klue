@@ -49,9 +49,7 @@ You'll do this walk-through once in Part 1 and once in Part 2. The more of the s
 
 5. In DevTools, open the **Network** tab. Tick **Preserve log**, so the list keeps going when the website changes pages. Then click **Clear** (🚫) to empty the list.
 
-   ![Network tab with Preserve log ticked](docs/contributing/preserve-log.png)
-
-   ![The Clear button in the Network tab](docs/contributing/clear-log.png)
+   ![Network tab with Preserve log ticked an clear log](docs/contributing/keep-log-and-clear.png)
 
 6. Do [the walk-through](#the-walk-through). Leave DevTools open the whole time; you'll see the list fill up.
 
@@ -88,8 +86,6 @@ You'll do this walk-through once in Part 1 and once in Part 2. The more of the s
 8. Open settings again and click **Export**. The recording is copied to your clipboard.
 
    ![Settings with the Export button](docs/contributing/openapi-export.png)
-
-   ![Export confirmation](docs/contributing/openapi-exported.png)
 
 9. Paste it into an empty text file and save it with a `.json` ending, for example `we-mobile-openapi.json`.
 
