@@ -186,6 +186,15 @@ async fn main() {
             Ok(usage) => {
                 println!("  ok in {:.1}s", started.elapsed().as_secs_f32());
                 report(&usage);
+                // The account's other lines, as the Add wizard offers them.
+                let others = carriers::other_lines(account.carrier, account.line, &account.number, &account.password, &ctx).await;
+                if others.is_empty() {
+                    println!("  other lines: none");
+                }
+                for (line, other) in &others {
+                    let number = other.info.number.as_deref().map(short).unwrap_or_else(|| "—".into());
+                    println!("  other line: {line:?} {number} · {}", other.package_name.as_deref().unwrap_or("—"));
+                }
                 if let Some(expected) = &account.landline {
                     let found = carriers::line_number(account.carrier, account.line, &account.number, &usage);
                     let expected = format::normalize(expected, LineType::Landline);
