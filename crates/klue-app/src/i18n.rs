@@ -128,6 +128,9 @@ pub struct Strings {
     /// Bundle states (see [`state_name`]) and the note under an owed amount.
     pub borrowed: &'static str,
     pub frozen: &'static str,
+    pub inactive: &'static str,
+    /// Line card: when a prepaid line expires unless recharged.
+    pub valid_until: &'static str,
     pub owed_note: &'static str,
     /// Add dialog tooltips for line types that aren't supported yet.
     pub we_mobile_soon: &'static str,
@@ -266,6 +269,8 @@ pub static EN: Strings = Strings {
     egp: "EGP",
     borrowed: "Borrowed",
     frozen: "Frozen",
+    inactive: "Not active",
+    valid_until: "Valid until",
     owed_note: "Your next recharge pays it first.",
     we_mobile_soon: "WE mobile (015) lines are coming soon.",
     vf_dsl_soon: "Vodafone DSL is coming soon.",
@@ -389,6 +394,8 @@ pub static AR: Strings = Strings {
     egp: "جنيه",
     borrowed: "مستلفة",
     frozen: "موقوفة",
+    inactive: "غير مفعّلة",
+    valid_until: "صالح حتى",
     owed_note: "يُخصم أولًا من الشحنة القادمة.",
     we_mobile_soon: "خطوط وي المحمول (015) قريباً.",
     vf_dsl_soon: "فودافون DSL قريباً.",
@@ -671,6 +678,7 @@ pub fn state_name(state: BundleState, lang: Lang) -> Option<&'static str> {
         BundleState::Active => None,
         BundleState::Borrowed => Some(s.borrowed),
         BundleState::Frozen => Some(s.frozen),
+        BundleState::Inactive => Some(s.inactive),
     }
 }
 
@@ -727,6 +735,8 @@ pub fn state_notice(
         (BundleState::Frozen, true) => {
             Some((format!("باقة {what} موقوفة"), format!("جُددت بالسلف ولم تُسدَّد قيمتها في موعدها. {pay} لتستخدمها مرة أخرى.")))
         }
+        (BundleState::Inactive, false) => Some((format!("{what} isn’t active"), "It renews when you recharge the line.".to_string())),
+        (BundleState::Inactive, true) => Some((format!("باقة {what} غير مفعّلة"), "تتجدد الباقة عند شحن رصيد الخط.".to_string())),
     }
 }
 

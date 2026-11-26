@@ -43,16 +43,17 @@ pub fn view(app: &App) -> El<'_> {
                 let days = (r - ctx.now).num_days().max(0);
                 if ctx.rtl() { format!("يتجدد خلال {days} يوم") } else { format!("Renews in {days}d") }
             });
-            // A borrowed or frozen bundle (frozen first) matters more than the renewal date.
+            // A borrowed or frozen bundle (frozen first) matters more than the renewal date. One
+            // waiting for a recharge doesn't; it's only dimmed.
             let state = account.usage.as_ref().and_then(|u| {
-                let b = u.bundles.iter().filter(|b| b.state != BundleState::Active).max_by_key(|b| b.state == BundleState::Frozen)?;
+                let b = u.bundles.iter().filter(|b| matches!(b.state, BundleState::Borrowed | BundleState::Frozen)).max_by_key(|b| b.state == BundleState::Frozen)?;
                 Some(match (b.state, b.settle_by) {
                     (BundleState::Frozen, _) => s.frozen.to_string(),
                     (_, Some(by)) => i18n::settle_by_short(by, ctx.lang),
                     _ => s.borrowed.to_string(),
                 })
             });
-            let frozen = main.is_some_and(|m| m.state == BundleState::Frozen);
+            let frozen = main.is_some_and(|m| matches!(m.state, BundleState::Frozen | BundleState::Inactive));
             // Don't break inside the number.
             let number = account.pretty_number().replace(' ', "\u{a0}");
             let syncing = app.snap.is_refreshing(&account.id).then(|| s.syncing.to_string());

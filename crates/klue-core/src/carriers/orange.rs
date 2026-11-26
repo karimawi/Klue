@@ -352,13 +352,18 @@ fn carrier_error(v: &Value, what: &str) -> FetchError {
 // ---------------------------------------------------------------------------------------
 // Mobile lines
 
+/// What the app's dashboard reads: `GetDialInfo` for the plan and the credit, then every
+/// place bundles show up, since no single one has them all. Units come from the tariff
+/// dashboard and the older units service; internet from the activated buckets, the internet
+/// dashboard and the older buckets service.
 async fn read_mobile(client: &wreq::Client, session: &Session, dial: &str, password: &str, ctx: &FetchContext<'_>) -> Result<Usage, CallError> {
     let token = Some(session.access.as_str());
+    // Like the app: with `isCoin` off, the plan, the balance and the validity come back empty.
     let body = object(&[
         ("channel", channel()),
-        ("CurrentVersion", json!(APP_VERSION)),
+        ("CurrentVersion", json!(APP_VERSION.replace('.', ""))),
         ("dial", json!(dial)),
-        ("isCoin", json!(false)),
+        ("isCoin", json!(true)),
         ("lang", json!("en")),
         ("password", json!(password)),
         ("isEasyLogin", json!(false)),
@@ -366,28 +371,71 @@ async fn read_mobile(client: &wreq::Client, session: &Session, dial: &str, passw
     let v = post(client, &format!("{BACKEND}/api/V2/Account/GetDialInfo"), body, headers(token, false), "line info").await?;
     ctx.dump("or-dial-info", &v);
     let line = parse_dial_info(&v)?;
+    let rp_code = line.rp_code.clone().unwrap_or_default();
+    let service_class = line.service_class.clone().unwrap_or_default();
 
-    // Units need the rate plan; without one Orange only says "RP code is empty".
-    let units = match (&line.rp_code, &line.service_class) {
-        (Some(rp_code), service_class) => {
-            let body = object(&[
-                ("channel", channel()),
-                ("dial", json!(dial)),
-                ("lang", json!("en")),
-                ("password", json!(password)),
-                ("isEasyLogin", json!(false)),
-                ("isCoin", json!(false)),
-                ("isDarkMode", json!(false)),
-                ("rpCode", json!(rp_code)),
-                ("serviceClassId", json!(service_class.clone().unwrap_or_default())),
-            ]);
-            let url = format!("{SERVICES}/PostpaidInfoService.svc/GetConsumption");
-            let v = post(client, &url, body, headers(token, false), "units").await?;
-            ctx.dump("or-units", &v);
-            v
-        }
-        (None, _) => Value::Null,
+    let body = object(&[
+        ("ChannelName", json!(CHANNEL_NAME)),
+        ("ChannelPassword", json!(CHANNEL_PASSWORD)),
+        ("dial", json!(dial)),
+        ("isGoldUser", json!(false)),
+        ("language", json!("en")),
+        ("isCoin", json!(false)),
+        ("rpCode", json!(rp_code)),
+        ("serviceClassID", json!(service_class)),
+    ]);
+    let url = format!("{BACKEND}/APIs/CoreAPIs/Tariffs/api/Dashboard/GetConsumption");
+    let tariffs = source(post(client, &url, body, headers(token, true), "tariff units").await, "tariff units")?;
+    ctx.dump("or-tariffs", &tariffs);
+
+    // The older units service only answers "RP code is empty" without a rate plan.
+    let units = if line.rp_code.is_some() {
+        let body = object(&[
+            ("channel", channel()),
+            ("dial", json!(dial)),
+            ("lang", json!("en")),
+            ("password", json!(password)),
+            ("isEasyLogin", json!(false)),
+            ("isCoin", json!(false)),
+            ("isDarkMode", json!(false)),
+            ("rpCode", json!(rp_code)),
+            ("serviceClassId", json!(service_class)),
+        ]);
+        let url = format!("{SERVICES}/PostpaidInfoService.svc/GetConsumption");
+        let v = source(post(client, &url, body, headers(token, false), "units").await, "units")?;
+        ctx.dump("or-units", &v);
+        v
+    } else {
+        Value::Null
     };
+
+    let body = object(&[
+        ("channel", channel()),
+        ("lang", json!("en")),
+        ("Dial", json!(dial)),
+        ("Password", json!(password)),
+        ("IsEasyLogin", json!(false)),
+        ("dial", json!(dial)),
+        ("rPCode", json!(rp_code)),
+        ("serviceClassId", json!(service_class)),
+    ]);
+    let url = format!("{BACKEND}/APIs/CoreAPIs/Internet/api/InternetConsumption/GetActivatedBuckets");
+    let activated = source(post(client, &url, body, headers(token, true), "internet bundles").await, "internet bundles")?;
+    ctx.dump("or-activated", &activated);
+
+    let body = object(&[
+        ("ChannelName", json!(CHANNEL_NAME)),
+        ("ChannelPassword", json!(CHANNEL_PASSWORD)),
+        ("dial", json!(dial)),
+        ("isGoldUser", json!(false)),
+        ("language", json!("en")),
+        ("isRoamer", json!(false)),
+        ("rpCode", json!(rp_code)),
+        ("serviceClassId", json!(service_class)),
+    ]);
+    let url = format!("{BACKEND}/APIs/CoreAPIs/Internet/api/Dashboard/GetConsumption");
+    let internet = source(post(client, &url, body, headers(token, true), "internet usage").await, "internet usage")?;
+    ctx.dump("or-internet", &internet);
 
     let body = object(&[
         ("channel", channel()),
@@ -400,21 +448,37 @@ async fn read_mobile(client: &wreq::Client, session: &Session, dial: &str, passw
         ("roamingBuckets", json!(false)),
     ]);
     let url = format!("{SERVICES}/BucketsService.svc/GetCurrentActiveBuckets");
-    let buckets = post(client, &url, body, headers(token, false), "data buckets").await?;
+    let buckets = source(post(client, &url, body, headers(token, false), "data buckets").await, "data buckets")?;
     ctx.dump("or-buckets", &buckets);
 
-    Ok(mobile_usage(&line, &units, &buckets, session.owner_name.clone(), dial, Utc::now())?)
+    let sources = MobileSources { tariffs, units, activated, internet, buckets };
+    Ok(mobile_usage(&line, &sources, session.owner_name.clone(), dial, Utc::now())?)
+}
+
+/// A source that's merely missing (an error page instead of JSON, say) adds nothing. The
+/// firewall, a refused token and the network still fail the refresh, so a line never shows
+/// half its bundles.
+fn source(result: Result<Value, CallError>, what: &str) -> Result<Value, CallError> {
+    match result {
+        Err(CallError::Fetch(FetchError::Unexpected(e))) => {
+            tracing::info!("Orange {what} unavailable: {e}");
+            Ok(Value::Null)
+        }
+        other => other,
+    }
 }
 
 /// What `GetDialInfo` says about a mobile line.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct DialInfo {
-    /// Rate plan and service class, for the units call.
+    /// Rate plan and service class, which the other calls want.
     pub rp_code: Option<String>,
     pub service_class: Option<String>,
     pub plan: Option<String>,
     pub payment: Option<PaymentKind>,
     pub balance: Option<f64>,
+    /// When a prepaid line expires unless it's recharged.
+    pub valid_until: Option<DateTime<Utc>>,
 }
 
 pub(crate) fn parse_dial_info(v: &Value) -> Result<DialInfo, FetchError> {
@@ -422,10 +486,8 @@ pub(crate) fn parse_dial_info(v: &Value) -> Result<DialInfo, FetchError> {
         None | Some(0) => {}
         // "None Mobinil": the account's number isn't an Orange mobile line.
         Some(7) => return Err(FetchError::NoLine(LineType::Mobile)),
+        Some(_) if v["IsMobinil"] == Value::Bool(false) => return Err(FetchError::NoLine(LineType::Mobile)),
         Some(_) => return Err(carrier_error(v, "line info")),
-    }
-    if v["IsMobinil"] == Value::Bool(false) {
-        return Err(FetchError::NoLine(LineType::Mobile));
     }
     Ok(DialInfo {
         rp_code: j::text(&v["RpCode"]),
@@ -437,34 +499,54 @@ pub(crate) fn parse_dial_info(v: &Value) -> Result<DialInfo, FetchError> {
             _ => None,
         },
         balance: j::num(&v["Balance"]).map(|b| (b * 100.0).round() / 100.0),
+        valid_until: date(&v["ExpiryDate"]),
     })
 }
 
-/// Units (Kart El Kebir, minutes...) and data buckets. A call that failed adds nothing; a
-/// units-only line has `Buckets: null`.
+/// The replies `mobile_usage` reads. A call that failed is `Null`, and replies with an error
+/// code have no lists, so either way they add nothing.
+#[derive(Debug, Default)]
+pub(crate) struct MobileSources {
+    /// `CoreAPIs/Tariffs/.../GetConsumption`: `units` and `extraUnits`.
+    pub tariffs: Value,
+    /// `PostpaidInfoService.svc/GetConsumption`: `Units`.
+    pub units: Value,
+    /// `CoreAPIs/Internet/.../GetActivatedBuckets`: the main bucket and the add-on lists.
+    pub activated: Value,
+    /// `CoreAPIs/Internet/api/Dashboard/GetConsumption`: internet and roaming buckets.
+    pub internet: Value,
+    /// `BucketsService.svc/GetCurrentActiveBuckets`: `Buckets`, `GoBucket`, `GoPasses`.
+    pub buckets: Value,
+}
+
+/// Units and internet from every source, each bundle once, then roaming.
 pub(crate) fn mobile_usage(
     line: &DialInfo,
-    units: &Value,
-    buckets: &Value,
+    sources: &MobileSources,
     owner_name: Option<String>,
     dial: &str,
     now: DateTime<Utc>,
 ) -> Result<Usage, FetchError> {
-    let mut bundles: Vec<Bundle> = Vec::new();
-    let units = result(units, "GetConsumptionResult");
-    match error_code(units) {
-        None | Some(0) => bundles.extend(units["Units"].as_array().into_iter().flatten().filter_map(unit_bundle)),
-        Some(code) => tracing::info!(code, "Orange units unavailable: {}", j::text(&units["ErrorDescription"]).unwrap_or_default()),
-    }
-    let buckets = result(buckets, "GetCurrentActiveBucketsResult");
-    match error_code(buckets) {
-        None | Some(0) => {
-            let listed = ["Buckets", "GoPasses"].into_iter().flat_map(|k| buckets[k].as_array().into_iter().flatten());
-            let go = Some(&buckets["GoBucket"]).filter(|b| b.is_object());
-            bundles.extend(listed.chain(go).filter_map(data_bundle));
-        }
-        Some(code) => tracing::info!(code, "Orange data buckets unavailable: {}", j::text(&buckets["ErrorDescription"]).unwrap_or_default()),
-    }
+    let wcf_units = &result(&sources.units, "GetConsumptionResult")["Units"];
+    let units = merge(vec![
+        dashboard_items(&sources.tariffs["units"], BundleKind::Data),
+        wcf_units.as_array().into_iter().flatten().filter_map(wcf_unit).collect(),
+        extra_units(&sources.tariffs["extraUnits"], "Extra units"),
+    ]);
+    let internet = &sources.internet["internetConsumption"];
+    let data = merge(vec![
+        activated_buckets(&sources.activated),
+        dashboard_items(&internet["buckets"], BundleKind::Addon),
+        extra_units(&internet["extraUnits"], "Extra internet"),
+        wcf_buckets(result(&sources.buckets, "GetCurrentActiveBucketsResult")),
+    ]);
+    let roaming_data = &sources.internet["roamingConsumption"];
+    let roaming = dashboard_items(&roaming_data["buckets"], BundleKind::Addon)
+        .into_iter()
+        .chain(extra_units(&roaming_data["extraUnits"], "Roaming extra"))
+        .filter_map(Reading::bundle);
+
+    let mut bundles: Vec<Bundle> = units.into_iter().chain(data).chain(roaming).collect();
     order_bundles(&mut bundles);
     assign_keys(&mut bundles);
 
@@ -489,79 +571,243 @@ pub(crate) fn mobile_usage(
             status: None,
             number: Some(dial.to_string()),
             since: None,
+            valid_until: line.valid_until,
         },
         payments: None,
     })
 }
 
-/// One of `GetConsumption`'s `Units`, e.g. "Kart El Kebir Bundles", 425 Units until
-/// 30/11/2026. `TotalSize` is 0 when Orange doesn't say how big a bundle is: it's shown as
-/// full then, and [`crate::store::Account::apply_usage`] keeps the most it had this cycle.
-fn unit_bundle(u: &Value) -> Option<Bundle> {
-    let name = j::text(&u["Name"]).or_else(|| j::text(&u["Title"]))?;
-    let remaining = j::num(&u["Remaining"])?.max(0.0);
-    let label = j::text(&u["UOMString"]).or_else(|| j::text(&u["ConsumptionText"])).unwrap_or_default();
-    let (unit, factor) = unit_of(&label);
-    let total = j::num(&u["TotalSize"]).unwrap_or(0.0).max(remaining);
-    if total <= 0.0 {
-        return None;
+/// A bundle as one of the APIs puts it, before it's merged with the others.
+#[derive(Debug, Clone)]
+struct Reading {
+    name: String,
+    /// The kind when it's data; units, minutes and SMS go by their unit.
+    kind: BundleKind,
+    remaining: Option<f64>,
+    total: Option<f64>,
+    unit: Option<String>,
+    /// The size's unit when the API gives it separately.
+    total_unit: Option<String>,
+    used: Option<f64>,
+    ends: Option<DateTime<Utc>>,
+    inactive: bool,
+}
+
+impl Reading {
+    fn new(name: String, kind: BundleKind) -> Self {
+        Self { name, kind, remaining: None, total: None, unit: None, total_unit: None, used: None, ends: None, inactive: false }
     }
-    Some(Bundle {
-        key: String::new(),
-        kind: kind_of(unit, BundleKind::Other),
-        name: tidy(&name),
-        name_ar: None,
-        unit,
-        total: total * factor,
-        remaining: remaining * factor,
-        starts_at: None,
-        expires_at: date(&u["ExpiryDate"]),
-        state: BundleState::Active,
-        settle_by: None,
+
+    /// The bundle in Klue's units, kept in the unit of what's left. Its size is the API's,
+    /// else what's left plus what was used, else the size in its name ("GO 92 (4250 MBs)").
+    /// Without any it shows as full (see [`crate::store::Account::apply_usage`]).
+    fn bundle(self) -> Option<Bundle> {
+        let named = size_in_name(&self.name);
+        let label = self.unit.clone().or_else(|| self.total_unit.clone()).or_else(|| named.as_ref().map(|(_, u)| u.clone()));
+        let (unit, factor) = unit_of(label.as_deref().unwrap_or_default());
+        let remaining = self.remaining.map(|r| r * factor);
+        let used = self.used.map(|u| u * factor);
+        let from_api = self.total.filter(|t| *t > 0.0).and_then(|t| {
+            let (from, f) = unit_of(self.total_unit.as_deref().or(label.as_deref()).unwrap_or_default());
+            convert(t * f, from, unit)
+        });
+        let from_usage = match (remaining, used) {
+            (Some(r), Some(u)) if r >= 0.0 && u >= 0.0 && r + u > 0.0 => Some(r + u),
+            _ => None,
+        };
+        let total = from_api
+            .or(from_usage)
+            .or_else(|| {
+                let (value, label) = named?;
+                let (from, f) = unit_of(&label);
+                convert(value * f, from, unit)
+            });
+        let remaining = remaining.unwrap_or(0.0).max(0.0);
+        let total = total.unwrap_or(remaining).max(remaining);
+        if total <= 0.0 {
+            return None;
+        }
+        Some(Bundle {
+            key: String::new(),
+            kind: if matches!(unit, Unit::Gb | Unit::Mb) { self.kind } else { kind_of(unit, BundleKind::Other) },
+            name: tidy(&self.name),
+            name_ar: None,
+            unit,
+            total,
+            remaining,
+            starts_at: None,
+            expires_at: self.ends,
+            state: if self.inactive { BundleState::Inactive } else { BundleState::Active },
+            settle_by: None,
+        })
+    }
+}
+
+/// `CoreAPIs/Internet/.../GetActivatedBuckets`: the main bucket, the add-on, extension, bonus
+/// and Kart El Kebir lists, any other list of buckets Orange adds, and the out-of-bundle one.
+fn activated_buckets(v: &Value) -> Vec<Reading> {
+    let one = |x: &Value, kind: BundleKind| {
+        let name = j::text(field(x, &["bucketName"]))?;
+        Some(Reading {
+            remaining: j::num(field(x, &["remainingSize"])),
+            total: j::num(field(x, &["bucketSize"])),
+            unit: j::text(field(x, &["sizeUnit"])),
+            ends: date(field(x, &["expiryDate"])).or_else(|| date(field(x, &["renewalDate"]))),
+            ..Reading::new(name, kind)
+        })
+    };
+    let mut out = Vec::new();
+    let main = field(v, &["mainBucket"]);
+    if let Some(mut reading) = one(main, BundleKind::Data) {
+        // A recharge-and-renew bundle with nothing left to report waits for a recharge.
+        let renews_on_recharge = j::truthy(field(main, &["isRnR"])) || j::truthy(field(main, &["isRechargeAndRenew"]));
+        reading.inactive = renews_on_recharge && field(main, &["remainingSize"]).is_null();
+        out.push(reading);
+    }
+    const LISTS: [&str; 4] = ["addOnBuckets", "extensionBuckets", "bonusBuckets", "kartElKebirBuckets"];
+    for key in LISTS {
+        out.extend(field(v, &[key]).as_array().into_iter().flatten().filter_map(|x| one(x, BundleKind::Addon)));
+    }
+    if let Some(map) = v.as_object() {
+        let known = |k: &str| k.eq_ignore_ascii_case("mainBucket") || k.eq_ignore_ascii_case("outOfBucket") || LISTS.iter().any(|l| l.eq_ignore_ascii_case(k));
+        for (_, list) in map.iter().filter(|(k, _)| !known(k)) {
+            let buckets = list.as_array().into_iter().flatten().filter(|x| !field(x, &["remainingSize"]).is_null() || !field(x, &["bucketSize"]).is_null());
+            out.extend(buckets.filter_map(|x| one(x, BundleKind::Addon)));
+        }
+    }
+    let outside = field(v, &["outOfBucket"]);
+    if let Some(name) = j::text(field(outside, &["bucketName"])) {
+        out.push(Reading { remaining: j::num(field(outside, &["remainingSize"])), ..Reading::new(name, BundleKind::Addon) });
+    }
+    out
+}
+
+/// The `units` or `buckets` of a `CoreAPIs` dashboard. `totalSize` is 0 when Orange doesn't
+/// give a size, and `consumedSize` then is minus what's left.
+fn dashboard_items(items: &Value, kind: BundleKind) -> Vec<Reading> {
+    items
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|u| {
+            let name = j::text(field(u, &["unitTitle", "bucketName"]))?;
+            Some(Reading {
+                remaining: j::num(field(u, &["remainingSize"])),
+                total: ["bucketSize", "totalSize"].into_iter().filter_map(|k| j::num(field(u, &[k]))).find(|t| *t > 0.0),
+                unit: j::text(field(u, &["sizeUnit", "unityType"])),
+                used: j::num(field(u, &["consumedSize"])),
+                // `renewalDate` is text like "Renews on 01 Dec" here.
+                ends: date(field(u, &["expiryDate"])).or_else(|| date(field(u, &["renewalDate"]))),
+                ..Reading::new(name, kind)
+            })
+        })
+        .collect()
+}
+
+/// `extraUnits`: what's left of extra units bought on top, "Extra units (x3)".
+fn extra_units(x: &Value, name: &str) -> Vec<Reading> {
+    if field(x, &["remainingSize"]).is_null() {
+        return Vec::new();
+    }
+    let count = j::text(field(x, &["countOfExtraUnits"])).filter(|c| c != "0");
+    let name = count.map_or_else(|| name.to_string(), |c| format!("{name} (x{c})"));
+    vec![Reading {
+        remaining: j::num(field(x, &["remainingSize"])),
+        unit: j::text(field(x, &["remainingSizeUnit", "unityType"])),
+        ends: date(field(x, &["expiryDate"])),
+        ..Reading::new(name, BundleKind::Addon)
+    }]
+}
+
+/// One of `PostpaidInfoService.svc/GetConsumption`'s `Units`: "Kart El Kebir Bundles",
+/// 425 Units until 30/11/2026. `TotalSize` is 0 and `Usage` minus what's left when Orange
+/// doesn't give a size.
+fn wcf_unit(u: &Value) -> Option<Reading> {
+    let name = j::text(field(u, &["Name", "Title"]))?;
+    Some(Reading {
+        remaining: j::num(field(u, &["Remaining"])),
+        total: j::num(field(u, &["TotalSize"])),
+        unit: j::text(field(u, &["UOMString"])),
+        used: j::num(field(u, &["Usage"])),
+        ends: date(field(u, &["ExpiryDate"])),
+        ..Reading::new(name, BundleKind::Data)
     })
 }
 
-/// An active data bucket or Go pass. No line Klue has read has one yet, so this goes by the
-/// fields the app reads: `BucketName`, `RemainingValue` in `RemainingValueUnit`, `BucketSize`
-/// in `BucketSizeUnit`, `BucketUsage`, and `ExpiryDate` or `RenewalDate`. Kept in the size's
-/// unit.
-fn data_bundle(b: &Value) -> Option<Bundle> {
-    let name = first_text(b, &["BucketName", "Name", "BucketCategoryName"])?;
-    let remaining = first_num(b, &["RemainingValue", "Remaining"])?.max(0.0);
-    let remaining_label = first_text(b, &["RemainingValueUnit", "RemainingUnit"]);
-    let size_label = first_text(b, &["BucketSizeUnit"]).or_else(|| remaining_label.clone()).unwrap_or_else(|| "MB".into());
-    let (unit, size_factor) = unit_of(&size_label);
-    let (remaining_unit, remaining_factor) = unit_of(remaining_label.as_deref().unwrap_or(&size_label));
-    let remaining = convert(remaining * remaining_factor, remaining_unit, unit);
-    let total = match first_num(b, &["BucketSize", "BucketSizeValue"]) {
-        Some(size) if size > 0.0 => size * size_factor,
-        _ => remaining + first_num(b, &["BucketUsage"]).map(|u| convert(u * remaining_factor, remaining_unit, unit)).unwrap_or(0.0),
-    }
-    .max(remaining);
-    if total <= 0.0 {
-        return None;
-    }
-    Some(Bundle {
-        key: String::new(),
-        kind: kind_of(unit, BundleKind::Data),
-        name: tidy(&name),
-        name_ar: None,
-        unit,
-        total,
-        remaining,
-        starts_at: None,
-        expires_at: ["ExpiryDate", "RenewalDate", "Validity"].into_iter().find_map(|k| date(&b[k])),
-        state: BundleState::Active,
-        settle_by: None,
-    })
+/// `BucketsService.svc/GetCurrentActiveBuckets`: data buckets, the GO bucket and GO passes.
+fn wcf_buckets(v: &Value) -> Vec<Reading> {
+    let one = |b: &Value, kind: BundleKind| {
+        let name = j::text(field(b, &["BucketName", "Name", "BucketCategoryName"]))?;
+        Some(Reading {
+            remaining: j::num(field(b, &["RemainingValue", "Remaining"])),
+            total: j::num(field(b, &["BucketSize", "BucketSizeValue"])),
+            unit: j::text(field(b, &["RemainingValueUnit", "RemainingUnit", "BucketSizeUnit"])),
+            total_unit: j::text(field(b, &["BucketSizeUnit"])),
+            used: j::num(field(b, &["BucketUsage"])),
+            ends: ["ExpiryDate", "Validity", "RenewalDate"].into_iter().find_map(|k| date(field(b, &[k]))),
+            ..Reading::new(name, kind)
+        })
+    };
+    let listed = field(v, &["Buckets"]).as_array().into_iter().flatten().filter_map(|b| one(b, BundleKind::Data));
+    let go = Some(field(v, &["GoBucket"])).filter(|b| b.is_object()).and_then(|b| one(b, BundleKind::Data));
+    let passes = field(v, &["GoPasses"]).as_array().into_iter().flatten().filter_map(|b| one(b, BundleKind::Addon));
+    listed.chain(go).chain(passes).collect()
 }
 
-fn first_text(v: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|k| j::text(&v[*k]))
+/// Bundles from several sources, each once. A later source only adds the copies of a name
+/// beyond what the earlier ones had: three "Extra 1GB" in one and two in another are three.
+fn merge(sources: Vec<Vec<Reading>>) -> Vec<Bundle> {
+    let mut merged: Vec<Bundle> = Vec::new();
+    for source in sources {
+        let mut have: BTreeMap<String, usize> = BTreeMap::new();
+        for b in &merged {
+            *have.entry(name_key(&b.name)).or_default() += 1;
+        }
+        let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+        for bundle in source.into_iter().filter_map(Reading::bundle) {
+            let key = name_key(&bundle.name);
+            let count = seen.entry(key.clone()).or_default();
+            *count += 1;
+            if *count > have.get(&key).copied().unwrap_or(0) {
+                merged.push(bundle);
+            }
+        }
+    }
+    merged
 }
 
-fn first_num(v: &Value, keys: &[&str]) -> Option<f64> {
-    keys.iter().find_map(|k| j::num(&v[*k]))
+/// A name for matching across sources: lowercase letters and digits (Arabic too), without
+/// anything in brackets. "GO 92 (4250 MBs)" and "GO 92" match.
+fn name_key(name: &str) -> String {
+    let mut depth = 0usize;
+    let mut out = String::new();
+    for c in name.chars().flat_map(char::to_lowercase) {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ if depth > 0 => {}
+            c if c.is_ascii_alphanumeric() || ('\u{0600}'..='\u{06FF}').contains(&c) => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The last size written in a name: "GO 92 (4250 MBs)" is 4250 MB.
+fn size_in_name(name: &str) -> Option<(f64, String)> {
+    static SIZE: std::sync::LazyLock<Option<regex::Regex>> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)(\d[\d,]*(?:\.\d+)?)\s*(GB|MB|KB|Units?|Minutes|Mins?|SMS)s?\b").ok());
+    let caps = SIZE.as_ref()?.captures_iter(name).last()?;
+    let value = caps[1].replace(',', "").parse().ok()?;
+    Some((value, caps[2].to_string()))
+}
+
+/// The first of `keys` with a value, whatever their case; `Null` without one.
+fn field<'a>(v: &'a Value, keys: &[&str]) -> &'a Value {
+    let Some(map) = v.as_object() else { return &Value::Null };
+    keys.iter()
+        .find_map(|key| map.iter().find(|(k, val)| k.eq_ignore_ascii_case(key) && !val.is_null() && val.as_str() != Some("")).map(|(_, val)| val))
+        .unwrap_or(&Value::Null)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -635,9 +881,13 @@ pub(crate) fn home_internet_usage(
         return Err(carrier_error(v, "home internet usage"));
     }
     let package = quota(&v["MainPackage"], BundleKind::Data);
-    let addons = ["Extensions", "Compensations"]
+    let addons = ["Extensions", "Compensations", "DoubleQuota"]
         .into_iter()
-        .flat_map(|k| v[k].as_array().into_iter().flatten())
+        .flat_map(|k| match &v[k] {
+            Value::Array(items) => items.iter().collect::<Vec<_>>(),
+            item @ Value::Object(_) => vec![item],
+            _ => Vec::new(),
+        })
         .filter_map(|a| quota(a, BundleKind::Addon))
         .filter(|a| a.remaining > 0.0);
     let mut bundles: Vec<Bundle> = package.clone().into_iter().chain(addons).collect();
@@ -665,6 +915,7 @@ pub(crate) fn home_internet_usage(
             status: landline.status.clone(),
             number: Some(landline.number.clone()),
             since: None,
+            valid_until: None,
         },
         payments: None,
     })
@@ -674,25 +925,15 @@ pub(crate) fn home_internet_usage(
 /// `RemainingValueUnit` (bytes), until `NextRecharge`.
 fn quota(p: &Value, kind: BundleKind) -> Option<Bundle> {
     let name = j::text(&p["Name"])?;
-    let remaining = j::num(&p["Remaining"])?.max(0.0);
-    let total = j::num(&p["Balance"]).filter(|b| *b > 0.0).or_else(|| j::num(&p["Consumed"]).map(|c| c + remaining))?;
-    if total <= 0.0 {
-        return None;
+    Reading {
+        remaining: j::num(&p["Remaining"]),
+        total: j::num(&p["Balance"]),
+        unit: Some(j::text(&p["RemainingValueUnit"]).unwrap_or_else(|| "bytes".into())),
+        used: j::num(&p["Consumed"]),
+        ends: date(&p["NextRecharge"]),
+        ..Reading::new(name, kind)
     }
-    let (unit, factor) = unit_of(&j::text(&p["RemainingValueUnit"]).unwrap_or_else(|| "bytes".into()));
-    Some(Bundle {
-        key: String::new(),
-        kind,
-        name: tidy(&name),
-        name_ar: None,
-        unit,
-        total: total * factor,
-        remaining: remaining * factor,
-        starts_at: None,
-        expires_at: date(&p["NextRecharge"]),
-        state: BundleState::Active,
-        settle_by: None,
-    })
+    .bundle()
 }
 
 // ---------------------------------------------------------------------------------------
@@ -714,12 +955,13 @@ fn unit_of(label: &str) -> (Unit, f64) {
     }
 }
 
-/// `amount` in `from`, in `to`. Only MB and GB convert.
-fn convert(amount: f64, from: Unit, to: Unit) -> f64 {
+/// `amount` in `from`, in `to`: the same unit, or MB and GB. Anything else doesn't convert.
+fn convert(amount: f64, from: Unit, to: Unit) -> Option<f64> {
     match (from, to) {
-        (Unit::Mb, Unit::Gb) => amount / 1024.0,
-        (Unit::Gb, Unit::Mb) => amount * 1024.0,
-        _ => amount,
+        _ if from == to => Some(amount),
+        (Unit::Mb, Unit::Gb) => Some(amount / 1024.0),
+        (Unit::Gb, Unit::Mb) => Some(amount * 1024.0),
+        _ => None,
     }
 }
 
@@ -786,88 +1028,151 @@ mod tests {
         format!("eyJhbGciOiJIUzI1NiJ9.{payload}.c2ln")
     }
 
-    #[test]
-    fn reads_a_units_line() {
-        let line = parse_dial_info(&fixture("or_dial_info.json")).unwrap();
-        assert_eq!(line.rp_code.as_deref(), Some("20"));
-        assert_eq!(line.service_class.as_deref(), Some("1062"));
-        assert_eq!((line.plan.as_deref(), line.payment, line.balance), (None, Some(PaymentKind::Prepaid), None));
-
-        let usage = mobile_usage(&line, &fixture("or_units.json"), &fixture("or_buckets_none.json"), Some("Mostafa Hassan".into()), "01200000000", Utc::now()).unwrap();
-        // Kart El Kebir doesn't say how big it is: shown as full.
-        let rows: Vec<_> = usage.bundles.iter().map(|b| (b.name.as_str(), b.kind, b.unit, b.remaining, b.total, b.key.as_str())).collect();
-        assert_eq!(rows, [("Kart El Kebir Bundles", BundleKind::Other, Unit::Units, 425.0, 425.0, "kart-el-kebir-bundles")]);
-        assert_eq!(local(usage.bundles[0].expires_at), "2026-11-30 23:59:59");
-        // No plan name: the package is the main bundle.
-        assert_eq!(usage.package_name.as_deref(), Some("Kart El Kebir Bundles"));
-        assert_eq!(usage.renews_at, usage.bundles[0].expires_at);
-        assert_eq!((usage.info.payment, usage.info.number.as_deref()), (Some(PaymentKind::Prepaid), Some("01200000000")));
-        assert_eq!(usage.owner_name.as_deref(), Some("Mostafa Hassan"));
+    fn mobile_sources() -> MobileSources {
+        MobileSources {
+            tariffs: fixture("or_tariffs.json"),
+            units: fixture("or_units.json"),
+            activated: fixture("or_activated.json"),
+            internet: fixture("or_internet_none.json"),
+            buckets: fixture("or_buckets_none.json"),
+        }
     }
 
     #[test]
-    fn a_plan_name_and_balance_win() {
-        let mut v = fixture("or_dial_info.json");
-        v["PlanName"] = json!("Alo Plus");
-        v["Balance"] = json!("37.256");
-        v["DialPackage"] = json!("PostPaid");
-        let line = parse_dial_info(&v).unwrap();
-        let usage = mobile_usage(&line, &fixture("or_units.json"), &Value::Null, None, "01200000000", Utc::now()).unwrap();
-        assert_eq!((usage.package_name.as_deref(), usage.balance_egp), (Some("Alo Plus"), Some(37.26)));
-        assert_eq!((usage.info.plan.as_deref(), usage.info.payment), (Some("Alo Plus"), Some(PaymentKind::Postpaid)));
+    fn reads_a_units_line() {
+        let line = parse_dial_info(&fixture("or_dial_info.json")).unwrap();
+        assert_eq!((line.rp_code.as_deref(), line.service_class.as_deref()), (Some("20"), Some("1062")));
+        assert_eq!((line.plan.as_deref(), line.payment, line.balance), (Some("FREEmax 80"), Some(PaymentKind::Prepaid), Some(0.0)));
+        assert_eq!(local(line.valid_until), "2027-03-08 23:59:59");
+
+        let usage = mobile_usage(&line, &mobile_sources(), Some("Mostafa Hassan".into()), "01200000000", Utc::now()).unwrap();
+        // Kart El Kebir once, though both units services list it, and without a size it's
+        // shown full. The GO bundle waits for a recharge; its size is the one in its name.
+        let rows: Vec<_> = usage.bundles.iter().map(|b| (b.name.as_str(), b.kind, b.unit, b.remaining, b.total, b.state)).collect();
+        assert_eq!(
+            rows,
+            [
+                ("Kart El Kebir Bundles", BundleKind::Other, Unit::Units, 388.0, 388.0, BundleState::Active),
+                ("GO 92 (4250 MBs)", BundleKind::Data, Unit::Mb, 0.0, 4250.0, BundleState::Inactive),
+            ]
+        );
+        assert_eq!(local(usage.bundles[0].expires_at), "2026-11-30 23:59:59");
+        assert_eq!((usage.package_name.as_deref(), usage.balance_egp), (Some("FREEmax 80"), Some(0.0)));
+        assert_eq!(usage.renews_at, usage.bundles[0].expires_at);
+        assert_eq!((usage.info.plan.as_deref(), usage.info.payment), (Some("FREEmax 80"), Some(PaymentKind::Prepaid)));
+        assert_eq!((usage.info.number.as_deref(), usage.info.valid_until), (Some("01200000000"), line.valid_until));
+        assert_eq!(usage.owner_name.as_deref(), Some("Mostafa Hassan"));
     }
 
     #[test]
     fn an_account_without_an_orange_mobile_line() {
         // "None Mobinil": the account's number isn't an Orange line.
         assert_eq!(parse_dial_info(&fixture("or_dial_info_not_orange.json")), Err(FetchError::NoLine(LineType::Mobile)));
+        assert_eq!(parse_dial_info(&json!({"ErrorCode": 12, "IsMobinil": false})), Err(FetchError::NoLine(LineType::Mobile)));
+        // Like the app, a line that says it isn't Orange's but reports no error still counts.
         let mut v = fixture("or_dial_info.json");
         v["IsMobinil"] = json!(false);
-        assert_eq!(parse_dial_info(&v), Err(FetchError::NoLine(LineType::Mobile)));
+        assert!(parse_dial_info(&v).is_ok());
         let busy = json!({"ErrorCode": 99, "ErrorDescription": "Service is temporarily unavailable"});
         assert_eq!(parse_dial_info(&busy), Err(FetchError::Carrier("Service is temporarily unavailable".into())));
         assert!(matches!(parse_dial_info(&json!({"ErrorCode": 12, "ErrorDescription": null})), Err(FetchError::Unexpected(_))));
     }
 
     #[test]
-    fn calls_that_failed_add_nothing() {
+    fn replies_with_errors_add_nothing() {
         let line = parse_dial_info(&fixture("or_dial_info.json")).unwrap();
-        // Units refused ("RP code is empty"), buckets refused (a home internet number).
-        let units = json!({"GetConsumptionResult": {"ErrorCode": 15, "ErrorDescription": "RP code is empty", "Units": null}});
-        let buckets = json!({"GetCurrentActiveBucketsResult": {"ErrorCode": 14, "ErrorDescription": "CheckDataProfileStatus returned Error", "Buckets": null}});
-        assert!(matches!(mobile_usage(&line, &units, &buckets, None, "01200000000", Utc::now()), Err(FetchError::Unexpected(_))));
-        let usage = mobile_usage(&line, &fixture("or_units.json"), &buckets, None, "01200000000", Utc::now()).unwrap();
-        assert_eq!(usage.bundles.len(), 1);
+        let refused = MobileSources {
+            tariffs: json!({"errorCode": 7, "internalErrorDescription": "No Units Found", "units": null}),
+            units: json!({"GetConsumptionResult": {"ErrorCode": 15, "ErrorDescription": "RP code is empty", "Units": null}}),
+            activated: Value::Null,
+            internet: fixture("or_internet_none.json"),
+            buckets: json!({"GetCurrentActiveBucketsResult": {"ErrorCode": 14, "ErrorDescription": "CheckDataProfileStatus returned Error", "Buckets": null}}),
+        };
+        assert!(matches!(mobile_usage(&line, &refused, None, "01200000000", Utc::now()), Err(FetchError::Unexpected(_))));
+        let only_units = MobileSources { units: fixture("or_units.json"), ..MobileSources::default() };
+        assert_eq!(mobile_usage(&line, &only_units, None, "01200000000", Utc::now()).unwrap().bundles.len(), 1);
     }
 
     #[test]
-    fn reads_data_buckets() {
-        // Laid out like the app reads them; no line Klue has read has one yet.
+    fn reads_every_kind_of_internet_bundle() {
         let line = parse_dial_info(&fixture("or_dial_info.json")).unwrap();
-        let buckets = json!({"GetCurrentActiveBucketsResult": {
-            "ErrorCode": 0,
-            "Buckets": [
-                {"BucketName": "Go Internet  5 GB", "BucketSize": "5", "BucketSizeUnit": "GB", "RemainingValue": "1536", "RemainingValueUnit": "MB", "ExpiryDate": "12/12/2026"},
-                {"BucketName": "Social", "RemainingValue": 300, "RemainingValueUnit": "MB", "BucketUsage": 700}
-            ],
-            "GoBucket": {"BucketName": "Go Pass", "BucketSize": 500, "BucketSizeUnit": "MB", "RemainingValue": 0, "RemainingValueUnit": "MB", "RenewalDate": "/Date(1798761600000+0200)/"},
-            "GoPasses": null
-        }});
-        let usage = mobile_usage(&line, &fixture("or_units.json"), &buckets, None, "01200000000", Utc::now()).unwrap();
+        let sources = MobileSources {
+            activated: json!({
+                "mainBucket": {"isRnR": false, "bucketName": "GO 200", "bucketSize": 12, "remainingSize": 4.5, "sizeUnit": "GB", "expiryDate": "12/12/2026"},
+                "addOnBuckets": [{"bucketName": "Extra 1GB", "bucketSize": 1024, "remainingSize": 300, "sizeUnit": "MB"}],
+                "socialBuckets": [{"bucketName": "Social 500", "bucketSize": 500, "remainingSize": 120, "sizeUnit": "MB"}, {"bucketName": "Banner"}],
+                "outOfBucket": {"bucketName": "Out of bundle", "remainingSize": 0},
+                "errorCode": 0
+            }),
+            internet: json!({"errorCode": 0, "internetConsumption": {
+                "buckets": [{"bucketName": "GO 200", "bucketSize": 12, "remainingSize": 4.5, "sizeUnit": "GB"}, {"bucketName": "Extra 1GB", "bucketSize": 1024, "remainingSize": 1000, "sizeUnit": "MB"}],
+                "extraUnits": {"remainingSize": 250, "remainingSizeUnit": "MB", "countOfExtraUnits": 2}
+            }, "roamingConsumption": {"buckets": [{"bucketName": "Roaming 1GB", "bucketSize": 1, "remainingSize": 1, "sizeUnit": "GB"}]}}),
+            buckets: json!({"GetCurrentActiveBucketsResult": {"ErrorCode": 0,
+                "Buckets": [{"BucketName": "GO 200", "BucketSize": "12", "BucketSizeUnit": "GB", "RemainingValue": "4608", "RemainingValueUnit": "MB"}],
+                "GoBucket": {"BucketName": "Go Pass", "BucketSize": 500, "BucketSizeUnit": "MB", "RemainingValue": 0, "RemainingValueUnit": "MB", "RenewalDate": "/Date(1798761600000+0200)/"},
+                "GoPasses": null}}),
+            ..MobileSources::default()
+        };
+        let usage = mobile_usage(&line, &sources, None, "01200000000", Utc::now()).unwrap();
         let rows: Vec<_> = usage.bundles.iter().map(|b| (b.name.as_str(), b.kind, b.unit, b.remaining, b.total)).collect();
-        // Largest with something left first; each kept in its size's unit.
+        // The GO bundle and its add-on once each, though the sources list them up to three
+        // times; the first source's numbers win. The bucket list Orange added is read too,
+        // and the GO pass only the older service has. An empty out-of-bundle counter is left
+        // out. Largest with something left first.
         assert_eq!(
             rows,
             [
-                ("Go Internet 5 GB", BundleKind::Data, Unit::Gb, 1.5, 5.0),
-                ("Social", BundleKind::Data, Unit::Mb, 300.0, 1000.0),
+                ("GO 200", BundleKind::Data, Unit::Gb, 4.5, 12.0),
+                ("Extra 1GB", BundleKind::Addon, Unit::Mb, 300.0, 1024.0),
+                ("Roaming 1GB", BundleKind::Addon, Unit::Gb, 1.0, 1.0),
+                ("Social 500", BundleKind::Addon, Unit::Mb, 120.0, 500.0),
                 ("Go Pass", BundleKind::Data, Unit::Mb, 0.0, 500.0),
-                ("Kart El Kebir Bundles", BundleKind::Other, Unit::Units, 425.0, 425.0),
+                ("Extra internet (x2)", BundleKind::Addon, Unit::Mb, 250.0, 250.0),
             ]
         );
         assert_eq!(local(usage.bundles[0].expires_at), "2026-12-12 23:59:59");
-        assert_eq!(usage.bundles[2].expires_at.unwrap().timestamp(), 1_798_761_600);
-        assert_eq!(usage.package_name.as_deref(), Some("Go Internet 5 GB"));
+        assert_eq!(usage.bundles[4].expires_at.unwrap().timestamp(), 1_798_761_600);
+        // No plan name here: the package is the main bundle.
+        let unnamed = DialInfo { plan: None, ..line };
+        assert_eq!(mobile_usage(&unnamed, &sources, None, "01200000000", Utc::now()).unwrap().package_name.as_deref(), Some("GO 200"));
+    }
+
+    #[test]
+    fn sizes_come_from_the_api_then_usage_then_the_name() {
+        let reading = |remaining: Option<f64>, total: Option<f64>, used: Option<f64>, unit: &str| Reading {
+            remaining,
+            total,
+            used,
+            unit: Some(unit.into()),
+            ..Reading::new("GO 92 (4250 MBs)".into(), BundleKind::Data)
+        };
+        let sized = |r: Reading| r.bundle().map(|b| (b.unit, b.remaining, b.total));
+        assert_eq!(sized(reading(Some(1000.0), Some(2048.0), None, "MB")), Some((Unit::Mb, 1000.0, 2048.0)));
+        // Never less than what's left.
+        assert_eq!(sized(reading(Some(1000.0), Some(2.0), None, "MB")), Some((Unit::Mb, 1000.0, 1000.0)));
+        // A size in another unit converts; a size Klue can't convert is left out.
+        assert_eq!(sized(Reading { total_unit: Some("GB".into()), ..reading(Some(1000.0), Some(2.0), None, "MB") }), Some((Unit::Mb, 1000.0, 2048.0)));
+        assert_eq!(sized(Reading { total_unit: Some("Units".into()), ..reading(Some(10.0), Some(2.0), None, "Minutes") }), Some((Unit::Minutes, 10.0, 10.0)));
+        assert_eq!(sized(reading(Some(1000.0), Some(0.0), Some(3000.0), "MB")), Some((Unit::Mb, 1000.0, 4000.0)));
+        // Usage given as minus what's left doesn't count; the name has the size.
+        assert_eq!(sized(reading(Some(1000.0), Some(0.0), Some(-1000.0), "MB")), Some((Unit::Mb, 1000.0, 4250.0)));
+        // No size anywhere: shown full.
+        let plain = Reading { remaining: Some(388.0), unit: Some("Unit".into()), ..Reading::new("Kart El Kebir Bundles".into(), BundleKind::Data) };
+        assert_eq!(sized(plain), Some((Unit::Units, 388.0, 388.0)));
+        assert_eq!(Reading::new("Nothing".into(), BundleKind::Data).bundle(), None);
+        assert_eq!(size_in_name("GO 92 (4,250 MBs)"), Some((4250.0, "MB".into())));
+        assert_eq!(size_in_name("Home Internet 660"), None);
+    }
+
+    #[test]
+    fn merging_keeps_each_bundle_once() {
+        let r = |name: &str, left: f64| Reading { remaining: Some(left), total: Some(1024.0), unit: Some("MB".into()), ..Reading::new(name.into(), BundleKind::Addon) };
+        let merged = merge(vec![vec![r("Extra 1GB", 1.0), r("Extra 1GB", 2.0)], vec![r("Extra 1GB", 9.0), r("extra 1gb", 9.0), r("Extra 1GB (new)", 3.0), r("Social", 4.0)]]);
+        let names: Vec<_> = merged.iter().map(|b| (b.name.as_str(), b.remaining)).collect();
+        assert_eq!(names, [("Extra 1GB", 1.0), ("Extra 1GB", 2.0), ("Extra 1GB (new)", 3.0), ("Social", 4.0)]);
+        assert_eq!(name_key("GO 92 (4250 MBs)"), name_key("go 92"));
+        assert_eq!(name_key("باقة 5 جيجا"), "باقة5جيجا");
     }
 
     #[test]
@@ -909,6 +1214,11 @@ mod tests {
         assert_eq!((usage.bundles[1].name.as_str(), usage.bundles[1].remaining), ("Home Internet 660", 0.0));
         assert_eq!(usage.package_name.as_deref(), Some("Home Internet 660"));
         assert_eq!(local(usage.renews_at), "2026-12-16 00:00:00");
+
+        // DoubleQuota comes as one object, not a list.
+        v["DoubleQuota"] = json!({"Name": "Double Quota", "Balance": "10737418240", "Consumed": "0", "Remaining": "10737418240", "RemainingValueUnit": "bytes", "NextRecharge": "20261216000000"});
+        let usage = home_internet_usage(&v, &landline, None, Utc::now()).unwrap();
+        assert!(usage.bundles.iter().any(|b| (b.name.as_str(), b.total) == ("Double Quota", 10.0)));
 
         let failed = json!({"ErrorCode": 3, "ErrorDescription": "Invalid DSL token"});
         assert_eq!(home_internet_usage(&failed, &landline, None, Utc::now()), Err(FetchError::Carrier("Invalid DSL token".into())));

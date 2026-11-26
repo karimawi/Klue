@@ -112,6 +112,7 @@ pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Resu
         status: profile.status.clone(),
         number: profile.msisdn.clone(),
         since: None,
+        valid_until: None,
     };
     let payer = profile.user_id.as_deref().unwrap_or(&msisdn);
     // Flex bundles can be borrowed or frozen; the Flex page says which, and until when.

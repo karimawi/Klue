@@ -3,7 +3,7 @@
 
 use chrono::{DateTime, Local, Utc};
 
-use crate::{Bundle, store::Account};
+use crate::{Bundle, BundleState, store::Account};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlertEvent {
@@ -44,7 +44,8 @@ pub fn due(account: &Account, now: DateTime<Utc>) -> Vec<AlertEvent> {
     let mut events = Vec::new();
 
     let main_key = account.main_bundle().map(|b| b.key.clone());
-    for bundle in &usage.bundles {
+    // A bundle that isn't running yet isn't running low.
+    for bundle in usage.bundles.iter().filter(|b| b.state != BundleState::Inactive) {
         let alert = account.alert_for(bundle, main_key.as_deref() == Some(bundle.key.as_str()));
         if alert.is_triggered(bundle) {
             events.push(AlertEvent::QuotaLow {
@@ -118,6 +119,16 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(events[0], AlertEvent::QuotaLow { threshold, .. } if threshold == 2.0));
         a.mark_fired(events[0].key());
+        assert!(due(&a, Utc::now()).is_empty());
+    }
+
+    #[test]
+    fn bundles_that_arent_running_dont_run_low() {
+        let mut a = account(0.0, Duration::days(10));
+        assert_eq!(due(&a, Utc::now()).len(), 1);
+        if let Some(usage) = &mut a.usage {
+            usage.bundles[0].state = crate::BundleState::Inactive;
+        }
         assert!(due(&a, Utc::now()).is_empty());
     }
 

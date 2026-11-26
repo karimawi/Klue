@@ -232,7 +232,7 @@ impl WeSession {
 
         // Optional extras.
         let (plan, since) = self.line_product(auth, &headers, ctx).await.unwrap_or_default();
-        usage.info = LineInfo { plan, plan_ar: None, speed: package.speed, payment: auth.payment, status: auth.status.clone(), number: None, since };
+        usage.info = LineInfo { plan, plan_ar: None, speed: package.speed, payment: auth.payment, status: auth.status.clone(), number: None, since, valid_until: None };
         usage.payments = self.recharges(auth, &headers, ctx).await;
         Ok(usage)
     }

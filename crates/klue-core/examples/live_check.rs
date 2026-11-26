@@ -97,13 +97,14 @@ fn report(u: &Usage) {
     }
     let info = &u.info;
     println!(
-        "  line:       plan {} (ar: {}) · {} · status {} · number {} · since {}",
+        "  line:       plan {} (ar: {}) · {} · status {} · number {} · since {} · valid until {}",
         or_dash(&info.plan),
         or_dash(&info.plan_ar),
         info.payment.map(|p| format!("{p:?}")).unwrap_or_else(|| "—".into()),
         or_dash(&info.status),
         info.number.as_deref().map(short).unwrap_or_else(|| "—".into()),
         date(info.since),
+        date(info.valid_until),
     );
     println!("  buckets ({}), main first:", u.bundles.len());
     for (i, b) in u.ordered(None).into_iter().enumerate() {

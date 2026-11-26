@@ -116,6 +116,7 @@ fn state_color(ctx: &Ctx<'_>, state: BundleState) -> Color {
     match state {
         BundleState::Frozen => ctx.p.danger,
         BundleState::Borrowed => ctx.p.ac_tx,
+        BundleState::Inactive => ctx.p.mu,
         BundleState::Active => ctx.p.tx,
     }
 }
@@ -220,8 +221,9 @@ fn overview<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a>
         let unit = i18n::unit_name(m.unit, ctx.lang);
         let pct = (m.remaining_pct() * 10.0).round() / 10.0;
         let low = alert.is_triggered(m);
-        // Frozen flexes can't be used, so they're greyed out (like Vodafone's Flex page).
-        let frozen = m.state == BundleState::Frozen;
+        // Frozen flexes and bundles waiting for a recharge can't be used, so they're greyed
+        // out (like Vodafone's Flex page).
+        let frozen = matches!(m.state, BundleState::Frozen | BundleState::Inactive);
         let total = format::amount_short(m.total, m.unit);
         let used = format::amount(m.used(), m.unit);
         let mark = threshold_text(&alert, m.unit, ctx.lang);
@@ -379,6 +381,9 @@ fn money_and_line<'a>(ctx: &Ctx<'a>, usage: &'a Usage) -> El<'a> {
     if let Some(since) = info.since {
         pairs.push((s.since, i18n::date_short(since, ctx.lang)));
     }
+    if let Some(until) = info.valid_until {
+        pairs.push((s.valid_until, i18n::date_short(until, ctx.lang)));
+    }
     if let Some(speed) = &info.speed {
         pairs.push((s.speed, i18n::speeds(speed, ctx.lang)));
         if let Some(throttled) = speed.throttled_kbps {
@@ -521,7 +526,7 @@ fn bundles<'a>(ctx: &Ctx<'a>, account: &'a Account, usage: &'a Usage) -> El<'a> 
         let low = alert.is_triggered(bundle);
         let pct = (bundle.remaining_pct() * 10.0).round() / 10.0;
         let alert_text = if alert.enabled { format!("≤ {}", threshold_text(&alert, bundle.unit, ctx.lang)) } else { s.off.to_string() };
-        let frozen = bundle.state == BundleState::Frozen;
+        let frozen = matches!(bundle.state, BundleState::Frozen | BundleState::Inactive);
         let kind: El<'a> = match i18n::state_name(bundle.state, ctx.lang) {
             Some(state) => ctx
                 .row(vec![
