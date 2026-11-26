@@ -576,7 +576,7 @@ impl App {
                     _ => None,
                 };
                 self.modal = Modal::open(kind, &self.snap);
-                first.map(operation::focus).unwrap_or_else(Task::none)
+                Task::batch([ui::modals::top(), first.map(operation::focus).unwrap_or_else(Task::none)])
             }
             Message::CloseModal => {
                 self.modal = Modal::None;

@@ -24,6 +24,8 @@ use crate::{
 
 /// Fields focused when their dialog opens.
 pub const RENAME_INPUT: &str = "rename-nickname";
+/// The scrolling body of every dialog.
+const BODY: &str = "dialog-body";
 pub const CAPTCHA_INPUT: &str = "captcha-input";
 
 pub enum Modal {
@@ -312,13 +314,19 @@ pub(super) fn dialog<'a>(ctx: &Ctx<'a>, width: f32, kicker: String, title: Strin
         .spacing(16);
     // The body scrolls so the footer stays visible.
     let room = (ctx.app.main_size.height - 48.0 - 40.0 - 150.0).max(160.0);
-    let body = container(super::smooth::smooth(scrollable(container(body).padding([18, 22])).style(theme::scroller(p)).height(Length::Shrink))).max_height(room);
+    let body = container(super::smooth::smooth(scrollable(container(body).padding([18, 22])).id(BODY).style(theme::scroller(p)).height(Length::Shrink))).max_height(room);
     container(column![container(head).padding(super::pad4(18.0, 22.0, 14.0, 22.0)), hline(p.dv, 2.0), body, hline(p.dv, 2.0), container(foot).padding([14, 22])])
         .width(width)
         .max_height(720)
         .style(move |_| theme::panel(p, 16.0))
         .clip(true)
         .into()
+}
+
+/// Scrolls a dialog back to its top. iced keeps a scroll position for whatever dialog takes
+/// the same place, so one that opens or moves to its next step starts where the last one was.
+pub fn top() -> Task<Message> {
+    iced::widget::operation::snap_to(BODY, iced::widget::operation::RelativeOffset::START)
 }
 
 pub(super) fn label<'a>(ctx: &Ctx<'a>, text: &str) -> El<'a> {

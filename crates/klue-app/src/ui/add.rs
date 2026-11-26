@@ -125,6 +125,17 @@ fn wrap(msg: Msg) -> Message {
 }
 
 pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
+    let step = |app: &App| match &app.modal {
+        Modal::Add(w) => Some(w.step),
+        _ => None,
+    };
+    let before = step(app);
+    let task = step_update(app, msg);
+    // A new step starts at the top of the dialog.
+    if step(app).is_some_and(|now| Some(now) != before) { Task::batch([modals::top(), task]) } else { task }
+}
+
+fn step_update(app: &mut App, msg: Msg) -> Task<Message> {
     let shared = app.shared.clone();
     let Modal::Add(w) = &mut app.modal else { return Task::none() };
     match msg {
