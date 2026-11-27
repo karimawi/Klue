@@ -1,0 +1,57 @@
+{
+ "header": {
+  "retCode": "0",
+  "validateResults": []
+ },
+ "body": [
+  {
+   "tabId": "2",
+   "freeUnitType": "MOBILE_INTERNET_USAGE_PREPAID",
+   "freeUnitTypeName": "Mobile Internet",
+   "tabName": "Mobile Internet",
+   "measureUnit": "1108",
+   "offerName": "Nitro Prime 29. Prepaid",
+   "total": 2750.0,
+   "used": 1610.74,
+   "remain": 1139.26,
+   "actualRemain": 1139.26,
+   "effectiveTime": 1795071454000,
+   "expireTime": 1797458400000,
+   "groupOrder": "13",
+   "iconImage": "internet",
+   "freeUnitTypeId": "C_New_Mobile_Internet",
+   "originUnit": "1106",
+   "havePoint": false,
+   "freeUnitBeanDetailList": [
+    {
+     "initialAmount": 1375.0,
+     "currentAmount": 1137.4,
+     "measureUnit": "1108",
+     "effectiveTime": 1795071454000,
+     "expireTime": 1797458400000,
+     "expireTimeCz": 1790000000000,
+     "originType": "Nitro Bundle",
+     "offeringName": "Nitro Prime 29. Prepaid",
+     "isGroup": false,
+     "serviceNumber": "1501234567",
+     "itemCode": "C_New_Mobile_Internet",
+     "remainingDaysForRenewal": 21
+    },
+    {
+     "initialAmount": 1375.0,
+     "currentAmount": 1.86,
+     "measureUnit": "1108",
+     "effectiveTime": 1793656800000,
+     "expireTime": 1796076000000,
+     "expireTimeCz": 1790000000000,
+     "originType": "Nitro Bundle",
+     "offeringName": "Nitro Prime 29. Prepaid",
+     "isGroup": false,
+     "serviceNumber": "1501234567",
+     "itemCode": "C_New_Mobile_Internet",
+     "remainingDaysForRenewal": 5
+    }
+   ]
+  }
+ ]
+}

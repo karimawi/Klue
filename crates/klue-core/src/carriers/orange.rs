@@ -64,6 +64,7 @@ pub async fn fetch(line: LineType, number: &str, password: &str, ctx: &FetchCont
         let read = match line {
             LineType::Mobile => read_mobile(&client, &session, &dial, password, ctx).await,
             LineType::Landline => read_home_internet(&client, &session, &dial, password, ctx).await,
+            LineType::Voice => return Err(FetchError::Unsupported),
         };
         match read {
             // A kept token can stop working before it expires: sign in once more.

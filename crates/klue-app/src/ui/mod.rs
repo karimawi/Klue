@@ -20,7 +20,7 @@ use iced::{
     widget::{Row, Space, button, column, container, svg, text, tooltip},
 };
 use klue_core::{
-    Carrier,
+    Carrier, LineType,
     store::{Clock, Lang},
 };
 
@@ -282,6 +282,15 @@ pub fn tile<'a>(carrier: Carrier, size: f32, logo_size: f32, radius: f32, grey: 
             s
         })
         .into()
+}
+
+/// A line's icon: a phone, a router for home internet, or a handset for a landline.
+pub fn line_icon(line: LineType) -> Icon {
+    match line {
+        LineType::Mobile => Icon::Mobile,
+        LineType::Landline => Icon::Router,
+        LineType::Voice => Icon::Landline,
+    }
 }
 
 /// Klue's logo mark.

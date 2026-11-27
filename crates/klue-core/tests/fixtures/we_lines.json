@@ -1,0 +1,29 @@
+{
+ "header": {
+  "retCode": "0",
+  "validateResults": []
+ },
+ "body": {
+  "AssociatedNumbers": [
+   {
+    "subscriberId": "1600000052",
+    "custId": "1100000074",
+    "servNumber": "223584417",
+    "networkType": "4"
+   },
+   {
+    "subscriberId": "20100000000000041",
+    "custId": "1100000074",
+    "servNumber": "1501234567",
+    "networkType": "1"
+   },
+   {
+    "subscriberId": "2200000045",
+    "custId": "1100000074",
+    "servNumber": "FBB223584417",
+    "networkType": "3"
+   }
+  ],
+  "nonAssociatedNumbers": []
+ }
+}

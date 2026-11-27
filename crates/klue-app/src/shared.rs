@@ -174,45 +174,50 @@ impl Shared {
     /// with; an Orange home internet line is only known, and checked, once Orange names it.
     pub async fn verify(&self, carrier: Carrier, line: LineType, number: &str, password: &str) -> Result<Usage, FetchError> {
         let sign_in = format::normalize(number, carrier.sign_in_line(line))?;
-        // Whether the number is in Klue already, and if so whether it's archived.
-        let added = |number: &str| self.data.lock().expect("data lock").accounts.iter().find(|a| a.carrier == carrier && a.number == number).map(|a| a.archived);
+        // Whether the line is in Klue already, and if so whether it's archived. A phone line
+        // can have the same number as its home internet, so the kind counts too.
+        let added = |line: LineType, number: &str| {
+            self.data.lock().expect("data lock").accounts.iter().find(|a| a.carrier == carrier && a.line == line && a.number == number).map(|a| a.archived)
+        };
         let already = |archived: bool| {
             let s = crate::i18n::strings(self.settings().lang);
             FetchError::Carrier(if archived { s.already_archived } else { s.already_added }.into())
         };
         if carrier.sign_in_line(line) == line
-            && let Some(archived) = added(&sign_in)
+            && let Some(archived) = added(line, &sign_in)
         {
             return Err(already(archived));
         }
         let usage = if self.demo {
             demo::verify(carrier, line, &sign_in, password).await?
         } else {
-            carriers::fetch(carrier, line, &sign_in, password, &self.context(true)).await?
+            carriers::fetch(carrier, line, &sign_in, None, password, &self.context(true)).await?
         };
         let own = carriers::line_number(carrier, line, &sign_in, &usage)?;
-        if own != sign_in
-            && let Some(archived) = added(&own)
-        {
-            return Err(already(archived));
+        if let Some(archived) = added(line, &own) {
+            // The account can hold another line of this kind that isn't in Klue yet (WE).
+            let others = self.other_lines(carrier, line, number, &own, password).await;
+            return others.into_iter().find(|(other, _)| *other == line).map(|(_, usage)| usage).ok_or_else(|| already(archived));
         }
         Ok(usage)
     }
 
     /// The lines on the account just verified that Klue doesn't have yet (see
     /// [`carriers::other_lines`]).
-    pub async fn other_lines(&self, carrier: Carrier, line: LineType, number: &str, password: &str) -> Vec<(LineType, Usage)> {
+    /// `own` is the number of the line just read.
+    pub async fn other_lines(&self, carrier: Carrier, line: LineType, number: &str, own: &str, password: &str) -> Vec<(LineType, Usage)> {
         let Ok(sign_in) = format::normalize(number, carrier.sign_in_line(line)) else { return Vec::new() };
         let found = if self.demo {
             demo::other_lines(carrier, line, &sign_in).await
         } else {
-            carriers::other_lines(carrier, line, &sign_in, password, &self.context(false)).await
+            carriers::other_lines(carrier, line, &sign_in, own, password, &self.context(false)).await
         };
         let data = self.data.lock().expect("data lock");
         found
             .into_iter()
             .filter(|(other, usage)| {
-                carriers::line_number(carrier, *other, &sign_in, usage).is_ok_and(|own| !data.accounts.iter().any(|a| a.carrier == carrier && a.number == own))
+                carriers::line_number(carrier, *other, &sign_in, usage)
+                    .is_ok_and(|number| !data.accounts.iter().any(|a| a.carrier == carrier && a.line == *other && a.number == number))
             })
             .collect()
     }

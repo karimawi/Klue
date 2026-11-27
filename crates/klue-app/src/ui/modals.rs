@@ -9,7 +9,7 @@ use iced::{
     widget::{Space, button, column, container, image, row, scrollable, text_input},
 };
 use klue_core::{
-    Carrier, FetchError, LineType, Unit, format,
+    Carrier, FetchError, Unit, format,
     store::{AlertPrefs, BundleAlert, Clock, Lang, LeadUnit, RefreshEvery, Theme, ThresholdMode},
 };
 
@@ -373,7 +373,7 @@ fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::A
     let owner = account.owner_name.clone().unwrap_or_else(|| s.owner_unknown.into());
     let fallback = account.owner_name.clone().unwrap_or_else(|| account.pretty_number());
     let shown = if f.draft.trim().is_empty() { fallback } else { f.draft.clone() };
-    let icon = if account.line == LineType::Mobile { Icon::Mobile } else { Icon::Landline };
+    let icon = super::line_icon(account.line);
     let preview = container(
         ctx.row(vec![
             ctx.icon(icon, 16.0, p.tx),

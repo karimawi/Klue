@@ -10,7 +10,7 @@ use iced::{
     window::Direction,
 };
 use iced::alignment::Vertical;
-use klue_core::{Carrier, LineType, format, store::Account};
+use klue_core::{Carrier, format, store::Account};
 
 use super::{Ctx, El, dashboard, empty, hline, modals, tile, vline};
 use crate::{
@@ -252,7 +252,7 @@ fn tabs<'a>(ctx: &Ctx<'a>) -> El<'a> {
         .enumerate()
         .map(|(index, account)| {
             let on = current.as_deref() == Some(account.id.as_str());
-            let icon = if account.line == LineType::Landline { Icon::Landline } else { Icon::Mobile };
+            let icon = super::line_icon(account.line);
             let me = DragItem::Line(account.id.clone());
             let (dragged, drop) = drag_marks(ctx, &me, index, |item| match item {
                 DragItem::Line(id) => accounts.iter().position(|a| &a.id == id),

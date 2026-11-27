@@ -309,9 +309,13 @@ impl Account {
         }
     }
 
-    /// The vault user name: carrier and number.
+    /// The vault user name: carrier and number, and for a phone line its kind too, since it
+    /// can share its number with the home internet on it.
     pub fn credential_user(&self) -> String {
-        format!("{}:{}", self.carrier.id(), self.number)
+        match self.line {
+            LineType::Voice => format!("{}:{}:voice", self.carrier.id(), self.number),
+            _ => format!("{}:{}", self.carrier.id(), self.number),
+        }
     }
 
     /// What the line signs in with: [`Account::login`], else its own number.
@@ -669,7 +673,7 @@ impl AppData {
     pub fn restore(&mut self, from_vault: Vec<VaultAccount>) -> usize {
         let mut added = 0;
         for v in from_vault {
-            if self.accounts.iter().any(|a| a.carrier == v.carrier && a.number == v.number) {
+            if self.accounts.iter().any(|a| a.carrier == v.carrier && a.line == v.line && a.number == v.number) {
                 continue;
             }
             let mut account = Account::new(v.carrier, v.line, v.number);
@@ -808,6 +812,14 @@ mod tests {
         data.move_account(&first, "gone");
         assert_eq!(data.accounts, before);
         assert_eq!(data.accounts_for(Carrier::Vodafone).count(), 1);
+    }
+
+    #[test]
+    fn a_phone_line_keeps_its_own_password_beside_its_home_internet() {
+        let internet = Account::new(Carrier::We, LineType::Landline, "0223584417".into());
+        let phone = Account::new(Carrier::We, LineType::Voice, "0223584417".into());
+        assert_eq!(internet.credential_user(), "we:0223584417");
+        assert_eq!(phone.credential_user(), "we:0223584417:voice");
     }
 
     #[test]

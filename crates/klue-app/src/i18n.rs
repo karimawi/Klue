@@ -18,6 +18,8 @@ pub struct Strings {
     pub add_number: &'static str,
     pub mobile: &'static str,
     pub landline: &'static str,
+    /// A home phone line (WE Ardy).
+    pub voice: &'static str,
     pub registered_to: &'static str,
     pub refresh: &'static str,
     pub rename: &'static str,
@@ -149,6 +151,7 @@ pub struct Strings {
     pub mobile_number: &'static str,
     pub landline_number: &'static str,
     pub area_code_hint: &'static str,
+    pub we_mobile_hint: &'static str,
     /// Finish step: the account's other lines (Orange).
     pub looking_for_lines: &'static str,
     pub add_both: &'static str,
@@ -267,7 +270,7 @@ pub struct Strings {
 
 pub static EN: Strings = Strings {
     app: "Klue", light: "Light", dark: "Dark", match_long: "Match carrier", add: "Add", settings: "Settings",
-    add_number: "Add number", mobile: "Mobile", landline: "DSL", registered_to: "Registered to", refresh: "Refresh",
+    add_number: "Add number", mobile: "Mobile", landline: "DSL", voice: "Landline", registered_to: "Registered to", refresh: "Refresh",
     rename: "Edit", alerts: "Alerts", package: "Package", below_alert: "Below alert", remaining: "remaining", change: "Change",
     next_renewal: "Next renewal", cycle: "Billing cycle", subscribed: "Subscribed", renews: "Renews", bundles: "Bundles & add-ons",
     col_bundle: "Bundle", col_rem: "Remaining", col_total: "Total", col_left: "Left", col_alert: "Alert", off: "Off",
@@ -329,6 +332,7 @@ pub static EN: Strings = Strings {
     mobile_number: "Mobile number",
     landline_number: "Landline number",
     area_code_hint: "With the area code, the way you sign in to My WE.",
+    we_mobile_hint: "WE Mobile lines are read through My WE: sign in with your home internet’s landline number, and Klue finds the mobile lines on the account.",
     looking_for_lines: "Looking for other lines on this account…",
     add_both: "Add both numbers",
     your_numbers: "Your numbers",
@@ -431,7 +435,7 @@ pub static EN: Strings = Strings {
 
 pub static AR: Strings = Strings {
     app: "Klue", light: "فاتح", dark: "داكن", match_long: "ألوان الشركة", add: "إضافة", settings: "الإعدادات",
-    add_number: "إضافة رقم", mobile: "محمول", landline: "DSL", registered_to: "مسجّل باسم", refresh: "تحديث", rename: "تعديل",
+    add_number: "إضافة رقم", mobile: "محمول", landline: "DSL", voice: "أرضي", registered_to: "مسجّل باسم", refresh: "تحديث", rename: "تعديل",
     alerts: "التنبيهات", package: "الباقة", below_alert: "أقل من حد التنبيه", remaining: "متبقي", change: "تعديل",
     next_renewal: "التجديد القادم", cycle: "دورة الاشتراك", subscribed: "تاريخ الاشتراك", renews: "يتجدد", bundles: "الباقات والإضافات",
     col_bundle: "الباقة", col_rem: "المتبقي", col_total: "الإجمالي", col_left: "النسبة", col_alert: "التنبيه", off: "غير مفعّل",
@@ -494,6 +498,7 @@ pub static AR: Strings = Strings {
     mobile_number: "رقم المحمول",
     landline_number: "رقم الخط الأرضي",
     area_code_hint: "مع كود المحافظة، كما تسجّل الدخول في My WE.",
+    we_mobile_hint: "يقرأ Klue خطوط وي موبايل من خلال My WE: سجّل الدخول برقم الخط الأرضي للإنترنت المنزلي، وسيجد Klue خطوط المحمول على الحساب.",
     looking_for_lines: "جارٍ البحث عن خطوط أخرى على هذا الحساب…",
     add_both: "إضافة الرقمين",
     your_numbers: "أرقامك",
@@ -747,8 +752,10 @@ pub fn also_has(line: LineType, lang: Lang) -> &'static str {
     match (line, is_ar(lang)) {
         (LineType::Landline, false) => "This account also has home internet",
         (LineType::Mobile, false) => "This account also has a mobile line",
+        (LineType::Voice, false) => "This account also has a landline",
         (LineType::Landline, true) => "هذا الحساب عليه إنترنت منزلي أيضاً",
         (LineType::Mobile, true) => "هذا الحساب عليه خط محمول أيضاً",
+        (LineType::Voice, true) => "هذا الحساب عليه خط أرضي أيضاً",
     }
 }
 
@@ -782,6 +789,11 @@ pub fn exported_on(at: DateTime<Utc>, version: &str, lang: Lang) -> String {
     if is_ar(lang) { format!("صُدّر في {day} من Klue {version}") } else { format!("Exported {day} from Klue {version}") }
 }
 
+/// The finish step's button for three numbers or more.
+pub fn add_numbers(n: usize, lang: Lang) -> String {
+    if is_ar(lang) { format!("إضافة {n} أرقام") } else { format!("Add {n} numbers") }
+}
+
 /// "388 units left".
 pub fn left(amount: &str, lang: Lang) -> String {
     if is_ar(lang) { format!("متبقي {amount}") } else { format!("{amount} left") }
@@ -792,6 +804,7 @@ pub fn line_name(line: LineType, lang: Lang) -> &'static str {
     match line {
         LineType::Mobile => s.mobile,
         LineType::Landline => s.landline,
+        LineType::Voice => s.voice,
     }
 }
 
@@ -1070,6 +1083,13 @@ pub fn error_text(e: &FetchError, carrier: Carrier, c: Clock, lang: Lang) -> Str
                 format!("لا يوجد خط محمول من {name} على حساب {app} هذا. إن كان للإنترنت المنزلي فاختر DSL.")
             } else {
                 format!("This {app} account has no {name} mobile line. If it’s for home internet, choose DSL.")
+            }
+        }
+        FetchError::NoLine(LineType::Voice) => {
+            if ar {
+                format!("لا يوجد خط أرضي من {name} على حساب {app} هذا.")
+            } else {
+                format!("This {app} account has no {name} landline.")
             }
         }
         FetchError::NoLine(LineType::Landline) => {

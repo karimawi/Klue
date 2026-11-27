@@ -232,13 +232,14 @@ fn step_update(app: &mut App, msg: Msg) -> Task<Message> {
                 Ok(usage) => {
                     w.phase = Phase::Verified(usage);
                     w.step = Step::Finish;
-                    // Look for the account's other line while the user names this one.
-                    let lookup = if w.carrier == Carrier::Orange {
+                    // Look for the account's other lines while the user names this one.
+                    let lookup = if matches!(w.carrier, Carrier::Orange | Carrier::We) {
                         w.others = Others::Looking;
                         let (carrier, line, number, password) = (w.carrier, w.line(), w.number.clone(), w.password.clone());
+                        let own = own_number(w).unwrap_or_default();
                         Task::perform(
                             async move {
-                                let found = shared.other_lines(carrier, line, &number, &password).await;
+                                let found = shared.other_lines(carrier, line, &number, &own, &password).await;
                                 (number, found.into_iter().map(|(l, u)| (l, Box::new(u))).collect())
                             },
                             |(number, found)| wrap(Msg::Others(number, found)),
@@ -413,7 +414,9 @@ fn sign_in<'a>(ctx: &Ctx<'a>, w: &'a Wizard) -> El<'a> {
     .width(Length::Fill);
 
     let (number_label, placeholder, hint) = match w.product {
-        Product::WeHomeInternet => (s.landline_number.to_string(), "02 2345 6789", Some(s.area_code_hint.to_string())),
+        Product::WeHomeInternet | Product::WeOneHome | Product::WeArdy => (s.landline_number.to_string(), "02 2345 6789", Some(s.area_code_hint.to_string())),
+        // WE Mobile lines come through the My WE account of the home internet.
+        Product::WeMobile => (s.landline_number.to_string(), "02 2345 6789", Some(s.we_mobile_hint.to_string())),
         Product::OrHomeInternet => (i18n::app_number(app_name, ctx.lang), "012 3456 7890", Some(i18n::linked_landline_hint(app_name, ctx.lang))),
         Product::OrMobile => (s.mobile_number.to_string(), "012 3456 7890", None),
         _ => (s.mobile_number.to_string(), "010 1234 5678", None),
@@ -462,6 +465,13 @@ fn sign_in<'a>(ctx: &Ctx<'a>, w: &'a Wizard) -> El<'a> {
         body = body.push(notice(ctx, e, w.carrier));
     }
     body.push(head).push(number_col).push(password_col).into()
+}
+
+/// The number of the line just signed in to: the sign-in number, or the one the carrier named.
+fn own_number(w: &Wizard) -> Option<String> {
+    let Phase::Verified(usage) = &w.phase else { return None };
+    let sign_in = format::normalize(&w.number, w.carrier.sign_in_line(w.line())).ok()?;
+    carriers::line_number(w.carrier, w.line(), &sign_in, usage).ok()
 }
 
 fn finish<'a>(ctx: &Ctx<'a>, w: &'a Wizard) -> El<'a> {
@@ -573,8 +583,16 @@ fn sign_in_foot<'a>(ctx: &Ctx<'a>, w: &'a Wizard) -> El<'a> {
 
 fn finish_foot<'a>(ctx: &Ctx<'a>, w: &'a Wizard) -> El<'a> {
     let s = ctx.s;
-    let both = matches!(&w.others, Others::Found(list) if list.iter().any(|(_, _, add)| *add));
+    let more = match &w.others {
+        Others::Found(list) => list.iter().filter(|(_, _, add)| *add).count(),
+        _ => 0,
+    };
+    let label = match more {
+        0 => s.add_number.to_string(),
+        1 => s.add_both.to_string(),
+        n => i18n::add_numbers(n + 1, ctx.lang),
+    };
     let status = ctx.text(format!("✓ {}", s.signed_in), 12.5, Weight::Semibold, ctx.p.ac_tx);
-    let primary = ctx.row(vec![status.into(), ctx.primary(if both { s.add_both } else { s.add_number }, Some(wrap(Msg::Submit))).into()]).spacing(12).into();
+    let primary = ctx.row(vec![status.into(), ctx.primary(label, Some(wrap(Msg::Submit))).into()]).spacing(12).into();
     foot(ctx, w, Some(primary))
 }

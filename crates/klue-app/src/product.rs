@@ -42,8 +42,10 @@ impl Product {
     /// The line Klue reads it as; `None` while it's coming.
     pub fn line(self) -> Option<LineType> {
         match self {
-            Product::WeHomeInternet | Product::OrHomeInternet => Some(LineType::Landline),
-            Product::VfMobile | Product::OrMobile => Some(LineType::Mobile),
+            // OneHome signs in as its home internet; its landline is offered next to it.
+            Product::WeHomeInternet | Product::WeOneHome | Product::OrHomeInternet => Some(LineType::Landline),
+            Product::WeArdy => Some(LineType::Voice),
+            Product::WeMobile | Product::VfMobile | Product::OrMobile => Some(LineType::Mobile),
             _ => None,
         }
     }
