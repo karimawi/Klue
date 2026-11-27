@@ -10,9 +10,9 @@ use iced::{
     window::Direction,
 };
 use iced::alignment::Vertical;
-use klue_core::{Carrier, LineType, format, store::Account};
+use klue_core::{Carrier, format, store::Account};
 
-use super::{Ctx, El, dashboard, empty, hline, modals, tile, vline};
+use super::{Ctx, El, dashboard, empty, hline, home, modals, tile, vline};
 use crate::{
     app::{App, DragItem, Message, ModalKind},
     assets::Icon,
@@ -22,14 +22,20 @@ use crate::{
 
 pub fn view(app: &App) -> El<'_> {
     let shown = app.shown_carrier();
-    let ctx = Ctx::new(app, shown.unwrap_or(Carrier::We), false);
+    // Home mixes carriers, so it doesn't take one's colours.
+    let ctx = Ctx::new(app, shown.unwrap_or(Carrier::We), app.home);
     let p = ctx.p;
 
-    let content: El<'_> = match app.current() {
-        Some(account) => dashboard::view(&ctx, account),
-        None => empty::view(&ctx),
+    let main = if app.home {
+        column![home::strip(&ctx), home::view(&ctx)]
+    } else {
+        let content: El<'_> = match app.current() {
+            Some(account) => dashboard::view(&ctx, account),
+            None => empty::view(&ctx),
+        };
+        column![tabs(&ctx), content]
     };
-    let main = column![tabs(&ctx), content].width(Length::Fill).height(Length::Fill);
+    let main = main.width(Length::Fill).height(Length::Fill);
     let body = ctx.row(vec![rail(&ctx), vline(p.chdv, 2.0), main.into()]).height(Length::Fill).align_y(Alignment::Start);
     // No background; the window is cleared to `p.bg`.
     let page = container(column![titlebar(&ctx), hline(p.chdv, 2.0), body]).width(Length::Fill).height(Length::Fill);
@@ -99,10 +105,15 @@ fn titlebar<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let p = ctx.p;
     let s = ctx.s;
     let all = ctx.app.snap.refreshing_all;
-    // The shown number's own last update: numbers refresh on their own schedules.
-    let current = ctx.app.current();
-    let syncing = all || current.is_some_and(|a| ctx.app.snap.is_refreshing(&a.id));
-    let synced = if syncing { s.syncing.to_string() } else { i18n::synced(current.and_then(Account::updated_at), ctx.now, ctx.lang) };
+    // The shown number's own last update: numbers refresh on their own schedules. Home shows
+    // the latest of them all.
+    let (syncing, last) = if ctx.app.home {
+        (all || !ctx.app.snap.refreshing.is_empty(), ctx.app.snap.data.last_sync())
+    } else {
+        let current = ctx.app.current();
+        (all || current.is_some_and(|a| ctx.app.snap.is_refreshing(&a.id)), current.and_then(Account::updated_at))
+    };
+    let synced = if syncing { s.syncing.to_string() } else { i18n::synced(last, ctx.now, ctx.lang) };
     // Refresh all; each number also has its own Refresh.
     let has_numbers = !ctx.app.snap.data.accounts.is_empty();
     let refresh_all = ctx.tip(
@@ -172,56 +183,74 @@ fn rail<'a>(ctx: &Ctx<'a>) -> El<'a> {
     // Only carriers with numbers; the rest are reached through Add.
     let shown = ctx.app.shown_carrier();
     let carriers: Vec<Carrier> = data.carriers().into_iter().filter(|carrier| data.accounts_for(*carrier).next().is_some()).collect();
-    let items: Vec<El<'a>> = carriers
-        .iter()
-        .enumerate()
-        .map(|(index, &carrier)| {
-            let on = Some(carrier) == shown;
-            let count = data.accounts_for(carrier).count();
-            let t = crate::assets::tile(carrier);
-            let me = DragItem::Carrier(carrier);
-            let (dragged, drop) = drag_marks(ctx, &me, index, |item| match item {
-                DragItem::Carrier(c) => carriers.iter().position(|x| x == c),
-                DragItem::Line(_) => None,
-            });
-            let tile_el = tile(carrier, 46.0, t.rail, 13.0, dragged);
-            let count_badge = badge(ctx, &count.to_string(), 11.0);
-            let tile_with_badge = stack([
-                container(tile_el).padding([8, 12]).into(),
-                container(count_badge).width(Length::Fill).align_x(if ctx.rtl() { Horizontal::Left } else { Horizontal::Right }).into(),
-            ])
-            .width(70);
-            let label = ctx.text(i18n::carrier_name(carrier, ctx.lang), 12.0, Weight::Semibold, if on { p.cht } else { p.chm });
-            let inner = column![tile_with_badge, label].align_x(Alignment::Center).spacing(2).width(Length::Fill);
-            let indicator = container(Space::new()).width(4).height(52).style(move |_| theme::fill(if on { p.ch_bar } else { Color::TRANSPARENT }, 2.0));
-            // Pressing picks it on release, or drags it to another place.
-            let grip = mouse_area(inner).on_press(Message::DragStart(me.clone())).on_enter(Message::DragOver(me));
-            let item = button(grip).width(Length::Fill).padding([6, 0]).style(theme::plain(p.ch_act, on.then_some(p.ch_act), 14.0)).on_press(Message::SelectCarrier(carrier));
-            let entry: El<'a> = ctx.row(vec![indicator.into(), container(item).padding([0, 8]).width(Length::Fill).into()]).into();
-            match drop {
-                // A bar above or below, on top of the item so nothing moves under the pointer.
-                Some(after) => {
-                    let bar = container(container(Space::new()).width(Length::Fill).height(3).style(move |_| theme::fill(p.ch_bar, 2.0))).padding([0, 14]);
-                    stack([entry, container(bar).width(Length::Fill).height(Length::Fill).align_y(if after { Vertical::Bottom } else { Vertical::Top }).into()]).into()
-                }
-                None => entry,
+    let mut items: Vec<El<'a>> = vec![home_item(ctx), container(hline(p.chdv, 1.0)).padding([2, 22]).into()];
+    items.extend(carriers.iter().enumerate().map(|(index, &carrier)| {
+        let on = Some(carrier) == shown && !ctx.app.home;
+        let count = data.accounts_for(carrier).count();
+        let t = crate::assets::tile(carrier);
+        let me = DragItem::Carrier(carrier);
+        let (dragged, drop) = drag_marks(ctx, &me, index, |item| match item {
+            DragItem::Carrier(c) => carriers.iter().position(|x| x == c),
+            _ => None,
+        });
+        let tile_el = tile(carrier, 46.0, t.rail, 13.0, dragged);
+        let count_badge = badge(ctx, &count.to_string(), 11.0);
+        let tile_with_badge = stack([
+            container(tile_el).padding([8, 12]).into(),
+            container(count_badge).width(Length::Fill).align_x(if ctx.rtl() { Horizontal::Left } else { Horizontal::Right }).into(),
+        ])
+        .width(70);
+        let label = ctx.text(i18n::carrier_name(carrier, ctx.lang), 12.0, Weight::Semibold, if on { p.cht } else { p.chm });
+        let inner = column![tile_with_badge, label].align_x(Alignment::Center).spacing(2).width(Length::Fill);
+        let indicator = container(Space::new()).width(4).height(52).style(move |_| theme::fill(if on { p.ch_bar } else { Color::TRANSPARENT }, 2.0));
+        // Pressing picks it on release, or drags it to another place.
+        let grip = mouse_area(inner).on_press(Message::DragStart(me.clone())).on_enter(Message::DragOver(me));
+        let item = button(grip).width(Length::Fill).padding([6, 0]).style(theme::plain(p.ch_act, on.then_some(p.ch_act), 14.0)).on_press(Message::SelectCarrier(carrier));
+        let entry: El<'a> = ctx.row(vec![indicator.into(), container(item).padding([0, 8]).width(Length::Fill).into()]).into();
+        match drop {
+            // A bar above or below, on top of the item so nothing moves under the pointer.
+            Some(after) => {
+                let bar = container(container(Space::new()).width(Length::Fill).height(3).style(move |_| theme::fill(p.ch_bar, 2.0))).padding([0, 14]);
+                stack([entry, container(bar).width(Length::Fill).height(Length::Fill).align_y(if after { Vertical::Bottom } else { Vertical::Top }).into()]).into()
             }
-        })
-        .collect();
+            None => entry,
+        }
+    }));
 
-    let tool = |icon: Icon, label: &'a str, msg: Message| -> El<'a> {
-        let content = column![ctx.icon(icon, 18.0, p.chm), ctx.text(label, 11.0, Weight::Normal, p.chm)].spacing(4).align_x(Alignment::Center).width(Length::Fill);
+    // `count` puts a badge on the icon.
+    let tool = |icon: Icon, label: &'a str, msg: Message, count: Option<usize>| -> El<'a> {
+        let glyph: El<'a> = match count {
+            Some(n) => stack([
+                container(ctx.icon(icon, 18.0, p.chm)).center_x(Length::Fill).padding([3, 0]).into(),
+                container(badge(ctx, &n.to_string(), 10.0)).width(Length::Fill).align_x(Horizontal::Center).padding(ctx.pad(0.0, 0.0, 0.0, 30.0)).into(),
+            ])
+            .width(Length::Fill)
+            .into(),
+            None => ctx.icon(icon, 18.0, p.chm),
+        };
+        let content = column![glyph, ctx.text(label, 11.0, Weight::Normal, p.chm)].spacing(4).align_x(Alignment::Center).width(Length::Fill);
         container(button(content).width(Length::Fill).padding([10, 0]).style(theme::plain(p.ch_act, None, 12.0)).on_press(msg)).padding([0, 8]).into()
     };
-    let col = column(items)
-        .spacing(4)
-        .push(Space::new().height(Length::Fill))
-        .push(tool(Icon::Plus, s.add, Message::OpenModal(ModalKind::Add)))
-        .push(tool(Icon::Sliders, s.settings, Message::OpenModal(ModalKind::Settings)))
-        .padding([8, 0])
-        .width(92)
-        .height(Length::Fill);
+    let archived = data.archived().count();
+    let mut col = column(items).spacing(4).push(Space::new().height(Length::Fill)).push(tool(Icon::Plus, s.add, Message::OpenModal(ModalKind::Add(None)), None));
+    // Only once something is archived.
+    if archived > 0 {
+        col = col.push(tool(Icon::Archive, s.archived_rail, Message::OpenModal(ModalKind::Archived), Some(archived)));
+    }
+    let col = col.push(tool(Icon::Sliders, s.settings, Message::OpenModal(ModalKind::Settings), None)).padding([8, 0]).width(92).height(Length::Fill);
     container(col).height(Length::Fill).style(move |_| theme::fill(p.ch, 0.0)).into()
+}
+
+/// Home, above the carriers.
+fn home_item<'a>(ctx: &Ctx<'a>) -> El<'a> {
+    let p = ctx.p;
+    let on = ctx.app.home;
+    let fg = if on { p.cht } else { p.chm };
+    let glyph = container(ctx.icon(Icon::House, 22.0, fg)).center(46).style(move |_| theme::fill(theme::fade(p.cht, 0.08), 13.0));
+    let inner = column![container(glyph).padding([8, 12]), ctx.text(ctx.s.home, 12.0, Weight::Semibold, fg)].align_x(Alignment::Center).spacing(2).width(Length::Fill);
+    let indicator = container(Space::new()).width(4).height(52).style(move |_| theme::fill(if on { p.ch_bar } else { Color::TRANSPARENT }, 2.0));
+    let item = button(inner).width(Length::Fill).padding([6, 0]).style(theme::plain(p.ch_act, on.then_some(p.ch_act), 14.0)).on_press(Message::ShowHome);
+    ctx.row(vec![indicator.into(), container(item).padding([0, 8]).width(Length::Fill).into()]).into()
 }
 
 fn badge<'a>(ctx: &Ctx<'a>, label: &str, size: f32) -> El<'a> {
@@ -243,11 +272,11 @@ fn tabs<'a>(ctx: &Ctx<'a>) -> El<'a> {
         .enumerate()
         .map(|(index, account)| {
             let on = current.as_deref() == Some(account.id.as_str());
-            let icon = if account.line == LineType::Landline { Icon::Landline } else { Icon::Mobile };
+            let icon = super::line_icon(account.line);
             let me = DragItem::Line(account.id.clone());
             let (dragged, drop) = drag_marks(ctx, &me, index, |item| match item {
                 DragItem::Line(id) => accounts.iter().position(|a| &a.id == id),
-                DragItem::Carrier(_) => None,
+                _ => None,
             });
             let on = on && !dragged;
             let fg = if on { p.tx } else if dragged { theme::fade(p.mu, 0.55) } else { p.mu };
@@ -292,7 +321,7 @@ fn tabs<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let add = button(ctx.row(vec![ctx.icon(Icon::Plus, 15.0, p.mu), ctx.text(ctx.s.add_number, 13.0, Weight::Normal, p.mu).into()]).spacing(8))
         .padding([8, 12])
         .style(theme::ghost(p.mu, p.bg, 10.0))
-        .on_press(Message::OpenModal(ModalKind::Add));
+        .on_press(Message::OpenModal(ModalKind::Add(shown)));
     items.push(container(add).padding(ctx.pad(0.0, 0.0, 6.0, 4.0)).into());
     let strip = ctx.row(items).spacing(4).align_y(Alignment::End).height(58);
     let scroller = scrollable(container(strip).padding([0, 22])).direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::new().width(0).scroller_width(0)));
@@ -302,7 +331,7 @@ fn tabs<'a>(ctx: &Ctx<'a>) -> El<'a> {
 /// While something is dragged: whether `me` is the dragged item (and elsewhere), and whether
 /// it would land on `me`, and on which side (`true`: after it, in reading order). `index`
 /// finds an item's place in the list.
-fn drag_marks(ctx: &Ctx<'_>, me: &DragItem, at: usize, index: impl Fn(&DragItem) -> Option<usize>) -> (bool, Option<bool>) {
+pub(super) fn drag_marks(ctx: &Ctx<'_>, me: &DragItem, at: usize, index: impl Fn(&DragItem) -> Option<usize>) -> (bool, Option<bool>) {
     let Some(drag) = &ctx.app.drag else { return (false, None) };
     if drag.over == drag.item {
         return (false, None);

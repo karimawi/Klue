@@ -18,17 +18,18 @@ pub fn digits(input: &str) -> String {
 /// A typed number in the local format carriers expect (`01xxxxxxxxx`, or `0` + area code
 /// + number for landlines).
 pub fn normalize(input: &str, line: LineType) -> Result<String, FetchError> {
+    let fixed = line != LineType::Mobile;
     let mut d = digits(input);
     if let Some(rest) = d.strip_prefix("0020") {
         d = format!("0{rest}");
-    } else if d.starts_with("20") && (d.len() == 12 || (line == LineType::Landline && d.len() == 11)) {
+    } else if d.starts_with("20") && (d.len() == 12 || (fixed && d.len() == 11)) {
         d = format!("0{}", &d[2..]);
-    } else if !d.starts_with('0') && (d.len() == 10 && d.starts_with('1') || line == LineType::Landline && d.len() == 9) {
+    } else if !d.starts_with('0') && (d.len() == 10 && d.starts_with('1') || fixed && d.len() == 9) {
         d = format!("0{d}");
     }
     let ok = match line {
         LineType::Mobile => d.len() == 11 && d.starts_with("01"),
-        LineType::Landline => (9..=10).contains(&d.len()) && d.starts_with('0') && !d.starts_with("01"),
+        LineType::Landline | LineType::Voice => (9..=10).contains(&d.len()) && d.starts_with('0') && !d.starts_with("01"),
     };
     if ok { Ok(d) } else { Err(FetchError::InvalidNumber(input.trim().to_string())) }
 }
@@ -164,6 +165,9 @@ mod tests {
         assert_eq!(normalize("+20 2 2358 4417", LineType::Landline).unwrap(), "0223584417");
         assert!(normalize("0223584417", LineType::Mobile).is_err());
         assert!(normalize("01001285532", LineType::Landline).is_err());
+        // A phone line's number is written like home internet's.
+        assert_eq!(normalize("223584417", LineType::Voice).unwrap(), "0223584417");
+        assert!(normalize("01501234567", LineType::Voice).is_err());
     }
 
     #[test]

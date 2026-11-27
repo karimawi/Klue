@@ -71,6 +71,23 @@ impl History {
         }
     }
 
+    /// Takes in another copy's samples (from another computer). A sample at a time already
+    /// here is kept once.
+    pub fn merge(&mut self, other: &History) {
+        for (key, samples) in &other.bundles {
+            let mine = self.bundles.entry(key.clone()).or_default();
+            for s in samples {
+                let i = mine.partition_point(|m| m.at < s.at);
+                if mine.get(i).is_none_or(|m| m.at != s.at) {
+                    mine.insert(i, *s);
+                }
+            }
+        }
+        if let Some(latest) = self.bundles.values().filter_map(|s| s.last()).map(|s| s.at).max() {
+            self.thin(latest);
+        }
+    }
+
     pub fn samples(&self, key: &str) -> &[Sample] {
         self.bundles.get(key).map_or(&[], Vec::as_slice)
     }

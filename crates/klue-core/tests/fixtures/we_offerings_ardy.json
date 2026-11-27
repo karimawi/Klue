@@ -1,0 +1,128 @@
+{
+ "header": {
+  "retCode": "0",
+  "validateResults": []
+ },
+ "body": {
+  "offeringList": [
+   {
+    "offerId": "460473562",
+    "offeringInstId": "201000000000001",
+    "offerEnName": "140 Directory - Secret Number",
+    "offerArName": "دليل 140 - الرقم سري",
+    "expiryDate": 4133894400000,
+    "primary": false,
+    "main": false,
+    "addOn": true,
+    "vas": false,
+    "price": 0,
+    "property": [
+     {
+      "id": "C_ECARE_DISPLAY",
+      "value": "Y"
+     },
+     {
+      "id": "C_O_MONTHLY_FEE",
+      "value": "0"
+     }
+    ],
+    "status": "2",
+    "statusCode": "2",
+    "subscriptionDate": 1795039200000,
+    "renewalDate": 1797458400000,
+    "offerDetails": {
+     "bssOfferId": "460473562",
+     "offeringType": "O"
+    },
+    "mainOfferingId": "460478192"
+   },
+   {
+    "offerId": "460478192",
+    "offeringInstId": "201000000000001",
+    "offerEnName": "WE Ardy 40 - Quarterly",
+    "offerArName": "باقة WE أرضى 40 - الربع سنوية",
+    "expiryDate": 4133894400000,
+    "primary": false,
+    "main": true,
+    "addOn": false,
+    "vas": false,
+    "price": 1200000,
+    "property": [
+     {
+      "id": "C_ECARE_DISPLAY",
+      "value": "Y"
+     },
+     {
+      "id": "C_O_MONTHLY_FEE",
+      "value": "1200000"
+     }
+    ],
+    "status": "2",
+    "statusCode": "2",
+    "subscriptionDate": 1789220688000,
+    "renewalDate": 1796853600000,
+    "offerDetails": {
+     "bssOfferId": "460478192",
+     "offeringType": "M"
+    },
+    "mainOfferingId": "460478192"
+   },
+   {
+    "offerId": "460474826",
+    "offeringInstId": "201000000000001",
+    "offerEnName": " Caller ID",
+    "offerArName": "خدمة إظهار رقم الطالب",
+    "expiryDate": 4133894400000,
+    "primary": false,
+    "main": false,
+    "addOn": true,
+    "vas": false,
+    "price": 0,
+    "property": [
+     {
+      "id": "C_ECARE_DISPLAY",
+      "value": "Y"
+     },
+     {
+      "id": "C_O_MONTHLY_FEE",
+      "value": "0"
+     }
+    ],
+    "status": "2",
+    "statusCode": "2",
+    "subscriptionDate": 1795039200000,
+    "renewalDate": 1797458400000,
+    "offerDetails": {
+     "bssOfferId": "460474826",
+     "offeringType": "R"
+    },
+    "mainOfferingId": "460478192"
+   },
+   {
+    "offerId": "460475296",
+    "offeringInstId": "201000000000001",
+    "offerEnName": "WE Ardy prepaid FTTH - Quarterly",
+    "offerArName": "WE Ardy prepaid FTTH - Quarterly",
+    "expiryDate": 4133894400000,
+    "primary": true,
+    "main": false,
+    "addOn": false,
+    "vas": false,
+    "price": 0,
+    "property": [
+     {
+      "id": "C_ECARE_DISPLAY",
+      "value": "Y"
+     },
+     {
+      "id": "C_O_MONTHLY_FEE",
+      "value": "0"
+     }
+    ],
+    "status": "2",
+    "statusCode": "2",
+    "mainOfferingId": "460478192"
+   }
+  ]
+ }
+}

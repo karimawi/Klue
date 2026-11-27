@@ -1,0 +1,100 @@
+{
+ "header": {
+  "retCode": "0",
+  "validateResults": []
+ },
+ "body": {
+  "offeringList": [
+   {
+    "offerId": "460000008",
+    "offeringInstId": "201000000000001",
+    "offerEnName": "Nitro Prime 29 (1,375 MBs)",
+    "offerArName": "Nitro Prime 29 (1,375 MBs)",
+    "expiryDate": 4133894400000,
+    "primary": false,
+    "main": false,
+    "addOn": true,
+    "vas": false,
+    "price": 290000,
+    "property": [
+     {
+      "id": "C_ECARE_DISPLAY",
+      "value": "Y"
+     },
+     {
+      "id": "C_O_MONTHLY_FEE",
+      "value": "290000"
+     }
+    ],
+    "status": "2",
+    "statusCode": "2",
+    "subscriptionDate": 1795039200000,
+    "renewalDate": 1797458400000,
+    "offerDetails": {
+     "bssOfferId": "460000008",
+     "offeringType": "R"
+    },
+    "mainOfferingId": "12042",
+    "relaPrimaryOfferingId": "1000"
+   },
+   {
+    "offerId": "12042",
+    "offeringInstId": "201000000000001",
+    "offerEnName": "12 PT",
+    "offerArName": "12 قرش",
+    "expiryDate": 4133894400000,
+    "primary": false,
+    "main": true,
+    "addOn": false,
+    "vas": false,
+    "price": 0,
+    "property": [
+     {
+      "id": "C_ECARE_DISPLAY",
+      "value": "Y"
+     },
+     {
+      "id": "C_O_MONTHLY_FEE",
+      "value": "0"
+     }
+    ],
+    "status": "2",
+    "statusCode": "2",
+    "subscriptionDate": 1793484000000,
+    "renewalDate": 1796076000000,
+    "offerDetails": {
+     "bssOfferId": "12042",
+     "offeringType": "M"
+    },
+    "mainOfferingId": "12042",
+    "relaPrimaryOfferingId": "1000"
+   },
+   {
+    "offerId": "1000",
+    "offeringInstId": "201000000000001",
+    "offerEnName": "Prepaid",
+    "offerArName": "نظام الكارت",
+    "expiryDate": 4133894400000,
+    "primary": true,
+    "main": false,
+    "addOn": false,
+    "vas": false,
+    "price": 0,
+    "property": [
+     {
+      "id": "C_ECARE_DISPLAY",
+      "value": "Y"
+     },
+     {
+      "id": "C_O_MONTHLY_FEE",
+      "value": "0"
+     }
+    ],
+    "status": "2",
+    "statusCode": "2",
+    "mainOfferingId": "12042",
+    "relaPrimaryOfferingId": "1000"
+   }
+  ]
+ }
+}

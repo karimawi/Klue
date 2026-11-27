@@ -19,7 +19,10 @@ ocr = ["dep:ort", "dep:image", "ort/std", "ort/download-binaries", "ort/tls-nati
 ocr-dynamic = ["dep:ort", "dep:image", "ort/std", "ort/load-dynamic"]
 
 [dependencies]
+# Seals passwords in export files with a passphrase.
+argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
 base64 = "0.22"
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc"] }
 chrono.workspace = true
 directories = "6"
 keyring = "4.2"

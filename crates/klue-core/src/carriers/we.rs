@@ -1,13 +1,26 @@
-//! WE (Telecom Egypt) home internet, through the my.te.eg self-care API.
+//! WE (Telecom Egypt), through the my.te.eg self-care API.
 //!
 //! Sign-in is `GenerateCaptcha` (a token, plus an image once WE wants a human) and then
-//! `userAuthenticate`. After that: `queryBalance`, `getSubscribedOfferings`, `queryFreeUnit`,
-//! and when they work, `queryRechargeLogCz` and `querySubscribers`.
+//! `userAuthenticate`, with the home internet's landline number. After that: `queryBalance`,
+//! `getSubscribedOfferings`, `queryFreeUnit`, and when they work, `queryRechargeLogCz` and
+//! `querySubscribers`.
+//!
+//! The same account holds its other lines: `getAssociatedLines` lists them (home internet,
+//! landlines for calls, WE Mobile), and `switchAccount` moves to one and answers with a token
+//! for reading it. A sign-in is kept for [`KEEP_FOR`], so reading the other lines, or lines
+//! refreshed around the same time, doesn't sign in and solve a captcha again.
 //!
 //! WE's edge drops clients that don't look like a browser, hence Chrome's TLS fingerprint.
 //! The web app on my.te.eg signs its requests; api-my.te.eg still takes unsigned ones.
 
-use std::time::Duration;
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use chrono::Utc;
 use serde_json::{Value, json};
@@ -37,6 +50,11 @@ const REROLL_PAUSE: Duration = Duration::from_millis(600);
 
 /// How long WE blocks captchas, or sign-ins after too many wrong ones.
 pub const BLOCK_BACKOFF: Duration = Duration::from_secs(3700);
+/// How long a sign-in is used for more reads.
+pub const KEEP_FOR: Duration = Duration::from_secs(10 * 60);
+
+/// Signed-in accounts by their landline number, in memory only.
+static KEPT: Mutex<BTreeMap<String, Arc<Kept>>> = Mutex::new(BTreeMap::new());
 
 #[derive(Debug, Clone)]
 pub struct CaptchaChallenge {
@@ -55,6 +73,8 @@ impl CaptchaChallenge {
 /// A signed-in session.
 pub struct Authenticated {
     csrf_token: String,
+    /// Sent as `u-token` when listing and switching lines.
+    utoken: Option<String>,
     subscriber_id: String,
     account_id: String,
     pub owner_name: Option<String>,
@@ -83,7 +103,7 @@ impl WeSession {
             tracing::debug!("WE portal seed failed: {e}");
         }
         let url = format!("{API}/v1/common/querySysParams");
-        if let Err(e) = self.client.post(url).headers(api_headers(None)).json(&json!({})).send().await {
+        if let Err(e) = self.client.post(url).headers(api_headers(None, None)).json(&json!({})).send().await {
             tracing::debug!("WE querySysParams failed: {e}");
         }
     }
@@ -142,7 +162,7 @@ impl WeSession {
         let resp = self
             .client
             .post(format!("{API}/v1/auth/userAuthenticate"))
-            .headers(api_headers(None))
+            .headers(api_headers(None, None))
             .json(&payload)
             .send()
             .await?;
@@ -153,77 +173,42 @@ impl WeSession {
         }
         let body = &v["body"];
         let csrf_token = j::text(&body["token"]).ok_or_else(|| missing("body.token"))?;
+        let utoken = j::text(&body["utoken"]).or_else(|| j::text(&body["uToken"]));
         let subscriber_id = j::text(&body["subscriber"]["subscriberId"]).ok_or_else(|| missing("body.subscriber.subscriberId"))?;
         let account_id = j::text(&body["account"]["acctId"]).ok_or_else(|| missing("body.account.acctId"))?;
         let subscriber = &body["subscriber"];
         Ok(Authenticated {
             csrf_token,
+            utoken,
             subscriber_id,
             account_id,
             owner_name: owner_name(body, &self.number),
-            payment: match j::text(&subscriber["paymentType"]).as_deref() {
-                Some("0") => Some(PaymentKind::Prepaid),
-                Some("1") => Some(PaymentKind::Postpaid),
-                _ => None,
-            },
+            payment: payment_kind(subscriber),
             // BES status 2 is active; other codes aren't shown.
             status: (j::text(&subscriber["status"]).as_deref() == Some("2")).then(|| "Active".to_string()),
         })
     }
 
+    /// A POST to the API, read as JSON.
+    async fn post(&self, headers: &HeaderMap, path: &str, body: Value, what: &str) -> Result<Value, FetchError> {
+        let resp = self.client.post(format!("{API}/{path}")).headers(headers.clone()).json(&body).send().await?;
+        http::json_body(resp, what).await
+    }
+
+    /// The signed-in home internet line.
     pub async fn read_usage(&self, auth: &Authenticated, ctx: &FetchContext<'_>) -> Result<Usage, FetchError> {
-        let headers = api_headers(Some(&auth.csrf_token));
+        let headers = api_headers(Some(&auth.csrf_token), None);
+        let balance_egp = self.balance(&headers, &auth.account_id, ctx).await;
 
-        // Balance is optional.
-        let balance_egp = match self
-            .client
-            .post(format!("{API}/cbs/ar/queryBalance"))
-            .headers(headers.clone())
-            .json(&json!({ "acctId": auth.account_id }))
-            .send()
-            .await
-        {
-            Ok(resp) => match http::json_body(resp, "WE balance").await {
-                Ok(v) => {
-                    ctx.dump("we-balance", &v);
-                    ret_ok(&v)
-                        .then(|| j::num(&v["body"]["balanceInfo"][0]["totalAmount"]))
-                        .flatten()
-                        .map(egp)
-                }
-                Err(e) => {
-                    tracing::debug!("WE balance unreadable: {e}");
-                    None
-                }
-            },
-            Err(e) => {
-                tracing::debug!("WE balance failed: {e}");
-                None
-            }
-        };
-
-        let resp = self
-            .client
-            .post(format!("{API}/cz/v1/auth/getSubscribedOfferings"))
-            .headers(headers.clone())
-            .json(&json!({ "msisdn": self.fbb_id, "numberServiceType": "FBB" }))
-            .send()
-            .await?;
-        let offers = http::json_body(resp, "WE offerings").await?;
+        let offers = self.post(&headers, "cz/v1/auth/getSubscribedOfferings", json!({ "msisdn": self.fbb_id, "numberServiceType": "FBB" }), "WE offerings").await?;
         ctx.dump("we-offerings", &offers);
         if !ret_ok(&offers) {
             return Err(carrier_error(&offers, "offerings"));
         }
         let package = main_offering(&offers).ok_or_else(|| missing("offeringList[].mainOfferingId"))?;
 
-        let resp = self
-            .client
-            .post(format!("{API}/cz/cbs/bb/queryFreeUnit"))
-            .headers(headers.clone())
-            .json(&json!({ "subscriberId": auth.subscriber_id, "mainOfferId": package.id }))
-            .send()
-            .await?;
-        let units = http::json_body(resp, "WE quota").await?;
+        let body = json!({ "subscriberId": auth.subscriber_id, "mainOfferId": package.id });
+        let units = self.post(&headers, "cz/cbs/bb/queryFreeUnit", body, "WE quota").await?;
         ctx.dump("we-free-units", &units);
         if !ret_ok(&units) {
             return Err(carrier_error(&units, "quota"));
@@ -231,54 +216,144 @@ impl WeSession {
         let mut usage = build_usage(&units, Some(&package), balance_egp, auth.owner_name.clone())?;
 
         // Optional extras.
-        let (plan, since) = self.line_product(auth, &headers, ctx).await.unwrap_or_default();
+        let (plan, since) = self.subscriber_plan(&headers, &auth.subscriber_id, ctx).await.unwrap_or_default();
         usage.info = LineInfo { plan, plan_ar: None, speed: package.speed, payment: auth.payment, status: auth.status.clone(), number: None, since, valid_until: None };
-        usage.payments = self.recharges(auth, &headers, ctx).await;
+        usage.payments = self.recharges(&headers, &auth.subscriber_id, ctx).await;
         Ok(usage)
     }
 
-    /// Product ("WE IOE VDSL Primary Prepaid") and activation date.
-    async fn line_product(
+    /// The prepaid balance; optional.
+    async fn balance(&self, headers: &HeaderMap, account_id: &str, ctx: &FetchContext<'_>) -> Option<f64> {
+        match self.post(headers, "cbs/ar/queryBalance", json!({ "acctId": account_id }), "WE balance").await {
+            Ok(v) => {
+                ctx.dump("we-balance", &v);
+                ret_ok(&v).then(|| j::num(&v["body"]["balanceInfo"][0]["totalAmount"])).flatten().map(egp)
+            }
+            Err(e) => {
+                tracing::debug!("WE balance unavailable: {e}");
+                None
+            }
+        }
+    }
+
+    /// The line's product ("WE IOE VDSL Primary Prepaid", "WE Ardy prepaid FTTH - Quarterly")
+    /// and activation date.
+    async fn subscriber_plan(
         &self,
-        auth: &Authenticated,
         headers: &HeaderMap,
+        subscriber_id: &str,
         ctx: &FetchContext<'_>,
     ) -> Option<(Option<String>, Option<chrono::DateTime<Utc>>)> {
-        let resp = self
-            .client
-            .post(format!("{API}/cz/v1/customer/querySubscribers"))
-            .headers(headers.clone())
-            .json(&json!({ "subscriberId": auth.subscriber_id, "startNum": 0, "pageSize": 10 }))
-            .send()
-            .await
-            .ok()?;
-        let v = http::json_body(resp, "WE subscribers").await.ok()?;
+        let body = json!({ "subscriberId": subscriber_id, "startNum": 0, "pageSize": 10 });
+        let v = self.post(headers, "cz/v1/customer/querySubscribers", body, "WE subscribers").await.ok()?;
         ctx.dump("we-subscribers", &v);
         let list = v["body"]["subscriberList"].as_array()?;
-        let line = list.iter().find(|s| j::text(&s["subscriberId"]).as_deref() == Some(&auth.subscriber_id)).or(list.first())?;
+        let line = list.iter().find(|s| j::text(&s["subscriberId"]).as_deref() == Some(subscriber_id)).or(list.first())?;
         Some((j::text(&line["primaryOfferingName"]), j::epoch_ms(&line["activeDate"])))
     }
 
     /// Recharges in the last 90 days (30 if WE refuses 90).
-    async fn recharges(&self, auth: &Authenticated, headers: &HeaderMap, ctx: &FetchContext<'_>) -> Option<Vec<Payment>> {
+    async fn recharges(&self, headers: &HeaderMap, subscriber_id: &str, ctx: &FetchContext<'_>) -> Option<Vec<Payment>> {
         let now = Utc::now().timestamp_millis();
         for days in [90i64, 30] {
             let body = json!({
-                "subscriberId": auth.subscriber_id,
+                "subscriberId": subscriber_id,
                 "startTime": now - days * 86_400_000,
                 "endTime": now,
                 "startNum": 0,
                 "pageSize": 20,
                 "channelIds": RECHARGE_CHANNELS,
             });
-            let resp = self.client.post(format!("{API}/cbs/ar/queryRechargeLogCz")).headers(headers.clone()).json(&body).send().await.ok()?;
-            let v = http::json_body(resp, "WE recharges").await.ok()?;
+            let v = self.post(headers, "cbs/ar/queryRechargeLogCz", body, "WE recharges").await.ok()?;
             ctx.dump("we-recharges", &v);
             if let Some(list) = parse_recharges(&v) {
                 return Some(list);
             }
         }
         None
+    }
+
+    /// The lines on the signed-in account, its own home internet among them.
+    async fn associated_lines(&self, auth: &Authenticated, ctx: &FetchContext<'_>) -> Result<Vec<AssociatedLine>, FetchError> {
+        let headers = api_headers(Some(&auth.csrf_token), auth.utoken.as_deref());
+        let body = json!({ "subscriberId": auth.subscriber_id, "serviceNumber": self.fbb_id });
+        let v = self.post(&headers, "v1/account/getAssociatedLines", body, "WE lines").await?;
+        ctx.dump("we-lines", &v);
+        if !ret_ok(&v) {
+            return Err(carrier_error(&v, "lines"));
+        }
+        Ok(parse_associated_lines(&v))
+    }
+
+    /// Switches to `line` and reads it. The switch answers with a token for that line; the
+    /// sign-in's own token stays for switching and listing lines.
+    async fn read_switched(&self, auth: &Authenticated, line: &AssociatedLine, ctx: &FetchContext<'_>) -> Result<Usage, FetchError> {
+        let headers = api_headers(Some(&auth.csrf_token), auth.utoken.as_deref());
+        let body = json!({ "subsId": auth.subscriber_id, "servNumber": line.serv_number, "channel": "702" });
+        let v = self.post(&headers, "v1/account/switchAccount", body, "WE switch").await?;
+        ctx.dump("we-switch", &v);
+        if !ret_ok(&v) {
+            return Err(carrier_error(&v, "switch"));
+        }
+        let switched = &v["body"];
+        let token = j::text(&switched["token"]).ok_or_else(|| missing("switchAccount body.token"))?;
+        let subscriber = &switched["subscriber"];
+        let subscriber_id = j::text(&subscriber["subscriberId"]).unwrap_or_else(|| line.subscriber_id.clone());
+        let headers = api_headers(Some(&token), None);
+        let balance_egp = match j::text(&switched["account"]["acctId"]) {
+            Some(account_id) => self.balance(&headers, &account_id, ctx).await,
+            None => None,
+        };
+
+        let service = match line.line {
+            LineType::Voice => "FV",
+            LineType::Mobile => "mobile",
+            LineType::Landline => "FBB",
+        };
+        let body = json!({ "msisdn": line.serv_number, "numberServiceType": service, "groupId": "" });
+        let offers = self.post(&headers, "cz/v1/auth/getSubscribedOfferings", body, "WE offerings").await?;
+        ctx.dump("we-offerings", &offers);
+        let main = if ret_ok(&offers) { main_offering(&offers) } else { None };
+
+        let mut body = json!({ "subscriberId": subscriber_id, "needQueryPoint": true });
+        if let Some(main) = &main {
+            body["mainOfferId"] = Value::String(main.id.clone());
+        }
+        let units = self.post(&headers, "cz/cbs/bb/queryFreeUnit", body, "WE units").await?;
+        ctx.dump("we-free-units", &units);
+        if !ret_ok(&units) {
+            return Err(carrier_error(&units, "units"));
+        }
+        let mut usage = line_usage(line.line, &units, main.as_ref(), balance_egp, auth.owner_name.clone());
+
+        let (product, since) = self.subscriber_plan(&headers, &subscriber_id, ctx).await.unwrap_or_default();
+        // A mobile line's main offering is its tariff ("12 PT"); a landline's product names it.
+        let (plan, plan_ar) = match line.line {
+            LineType::Mobile => (main.as_ref().and_then(|m| m.name.clone()).or(product), main.as_ref().and_then(|m| m.name_ar.clone())),
+            _ => (product, None),
+        };
+        usage.info = LineInfo {
+            plan,
+            plan_ar,
+            speed: None,
+            payment: payment_kind(subscriber),
+            status: (j::text(&subscriber["status"]).as_deref() == Some("2")).then(|| "Active".to_string()),
+            number: Some(line.number.clone()),
+            since,
+            valid_until: None,
+        };
+        usage.payments = self.recharges(&headers, &subscriber_id, ctx).await;
+        Ok(usage)
+    }
+
+    /// Back to the signed-in line after reading another one. WE answers with an empty body.
+    async fn switch_back(&self, auth: &Authenticated, ctx: &FetchContext<'_>) {
+        let headers = api_headers(Some(&auth.csrf_token), auth.utoken.as_deref());
+        let body = json!({ "subsId": auth.subscriber_id, "servNumber": self.fbb_id, "channel": "702" });
+        match self.post(&headers, "v1/account/switchAccount", body, "WE switch back").await {
+            Ok(v) => ctx.dump("we-switch-back", &v),
+            Err(e) => tracing::debug!("WE: switching back failed: {e}"),
+        }
     }
 }
 
@@ -320,8 +395,54 @@ fn egp(amount: f64) -> f64 {
     (amount / 10_000.0 * 100.0).round() / 100.0
 }
 
-pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Result<Usage, FetchError> {
-    let session = WeSession::new(number)?;
+/// Reads a line through the My WE account that signs in with `sign_in` (its home internet's
+/// landline number): that home internet itself, or one of the account's landlines or mobile
+/// lines, `target` if given, else the first of that kind.
+pub async fn fetch(line: LineType, sign_in: &str, target: Option<&str>, password: &str, ctx: &FetchContext<'_>) -> Result<Usage, FetchError> {
+    let (kept, reused) = open(sign_in, password, ctx).await?;
+    match kept.read(line, target, ctx).await {
+        // A kept sign-in can stop working before it's dropped: sign in again, once.
+        Err(e @ (FetchError::Carrier(_) | FetchError::Unexpected(_))) if reused => {
+            tracing::info!("WE: the kept sign-in failed ({e}); signing in again");
+            forget(sign_in);
+            let (kept, _) = open(sign_in, password, ctx).await?;
+            kept.read(line, target, ctx).await
+        }
+        other => other,
+    }
+}
+
+/// The account's lines besides the `line` at `number`, read through the kept sign-in.
+pub async fn other_lines(line: LineType, sign_in: &str, number: &str, password: &str, ctx: &FetchContext<'_>) -> Vec<(LineType, Usage)> {
+    match open(sign_in, password, ctx).await {
+        Ok((kept, _)) => kept.others(line, number, ctx).await,
+        Err(e) => {
+            tracing::info!("WE: no other lines read: {e}");
+            Vec::new()
+        }
+    }
+}
+
+/// A signed-in account. Its lines are read one at a time, since a switch moves the session.
+struct Kept {
+    session: WeSession,
+    auth: Authenticated,
+    password: String,
+    at: Instant,
+    busy: tokio::sync::Mutex<()>,
+    /// The last read switched away from the signed-in line.
+    away: AtomicBool,
+}
+
+/// The kept sign-in for `sign_in`, else a new one. The flag says it was kept.
+async fn open(sign_in: &str, password: &str, ctx: &FetchContext<'_>) -> Result<(Arc<Kept>, bool), FetchError> {
+    let key = format::normalize(sign_in, LineType::Landline)?;
+    let kept = KEPT.lock().ok().and_then(|k| k.get(&key).filter(|k| k.password == password && k.at.elapsed() < KEEP_FOR).cloned());
+    if let Some(kept) = kept {
+        tracing::debug!("WE: using the kept sign-in");
+        return Ok((kept, true));
+    }
+    let session = WeSession::new(&key)?;
     session.warm_up().await;
     let first = session.captcha(ctx).await?;
     let s = &session;
@@ -331,7 +452,110 @@ pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Resu
     };
     let (challenge, code) = solve_captcha(first, reroll, ctx).await?;
     let auth = session.sign_in(password, &challenge, code.as_deref(), ctx).await?;
-    session.read_usage(&auth, ctx).await
+    let kept = Arc::new(Kept { session, auth, password: password.to_string(), at: Instant::now(), busy: tokio::sync::Mutex::new(()), away: AtomicBool::new(false) });
+    if let Ok(mut all) = KEPT.lock() {
+        all.retain(|_, k| k.at.elapsed() < KEEP_FOR);
+        all.insert(key, kept.clone());
+    }
+    Ok((kept, false))
+}
+
+fn forget(sign_in: &str) {
+    if let (Ok(key), Ok(mut all)) = (format::normalize(sign_in, LineType::Landline), KEPT.lock()) {
+        all.remove(&key);
+    }
+}
+
+impl Kept {
+    async fn read(&self, line: LineType, target: Option<&str>, ctx: &FetchContext<'_>) -> Result<Usage, FetchError> {
+        let _one_at_a_time = self.busy.lock().await;
+        if line == LineType::Landline && target.is_none_or(|t| t == self.session.number) {
+            return self.read_own(ctx).await;
+        }
+        let lines = self.session.associated_lines(&self.auth, ctx).await?;
+        let found = lines.iter().find(|l| l.line == line && target.is_none_or(|t| l.number == t)).ok_or(FetchError::NoLine(line))?;
+        self.read_line(found, ctx).await
+    }
+
+    /// Every line but the `line` at `number`.
+    async fn others(&self, line: LineType, number: &str, ctx: &FetchContext<'_>) -> Vec<(LineType, Usage)> {
+        let _one_at_a_time = self.busy.lock().await;
+        let lines = match self.session.associated_lines(&self.auth, ctx).await {
+            Ok(lines) => lines,
+            Err(e) => {
+                tracing::info!("WE: couldn't list the account's lines: {e}");
+                return Vec::new();
+            }
+        };
+        let mut out = Vec::new();
+        for other in lines.iter().filter(|l| !(l.line == line && l.number == number)) {
+            match self.read_line(other, ctx).await {
+                Ok(usage) => out.push((other.line, usage)),
+                Err(e) => tracing::info!("WE: couldn't read the account's {:?} line: {e}", other.line),
+            }
+        }
+        out
+    }
+
+    async fn read_line(&self, line: &AssociatedLine, ctx: &FetchContext<'_>) -> Result<Usage, FetchError> {
+        if line.subscriber_id == self.auth.subscriber_id {
+            let mut usage = self.read_own(ctx).await?;
+            usage.info.number = Some(line.number.clone());
+            return Ok(usage);
+        }
+        self.away.store(true, Ordering::Relaxed);
+        self.session.read_switched(&self.auth, line, ctx).await
+    }
+
+    /// The signed-in home internet, switching back to it first if a read went elsewhere.
+    async fn read_own(&self, ctx: &FetchContext<'_>) -> Result<Usage, FetchError> {
+        if self.away.swap(false, Ordering::Relaxed) {
+            self.session.switch_back(&self.auth, ctx).await;
+        }
+        self.session.read_usage(&self.auth, ctx).await
+    }
+}
+
+/// A line on the account, as `getAssociatedLines` lists it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AssociatedLine {
+    pub subscriber_id: String,
+    /// How WE writes it: `FBB` and the landline without its 0 for home internet, else the
+    /// number without its 0.
+    pub serv_number: String,
+    pub line: LineType,
+    /// In Klue's format, `0223584417` or `01501234567`.
+    pub number: String,
+}
+
+pub(crate) fn parse_associated_lines(v: &Value) -> Vec<AssociatedLine> {
+    v["body"]["AssociatedNumbers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|l| {
+            let serv_number = j::text(&l["servNumber"])?;
+            let (line, number) = classify_number(&serv_number)?;
+            Some(AssociatedLine { subscriber_id: j::text(&l["subscriberId"])?, serv_number, line, number })
+        })
+        .collect()
+}
+
+/// What a `servNumber` is: `FBB` and a landline for home internet, 10 digits from 1 for a
+/// mobile line, else a landline for calls. WE's `networkType` codes differ from one of its
+/// calls to the next, so they aren't used.
+fn classify_number(serv_number: &str) -> Option<(LineType, String)> {
+    let fbb = serv_number.get(..3).is_some_and(|p| p.eq_ignore_ascii_case("fbb"));
+    let digits = format::digits(serv_number);
+    let bare = digits.trim_start_matches('0');
+    let line = if fbb {
+        LineType::Landline
+    } else if bare.len() == 10 && bare.starts_with('1') {
+        LineType::Mobile
+    } else {
+        LineType::Voice
+    };
+    format::normalize(&digits, line).ok().map(|number| (line, number))
 }
 
 /// Up to 1 + [`CAPTCHA_REROLLS`] captchas go to the solver before the user is asked.
@@ -376,14 +600,26 @@ fn cors_headers() -> HeaderMap {
     h
 }
 
-fn api_headers(csrf_token: Option<&str>) -> HeaderMap {
+fn api_headers(csrf_token: Option<&str>, utoken: Option<&str>) -> HeaderMap {
     let mut h = cors_headers();
     h.insert(HeaderName::from_static("channelid"), HeaderValue::from_static("702"));
     h.insert(HeaderName::from_static("isselfcare"), HeaderValue::from_static("true"));
     if let Some(t) = csrf_token.and_then(|t| HeaderValue::from_str(t).ok()) {
         h.insert(HeaderName::from_static("csrftoken"), t);
     }
+    if let Some(t) = utoken.and_then(|t| HeaderValue::from_str(t).ok()) {
+        h.insert(HeaderName::from_static("u-token"), t);
+    }
     h
+}
+
+/// BES `paymentType`: 0 prepaid, 1 postpaid.
+fn payment_kind(subscriber: &Value) -> Option<PaymentKind> {
+    match j::text(&subscriber["paymentType"]).as_deref() {
+        Some("0") => Some(PaymentKind::Prepaid),
+        Some("1") => Some(PaymentKind::Postpaid),
+        _ => None,
+    }
 }
 
 fn ret_ok(v: &Value) -> bool {
@@ -504,16 +740,25 @@ fn free_unit_details(v: &Value) -> impl Iterator<Item = (&Value, &Value)> {
     })
 }
 
-/// The package quota has `originType: "Main Quota"`; top-ups have `"WE TOPUP"`.
+/// The package's own bundle: `originType` "Main Quota" on home internet, "Your Main Bundle |
+/// On-net" on a landline; top-ups have "WE TOPUP".
 fn is_main_quota(detail: &Value) -> bool {
     match shallow_text(detail, &["originType"]) {
-        Some(origin) => origin.eq_ignore_ascii_case("main quota"),
+        Some(origin) => {
+            let origin = origin.to_ascii_lowercase();
+            origin.contains("main quota") || origin.contains("main bundle")
+        }
         None => shallow_text(detail, &["itemCode"]).is_some_and(|c| c.contains("_Primary_")),
     }
 }
 
+/// WE Mobile's internet: all of it counts as the line's data, not add-ons to a package.
+fn is_mobile_data(group: &Value) -> bool {
+    shallow_text(group, &["freeUnitType"]).is_some_and(|t| t.to_ascii_uppercase().contains("MOBILE_INTERNET"))
+}
+
 /// Bundles from `queryFreeUnit`, largest with something left first. If WE doesn't mark the
-/// package quota, the first bundle is taken as it.
+/// package quota, the first data bundle is taken as it.
 pub(crate) fn parse_free_units(v: &Value) -> Vec<Bundle> {
     let mut out: Vec<Bundle> = Vec::new();
     for (group, detail) in free_unit_details(v) {
@@ -528,17 +773,35 @@ pub(crate) fn parse_free_units(v: &Value) -> Vec<Bundle> {
         let name = shallow_text(detail, &["offeringName", "freeUnitTypeName", "freeUnitName"])
             .or_else(|| shallow_text(detail, &["originType"]).filter(|_| !is_main_quota(detail)).map(|o| tidy_label(&o)))
             .or_else(|| shallow_text(group, &["offeringName", "freeUnitTypeName", "freeUnitName", "freeUnitType"]))
+            .map(|n| tidy_offer(&n))
             .unwrap_or_else(|| if out.is_empty() { "Home internet".into() } else { "Add-on".into() });
+        let kind = match unit {
+            Unit::Minutes => BundleKind::Minutes,
+            Unit::Sms => BundleKind::Sms,
+            Unit::Units => BundleKind::Other,
+            _ if is_main_quota(detail) || is_mobile_data(group) => BundleKind::Data,
+            _ => BundleKind::Addon,
+        };
+        let (starts_at, expires_at) = (j::epoch_ms(&detail["effectiveTime"]), j::epoch_ms(&detail["expireTime"]));
+        // The same bundle twice is this month's and what's left of last month's (WE Mobile):
+        // one bundle, as WE's app shows it, running to the later end.
+        if let Some(same) = out.iter_mut().find(|b| b.name == name && b.unit == unit && b.kind == kind) {
+            same.total += total * factor;
+            same.remaining += remaining * factor;
+            same.starts_at = same.starts_at.max(starts_at);
+            same.expires_at = same.expires_at.max(expires_at);
+            continue;
+        }
         out.push(Bundle {
             key: String::new(),
-            kind: if is_main_quota(detail) { BundleKind::Data } else { BundleKind::Addon },
+            kind,
             name,
             name_ar: None,
             unit,
             total: total * factor,
             remaining: remaining * factor,
-            starts_at: j::epoch_ms(&detail["effectiveTime"]),
-            expires_at: j::epoch_ms(&detail["expireTime"]),
+            starts_at,
+            expires_at,
             state: BundleState::Active,
             settle_by: None,
         });
@@ -546,11 +809,24 @@ pub(crate) fn parse_free_units(v: &Value) -> Vec<Bundle> {
     order_bundles(&mut out);
     if !out.iter().any(|b| b.kind == BundleKind::Data)
         && let Some(main) = out.first_mut()
+        && matches!(main.unit, Unit::Gb | Unit::Mb)
     {
         main.kind = BundleKind::Data;
     }
     assign_keys(&mut out);
     out
+}
+
+/// "Nitro Prime 29. Prepaid" -> "Nitro Prime 29".
+fn tidy_offer(name: &str) -> String {
+    let mut name = name.trim();
+    for suffix in [". Prepaid", ". Postpaid", " - Prepaid", " - Postpaid"] {
+        let cut = name.len().saturating_sub(suffix.len());
+        if cut > 0 && name.get(cut..).is_some_and(|end| end.eq_ignore_ascii_case(suffix)) {
+            name = &name[..cut];
+        }
+    }
+    name.trim_end_matches('.').trim().to_string()
 }
 
 /// "WE TOPUP " -> "WE Topup".
@@ -568,19 +844,50 @@ fn tidy_label(raw: &str) -> String {
         .join(" ")
 }
 
-/// Unit names, or CBS codes (1109 GB, 1106 MB, 1108 KB).
+/// Unit names, or the codes in WE's `CBS_MEASURE_UNIT` dictionary. Home internet answers
+/// without a unit are in GB.
 fn unit_of(label: &str) -> (Unit, f64) {
     match label.trim().to_ascii_uppercase().as_str() {
-        "MB" | "1106" => (Unit::Mb, 1.0),
-        "KB" | "1108" => (Unit::Mb, 1.0 / 1024.0),
-        "MIN" | "MINUTES" => (Unit::Minutes, 1.0),
-        "1003" | "SEC" | "SECONDS" => (Unit::Minutes, 1.0 / 60.0),
+        "GB" | "1109" => (Unit::Gb, 1.0),
+        "MB" | "1108" => (Unit::Mb, 1.0),
+        "KB" | "1107" => (Unit::Mb, 1.0 / 1024.0),
+        "BYTES" | "1106" => (Unit::Mb, 1.0 / (1024.0 * 1024.0)),
+        "MIN" | "MINUTES" | "1004" => (Unit::Minutes, 1.0),
+        "SEC" | "SECOND" | "SECONDS" | "1003" => (Unit::Minutes, 1.0 / 60.0),
+        "SMS" | "1101" => (Unit::Sms, 1.0),
+        "UNIT" | "UNITS" | "TIMES" | "1006" | "10000" => (Unit::Units, 1.0),
         _ => (Unit::Gb, 1.0),
     }
 }
 
 fn shallow_text(v: &Value, keys: &[&str]) -> Option<String> {
     keys.iter().find_map(|k| j::text(&v[*k]))
+}
+
+/// A landline's or mobile line's usage, read after switching to it. A landline's package is
+/// its main offering ("WE Ardy 40 - Quarterly"). A mobile line's main offering is its tariff
+/// ("12 PT"), so its package is its biggest bundle ("Nitro Prime 29"). A line can have no
+/// bundle at all, only a balance.
+pub(crate) fn line_usage(line: LineType, units: &Value, main: Option<&MainOffering>, balance_egp: Option<f64>, owner_name: Option<String>) -> Usage {
+    let bundles = parse_free_units(units);
+    let first = bundles.first();
+    let (package_name, package_name_ar) = match line {
+        LineType::Mobile => (first.map(|b| b.name.clone()), None),
+        _ => (main.and_then(|m| m.name.clone()).or_else(|| first.map(|b| b.name.clone())), main.and_then(|m| m.name_ar.clone())),
+    };
+    Usage {
+        owner_name,
+        package_name,
+        package_name_ar,
+        balance_egp,
+        owed_egp: None,
+        subscribed_at: first.and_then(|b| b.starts_at).or_else(|| main.and_then(|m| m.subscribed_at)),
+        renews_at: first.and_then(|b| b.expires_at).or_else(|| main.and_then(|m| m.renews_at)),
+        bundles,
+        fetched_at: Utc::now(),
+        info: LineInfo::default(),
+        payments: None,
+    }
 }
 
 /// Name and cycle dates come from the package quota, not a bigger top-up. Only the package
@@ -718,10 +1025,66 @@ mod tests {
 
     #[test]
     fn reads_measure_unit_codes() {
+        // WE's own CBS_MEASURE_UNIT dictionary.
         assert_eq!(unit_of("1109"), (Unit::Gb, 1.0));
-        assert_eq!(unit_of("1106"), (Unit::Mb, 1.0));
+        assert_eq!(unit_of("1108"), (Unit::Mb, 1.0));
+        assert_eq!(unit_of("1107"), (Unit::Mb, 1.0 / 1024.0));
+        assert_eq!(unit_of("1004"), (Unit::Minutes, 1.0));
+        assert_eq!(unit_of("1003"), (Unit::Minutes, 1.0 / 60.0));
+        assert_eq!(unit_of("1101"), (Unit::Sms, 1.0));
         assert_eq!(unit_of("MB"), (Unit::Mb, 1.0));
         assert_eq!(unit_of(""), (Unit::Gb, 1.0));
+    }
+
+    #[test]
+    fn lists_the_accounts_lines() {
+        let lines = parse_associated_lines(&fixture("we_lines.json"));
+        let found: Vec<(LineType, &str, &str)> = lines.iter().map(|l| (l.line, l.number.as_str(), l.serv_number.as_str())).collect();
+        assert_eq!(
+            found,
+            [
+                (LineType::Voice, "0223584417", "223584417"),
+                (LineType::Mobile, "01501234567", "1501234567"),
+                (LineType::Landline, "0223584417", "FBB223584417"),
+            ]
+        );
+        assert_eq!(lines[2].subscriber_id, "2200000045");
+    }
+
+    #[test]
+    fn reads_a_landlines_minutes() {
+        let main = main_offering(&fixture("we_offerings_ardy.json"));
+        let usage = line_usage(LineType::Voice, &fixture("we_free_units_ardy.json"), main.as_ref(), Some(9.55), None);
+        assert_eq!(usage.package_name.as_deref(), Some("WE Ardy 40 - Quarterly"));
+        assert_eq!(usage.package_name_ar.as_deref(), Some("باقة WE أرضى 40 - الربع سنوية"));
+        let minutes = usage.main().unwrap();
+        assert_eq!((minutes.kind, minutes.unit, minutes.total, minutes.remaining), (BundleKind::Minutes, Unit::Minutes, 1800.0, 1800.0));
+        assert_eq!(minutes.name, "WE Ardy 40 Quarterly");
+        assert_eq!(usage.renews_at.unwrap().timestamp_millis(), 1_796_940_000_000);
+    }
+
+    #[test]
+    fn reads_a_mobile_lines_package_in_megabytes() {
+        let main = main_offering(&fixture("we_offerings_mobile.json")).unwrap();
+        // The tariff is the line's main offering; its bundle is the package.
+        assert_eq!((main.id.as_str(), main.name.as_deref(), main.name_ar.as_deref()), ("12042", Some("12 PT"), Some("12 قرش")));
+        let usage = line_usage(LineType::Mobile, &fixture("we_free_units_mobile.json"), Some(&main), Some(0.0), None);
+        assert_eq!(usage.package_name.as_deref(), Some("Nitro Prime 29"));
+        // This month's bundle and what's left of last month's, together as WE shows them.
+        assert_eq!(usage.bundles.len(), 1);
+        let data = usage.main().unwrap();
+        assert_eq!((data.kind, data.unit, data.total), (BundleKind::Data, Unit::Mb, 2750.0));
+        assert!((data.remaining - 1139.26).abs() < 1e-9);
+        assert_eq!(data.expires_at.unwrap().timestamp_millis(), 1_797_458_400_000);
+        assert_eq!(data.starts_at.unwrap().timestamp_millis(), 1_795_071_454_000);
+        assert_eq!(usage.renews_at, data.expires_at);
+    }
+
+    #[test]
+    fn tidies_offer_names() {
+        assert_eq!(tidy_offer("Nitro Prime 29. Prepaid"), "Nitro Prime 29");
+        assert_eq!(tidy_offer("WE Ardy 40 Quarterly"), "WE Ardy 40 Quarterly");
+        assert_eq!(tidy_offer("Super 140"), "Super 140");
     }
 
     #[test]

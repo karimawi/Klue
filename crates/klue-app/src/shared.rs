@@ -2,7 +2,7 @@
 //! Windows watch a revision counter and re-read a [`Snapshot`].
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     sync::{
         Arc, Mutex,
@@ -19,6 +19,7 @@ use klue_core::{
     carriers::{self, FetchContext},
     format,
     store::{Account, AppData, RefreshEvery, Secrets, Settings, Store},
+    transfer::{self, Export, TransferError},
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -173,29 +174,52 @@ impl Shared {
     /// with; an Orange home internet line is only known, and checked, once Orange names it.
     pub async fn verify(&self, carrier: Carrier, line: LineType, number: &str, password: &str) -> Result<Usage, FetchError> {
         let sign_in = format::normalize(number, carrier.sign_in_line(line))?;
-        // Whether the number is in Klue already, and if so whether it's archived.
-        let added = |number: &str| self.data.lock().expect("data lock").accounts.iter().find(|a| a.carrier == carrier && a.number == number).map(|a| a.archived);
+        // Whether the line is in Klue already, and if so whether it's archived. A phone line
+        // can have the same number as its home internet, so the kind counts too.
+        let added = |line: LineType, number: &str| {
+            self.data.lock().expect("data lock").accounts.iter().find(|a| a.carrier == carrier && a.line == line && a.number == number).map(|a| a.archived)
+        };
         let already = |archived: bool| {
             let s = crate::i18n::strings(self.settings().lang);
             FetchError::Carrier(if archived { s.already_archived } else { s.already_added }.into())
         };
         if carrier.sign_in_line(line) == line
-            && let Some(archived) = added(&sign_in)
+            && let Some(archived) = added(line, &sign_in)
         {
             return Err(already(archived));
         }
         let usage = if self.demo {
             demo::verify(carrier, line, &sign_in, password).await?
         } else {
-            carriers::fetch(carrier, line, &sign_in, password, &self.context(true)).await?
+            carriers::fetch(carrier, line, &sign_in, None, password, &self.context(true)).await?
         };
         let own = carriers::line_number(carrier, line, &sign_in, &usage)?;
-        if own != sign_in
-            && let Some(archived) = added(&own)
-        {
-            return Err(already(archived));
+        if let Some(archived) = added(line, &own) {
+            // The account can hold another line of this kind that isn't in Klue yet (WE).
+            let others = self.other_lines(carrier, line, number, &own, password).await;
+            return others.into_iter().find(|(other, _)| *other == line).map(|(_, usage)| usage).ok_or_else(|| already(archived));
         }
         Ok(usage)
+    }
+
+    /// The lines on the account just verified that Klue doesn't have yet (see
+    /// [`carriers::other_lines`]).
+    /// `own` is the number of the line just read.
+    pub async fn other_lines(&self, carrier: Carrier, line: LineType, number: &str, own: &str, password: &str) -> Vec<(LineType, Usage)> {
+        let Ok(sign_in) = format::normalize(number, carrier.sign_in_line(line)) else { return Vec::new() };
+        let found = if self.demo {
+            demo::other_lines(carrier, line, &sign_in).await
+        } else {
+            carriers::other_lines(carrier, line, &sign_in, own, password, &self.context(false)).await
+        };
+        let data = self.data.lock().expect("data lock");
+        found
+            .into_iter()
+            .filter(|(other, usage)| {
+                carriers::line_number(carrier, *other, &sign_in, usage)
+                    .is_ok_and(|number| !data.accounts.iter().any(|a| a.carrier == carrier && a.line == *other && a.number == number))
+            })
+            .collect()
     }
 
     /// Saves a verified number. Returns its id.
@@ -224,6 +248,53 @@ impl Shared {
         self.update(|d| d.accounts.push(account));
         self.save_vault_index();
         Ok(id)
+    }
+
+    /// An export file with the numbers `ids`, their passwords sealed with `passphrase` when
+    /// there is one. Making the key takes a moment, so this runs off the UI thread.
+    pub fn export(&self, ids: &[String], passphrase: Option<&str>) -> Result<Vec<u8>, TransferError> {
+        let data = self.data.lock().expect("data lock").clone();
+        let accounts: Vec<&Account> = ids.iter().filter_map(|id| data.account(id)).collect();
+        let passwords: BTreeMap<String, String> = match passphrase {
+            // Demo numbers have no saved passwords.
+            Some(_) => accounts
+                .iter()
+                .filter_map(|a| if self.demo { Some("demo".to_string()) } else { self.secrets.get(a) }.map(|p| (a.id.clone(), p)))
+                .collect(),
+            None => BTreeMap::new(),
+        };
+        Ok(Export::new(&accounts, crate::about::VERSION, passphrase.map(|p| (p, &passwords)))?.to_json())
+    }
+
+    /// Takes in lines from an export file, each with its password if the file had one. A
+    /// number already here gets the file's history; a new one is added as it was, archived
+    /// or not. Returns their ids.
+    pub fn import(&self, lines: Vec<(transfer::Line, Option<String>)>) -> Vec<String> {
+        let mut added = Vec::new();
+        let ids = self.update(|d| {
+            let mut ids = Vec::new();
+            for (line, password) in &lines {
+                if let Some(account) = d.accounts.iter_mut().find(|a| line.is(a)) {
+                    line.merge_into(account);
+                    ids.push(account.id.clone());
+                } else if let Some(password) = password
+                    && line.carrier.supports_line(line.line)
+                {
+                    let account = line.to_account();
+                    ids.push(account.id.clone());
+                    added.push((account.clone(), password.clone()));
+                    d.accounts.push(account);
+                }
+            }
+            ids
+        });
+        for (account, password) in &added {
+            if !self.demo && !self.secrets.set(account, password) {
+                tracing::warn!("password for {} is kept in memory only", account.id);
+            }
+        }
+        self.save_vault_index();
+        ids
     }
 
     /// An empty nickname clears it.
@@ -290,7 +361,7 @@ impl Shared {
         {
             self.secrets.delete(account);
         }
-        self.update(|d| d.accounts.retain(|a| a.id != id));
+        self.update(|d| d.remove_account(id));
         self.save_vault_index();
     }
 

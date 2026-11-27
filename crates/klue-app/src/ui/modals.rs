@@ -1,4 +1,5 @@
-//! Dialogs: add a number, rename, alerts, settings, and the captcha prompt.
+//! Dialogs: add a number, rename, alerts, settings, archived numbers, and the captcha
+//! prompt.
 
 use std::collections::BTreeMap;
 
@@ -8,11 +9,11 @@ use iced::{
     widget::{Space, button, column, container, image, row, scrollable, text_input},
 };
 use klue_core::{
-    Carrier, FetchError, LineType, Unit, Usage, format,
+    Carrier, FetchError, Unit, format,
     store::{AlertPrefs, BundleAlert, Clock, Lang, LeadUnit, RefreshEvery, Theme, ThresholdMode},
 };
 
-use super::{Ctx, El, gap, hline, tile, window::field};
+use super::{Ctx, El, gap, hline, window::field};
 use crate::{
     app::{self, App, CaptchaAsk, Message, ModalKind},
     assets::Icon,
@@ -22,18 +23,27 @@ use crate::{
 };
 
 /// Fields focused when their dialog opens.
-pub const ADD_NUMBER: &str = "add-number";
-const ADD_PASSWORD: &str = "add-password";
-const ADD_NICKNAME: &str = "add-nickname";
 pub const RENAME_INPUT: &str = "rename-nickname";
+/// The scrolling body of every dialog.
+const BODY: &str = "dialog-body";
 pub const CAPTCHA_INPUT: &str = "captcha-input";
 
 pub enum Modal {
     None,
-    Add(AddForm),
+    Add(super::add::Wizard),
     Rename(RenameForm),
     Alerts(AlertsForm),
     Settings(SettingsForm),
+    Archived(ArchivedList),
+    Export(super::transfer::ExportForm),
+    Import(super::transfer::ImportForm),
+    Group(super::home::GroupForm),
+    GroupLines(super::home::LinesPicker),
+}
+
+pub struct ArchivedList {
+    /// The number whose Remove was pressed once.
+    confirm_remove: Option<String>,
 }
 
 pub struct SettingsForm {
@@ -42,24 +52,6 @@ pub struct SettingsForm {
     lead: String,
     /// "Apply to all numbers" was pressed and nothing changed since.
     applied: bool,
-}
-
-pub struct AddForm {
-    carrier: Carrier,
-    line: LineType,
-    number: String,
-    password: String,
-    show_password: bool,
-    nickname: String,
-    phase: Phase,
-}
-
-#[derive(Debug, Clone)]
-enum Phase {
-    Form,
-    Verifying,
-    Verified(Box<Usage>),
-    Error(FetchError),
 }
 
 pub struct RenameForm {
@@ -80,14 +72,9 @@ pub struct AlertsForm {
 
 #[derive(Debug, Clone)]
 pub enum Msg {
-    AddCarrier(Carrier),
-    AddLine(LineType),
-    AddNumber(String),
-    AddPassword(String),
-    AddShowPassword,
-    AddNickname(String),
-    AddSubmit,
-    AddResult(Result<Box<Usage>, FetchError>),
+    Add(super::add::Msg),
+    Transfer(super::transfer::Msg),
+    Home(super::home::Msg),
 
     RenameInput(String),
     RenameRefresh(Option<RefreshEvery>),
@@ -95,8 +82,9 @@ pub enum Msg {
     RenameSave,
     Remove,
     Archive,
-    /// Settings: bring an archived number back.
+    /// Archived numbers: bring one back, or remove it (pressed twice).
     Restore(String),
+    RemoveArchived(String),
 
     AlertEnabled(String),
     AlertValue(String, String),
@@ -125,20 +113,9 @@ pub enum Msg {
 }
 
 impl Modal {
-    pub fn open(kind: ModalKind, snap: &Snapshot, carrier: Carrier) -> Self {
+    pub fn open(kind: ModalKind, snap: &Snapshot) -> Self {
         match kind {
-            ModalKind::Add => {
-                let carrier = if carrier.is_supported() { carrier } else { Carrier::We };
-                Modal::Add(AddForm {
-                    carrier,
-                    line: carrier.default_line(),
-                    number: String::new(),
-                    password: String::new(),
-                    show_password: false,
-                    nickname: String::new(),
-                    phase: Phase::Form,
-                })
-            }
+            ModalKind::Add(carrier) => Modal::Add(super::add::Wizard::new(carrier)),
             ModalKind::Rename(id) => match snap.data.account(&id) {
                 Some(a) => Modal::Rename(RenameForm { id, draft: a.nickname.clone().unwrap_or_default(), refresh: a.refresh, confirm_remove: false }),
                 None => Modal::None,
@@ -158,6 +135,10 @@ impl Modal {
                 }
                 None => Modal::None,
             },
+            ModalKind::Archived => Modal::Archived(ArchivedList { confirm_remove: None }),
+            ModalKind::Export(ids) => Modal::Export(super::transfer::ExportForm::new(ids)),
+            ModalKind::Group(id) => Modal::Group(super::home::GroupForm::new(id, &snap.data)),
+            ModalKind::GroupLines(id) => Modal::GroupLines(super::home::LinesPicker::new(id, &snap.data)),
             ModalKind::Settings => {
                 let alerts = snap.data.settings.alerts;
                 Modal::Settings(SettingsForm {
@@ -171,66 +152,14 @@ impl Modal {
 }
 
 pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
+    let msg = match msg {
+        Msg::Add(m) => return super::add::update(app, m),
+        Msg::Transfer(m) => return super::transfer::update(app, m),
+        Msg::Home(m) => return super::home::update(app, m),
+        other => other,
+    };
     let shared = app.shared.clone();
     match (&mut app.modal, msg) {
-        (Modal::Add(f), Msg::AddCarrier(c)) if c.is_supported() && !matches!(f.phase, Phase::Verifying) => {
-            f.carrier = c;
-            f.line = c.default_line();
-            f.phase = Phase::Form;
-        }
-        (Modal::Add(f), Msg::AddLine(l)) if f.carrier.supports_line(l) => f.line = l,
-        (Modal::Add(f), Msg::AddNumber(n)) => {
-            f.number = n;
-            if matches!(f.phase, Phase::Error(_)) {
-                f.phase = Phase::Form;
-            }
-        }
-        (Modal::Add(f), Msg::AddPassword(p)) => {
-            f.password = p;
-            if matches!(f.phase, Phase::Error(_)) {
-                f.phase = Phase::Form;
-            }
-        }
-        (Modal::Add(f), Msg::AddShowPassword) => f.show_password = !f.show_password,
-        (Modal::Add(f), Msg::AddNickname(n)) => f.nickname = n,
-        (Modal::Add(f), Msg::AddSubmit) => match &f.phase {
-            Phase::Verifying => {}
-            Phase::Verified(usage) => {
-                let usage = (**usage).clone();
-                match shared.add_account(f.carrier, f.line, &f.number, &f.password, Some(f.nickname.clone()), usage) {
-                    Ok(id) => {
-                        app.modal = Modal::None;
-                        app.snap = shared.snapshot();
-                        return Task::done(Message::SelectAccount(id));
-                    }
-                    Err(e) => f.phase = Phase::Error(e),
-                }
-            }
-            Phase::Form | Phase::Error(_) => {
-                if f.number.trim().is_empty() || f.password.is_empty() {
-                    return Task::none();
-                }
-                f.phase = Phase::Verifying;
-                let (carrier, line, number, password) = (f.carrier, f.line, f.number.clone(), f.password.clone());
-                return Task::perform(async move { shared.verify(carrier, line, &number, &password).await }, |r| Message::Modal(Msg::AddResult(r.map(Box::new))));
-            }
-        },
-        (Modal::Add(f), Msg::AddResult(result)) => {
-            // Move on to the nickname, or back to the password.
-            let next = match &result {
-                Ok(_) => Some(ADD_NICKNAME),
-                Err(FetchError::BadCredentials) => Some(ADD_PASSWORD),
-                Err(_) => None,
-            };
-            f.phase = match result {
-                Ok(usage) => Phase::Verified(usage),
-                Err(e) => Phase::Error(e),
-            };
-            if let Some(id) = next {
-                return iced::widget::operation::focus(id);
-            }
-        }
-
         (Modal::Rename(f), Msg::RenameInput(t)) => f.draft = t,
         (Modal::Rename(f), Msg::RenameRefresh(r)) => f.refresh = r,
         (Modal::Rename(f), Msg::RenameUseOwner) => f.draft.clear(),
@@ -243,7 +172,27 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
             shared.set_archived(&f.id, true);
             app.modal = Modal::None;
         }
-        (_, Msg::Restore(id)) => shared.set_archived(&id, false),
+        (_, Msg::Restore(id)) => {
+            shared.set_archived(&id, false);
+            app.snap = shared.snapshot();
+            if app.snap.data.archived().next().is_none() {
+                app.modal = Modal::None;
+            }
+            // It shows behind the list, where it was.
+            return Task::done(Message::SelectAccount(id));
+        }
+        (Modal::Archived(f), Msg::RemoveArchived(id)) => {
+            if f.confirm_remove.as_deref() == Some(id.as_str()) {
+                shared.remove_account(&id);
+                app.snap = shared.snapshot();
+                f.confirm_remove = None;
+                if app.snap.data.archived().next().is_none() {
+                    app.modal = Modal::None;
+                }
+            } else {
+                f.confirm_remove = Some(id);
+            }
+        }
         (Modal::Rename(f), Msg::Remove) => {
             if f.confirm_remove {
                 shared.remove_account(&f.id);
@@ -350,17 +299,22 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
 pub fn view<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
     match &ctx.app.modal {
         Modal::None => None,
-        Modal::Add(f) => Some(add(ctx, f)),
+        Modal::Add(w) => Some(super::add::view(ctx, w)),
         Modal::Rename(f) => ctx.app.snap.data.account(&f.id).map(|a| rename(ctx, f, a)),
         Modal::Alerts(f) => ctx.app.snap.data.account(&f.id).map(|a| alerts(ctx, f, a)),
         Modal::Settings(f) => Some(settings(ctx, f)),
+        Modal::Archived(f) => Some(archived(ctx, f)),
+        Modal::Export(f) => Some(super::transfer::export_view(ctx, f)),
+        Modal::Import(f) => Some(super::transfer::import_view(ctx, f)),
+        Modal::Group(f) => Some(super::home::group_view(ctx, f)),
+        Modal::GroupLines(f) => Some(super::home::lines_view(ctx, f)),
     }
 }
 
 // ---------------------------------------------------------------------------------------
 // Frame
 
-fn dialog<'a>(ctx: &Ctx<'a>, width: f32, kicker: String, title: String, close: Option<Message>, body: El<'a>, foot: El<'a>) -> El<'a> {
+pub(super) fn dialog<'a>(ctx: &Ctx<'a>, width: f32, kicker: String, title: String, close: Option<Message>, body: El<'a>, foot: El<'a>) -> El<'a> {
     let p = ctx.p;
     let close = close.map(|close| {
         Element::from(button(container(ctx.icon(Icon::Close, 16.0, p.tx)).center(Length::Fill)).width(32).height(32).padding(0).style(theme::ghost(p.tx, p.sf, 9.0)).on_press(close))
@@ -375,7 +329,7 @@ fn dialog<'a>(ctx: &Ctx<'a>, width: f32, kicker: String, title: String, close: O
         .spacing(16);
     // The body scrolls so the footer stays visible.
     let room = (ctx.app.main_size.height - 48.0 - 40.0 - 150.0).max(160.0);
-    let body = container(super::smooth::smooth(scrollable(container(body).padding([18, 22])).style(theme::scroller(p)).height(Length::Shrink))).max_height(room);
+    let body = container(super::smooth::smooth(scrollable(container(body).padding([18, 22])).id(BODY).style(theme::scroller(p)).height(Length::Shrink))).max_height(room);
     container(column![container(head).padding(super::pad4(18.0, 22.0, 14.0, 22.0)), hline(p.dv, 2.0), body, hline(p.dv, 2.0), container(foot).padding([14, 22])])
         .width(width)
         .max_height(720)
@@ -384,11 +338,17 @@ fn dialog<'a>(ctx: &Ctx<'a>, width: f32, kicker: String, title: String, close: O
         .into()
 }
 
-fn label<'a>(ctx: &Ctx<'a>, text: &str) -> El<'a> {
+/// Scrolls a dialog back to its top. iced keeps a scroll position for whatever dialog takes
+/// the same place, so one that opens or moves to its next step starts where the last one was.
+pub fn top() -> Task<Message> {
+    iced::widget::operation::snap_to(BODY, iced::widget::operation::RelativeOffset::START)
+}
+
+pub(super) fn label<'a>(ctx: &Ctx<'a>, text: &str) -> El<'a> {
     container(ctx.muted(text.to_string(), 12.0)).width(Length::Fill).align_x(ctx.start()).into()
 }
 
-fn notice<'a>(ctx: &Ctx<'a>, e: &FetchError, carrier: Carrier) -> El<'a> {
+pub(super) fn notice<'a>(ctx: &Ctx<'a>, e: &FetchError, carrier: Carrier) -> El<'a> {
     let p = ctx.p;
     let text = column![ctx.bold(i18n::error_title(e, ctx.lang), 14.0), ctx.body(i18n::error_text(e, carrier, ctx.clock, ctx.lang), 13.0)].spacing(2).align_x(ctx.start()).width(Length::Fill);
     container(ctx.row(vec![ctx.icon(Icon::Warning, 18.0, p.danger), text.into()]).spacing(12).align_y(Alignment::Start))
@@ -398,7 +358,7 @@ fn notice<'a>(ctx: &Ctx<'a>, e: &FetchError, carrier: Carrier) -> El<'a> {
 }
 
 /// A read-only box shaped like a field (owner name).
-fn readout<'a>(ctx: &Ctx<'a>, text: String, highlight: bool, check: bool) -> El<'a> {
+pub(super) fn readout<'a>(ctx: &Ctx<'a>, text: String, highlight: bool, check: bool) -> El<'a> {
     let p = ctx.p;
     let mut items = vec![container(ctx.text(text, 14.0, if highlight { Weight::Semibold } else { Weight::Normal }, if highlight { p.tx } else { p.mu })).width(Length::Fill).align_x(ctx.start()).into()];
     if check {
@@ -413,175 +373,6 @@ fn readout<'a>(ctx: &Ctx<'a>, text: String, highlight: bool, check: bool) -> El<
 }
 
 // ---------------------------------------------------------------------------------------
-// Add a number
-
-fn add<'a>(ctx: &Ctx<'a>, f: &'a AddForm) -> El<'a> {
-    let p = ctx.p;
-    let s = ctx.s;
-    let ar = ctx.rtl();
-    let verifying = matches!(f.phase, Phase::Verifying);
-    let verified = matches!(f.phase, Phase::Verified(_));
-    let error = match &f.phase {
-        Phase::Error(e) => Some(e),
-        _ => None,
-    };
-    let carrier_name = i18n::carrier_name(f.carrier, ctx.lang);
-    let app_name = i18n::carrier_app(f.carrier, ctx.lang);
-
-    // Only carriers that work.
-    let carriers: Vec<El<'a>> = Carrier::ALL
-        .into_iter()
-        .filter(|c| c.is_supported())
-        .map(|c| {
-            let on = c == f.carrier;
-            let t = crate::assets::tile(c);
-            let content = ctx.row(vec![tile(c, 24.0, t.small, 7.0, false), ctx.text(i18n::carrier_name(c, ctx.lang), 13.0, Weight::Semibold, p.tx).into()]).spacing(8);
-            let b = button(content)
-                .width(Length::Fill)
-                .padding([7, 8])
-                .style(move |_, status| {
-                    let hovered = matches!(status, button::Status::Hovered);
-                    button::Style {
-                        background: (on || hovered).then_some(iced::Background::Color(p.sf)),
-                        border: theme::border(if on { p.ac } else { p.dv }, 2.0, 9.0),
-                        text_color: p.tx,
-                        ..Default::default()
-                    }
-                })
-                .on_press_maybe((!verifying).then_some(Message::Modal(Msg::AddCarrier(c))));
-            container(container(b).padding(super::pad4(8.0, 0.0, 0.0, 0.0))).width(Length::FillPortion(1)).into()
-        })
-        .collect();
-
-    // Unsupported line types are disabled, with a tooltip.
-    let soon = |l: LineType| match (f.carrier, l) {
-        (Carrier::We, LineType::Mobile) => Some(s.we_mobile_soon),
-        (Carrier::Vodafone, LineType::Landline) => Some(s.vf_dsl_soon),
-        _ => None,
-    };
-    let line_seg = ctx.segmented_tips(
-        [(LineType::Mobile, s.mobile), (LineType::Landline, s.landline)]
-            .into_iter()
-            .map(|(l, label)| (label.to_string(), f.line == l, (f.carrier.supports_line(l) && !verifying).then_some(Message::Modal(Msg::AddLine(l))), soon(l)))
-            .collect(),
-        38.0,
-        13.0,
-    );
-    // Orange home internet signs in with the My Orange number, then Orange names the landline.
-    let signs_in_elsewhere = f.carrier.sign_in_line(f.line) != f.line;
-    let placeholder = match (f.carrier.sign_in_line(f.line), f.carrier) {
-        (LineType::Landline, _) => "02 2345 6789",
-        (LineType::Mobile, Carrier::Orange) => "012 3456 7890",
-        (LineType::Mobile, _) => "010 1234 5678",
-    };
-    let number_label = match (signs_in_elsewhere, ar) {
-        (true, true) => format!("رقم {app_name}"),
-        (true, false) => format!("{app_name} number"),
-        (false, _) => s.number.to_string(),
-    };
-    let mut number = field(ctx, placeholder, &f.number, |t| Message::Modal(Msg::AddNumber(t)), false).font(crate::assets::numbers(Weight::Normal)).on_submit(Message::Modal(Msg::AddSubmit));
-    if verifying || verified {
-        number = text_input(placeholder, &f.number).padding([9, 10]).size(14).font(crate::assets::numbers(Weight::Normal)).style(theme::field(p, false));
-    }
-    let number = number.id(ADD_NUMBER);
-    let pair = ctx.row(vec![
-        column![label(ctx, s.line_type), gap(6.0), container(line_seg).width(Length::Shrink)].width(Length::Shrink).into(),
-        column![label(ctx, &number_label), gap(6.0), number].width(Length::Fill).into(),
-    ])
-    .spacing(12)
-    .align_y(Alignment::Start);
-
-    let bad_password = error == Some(&FetchError::BadCredentials);
-    let mut password = text_input("", &f.password)
-        .id(ADD_PASSWORD)
-        .secure(!f.show_password)
-        .padding([9, 10])
-        .size(14)
-        .font(crate::assets::numbers(Weight::Normal))
-        .style(theme::field(p, bad_password))
-        .on_submit(Message::Modal(Msg::AddSubmit));
-    if !(verifying || verified) {
-        password = password.on_input(|t| Message::Modal(Msg::AddPassword(t)));
-    }
-    let eye = button(container(ctx.icon(if f.show_password { Icon::EyeOff } else { Icon::Eye }, 16.0, p.mu)).center(Length::Fill))
-        .width(38)
-        .height(38)
-        .padding(0)
-        .style(theme::ghost(p.mu, p.sf, 9.0))
-        .on_press(Message::Modal(Msg::AddShowPassword));
-    let hint = match (signs_in_elsewhere, ar) {
-        (true, true) => format!("الرقم وكلمة المرور اللذان تستخدمهما في {app_name}. يقرأ Klue الخط الأرضي المربوط بالحساب."),
-        (true, false) => format!("The number and password you use in {app_name}. Klue reads the landline linked to it."),
-        (false, true) => format!("نفس كلمة المرور المستخدمة في {app_name}."),
-        (false, false) => format!("The same password you use in {app_name}."),
-    };
-    let mut pass_col = column![label(ctx, s.password), gap(6.0), ctx.row(vec![password.into(), eye.into()]).spacing(6), gap(6.0), ctx.muted(hint, 12.0)].align_x(ctx.start());
-    if verifying {
-        pass_col = pass_col.push(gap(8.0)).push(ctx.meter(0.35, 3.0, p.ac));
-    }
-
-    let owner = match &f.phase {
-        Phase::Verified(u) => u.owner_name.clone().unwrap_or_else(|| s.owner_unknown.into()),
-        Phase::Verifying => s.fetching.into(),
-        _ => s.auto_fill.into(),
-    };
-    let mut owner_label = vec![label(ctx, s.owner_name)];
-    if verified {
-        owner_label.push(container(ctx.text(s.from_account, 11.0, Weight::Semibold, p.ac_tx)).width(Length::Shrink).into());
-    }
-
-    let mut body = column![
-        column![label(ctx, s.carrier), ctx.row(carriers).spacing(6)].spacing(0),
-        pair,
-        pass_col,
-    ]
-    .spacing(16);
-    if let Some(e) = error {
-        body = body.push(notice(ctx, e, f.carrier));
-    }
-    body = body.push(column![ctx.row(owner_label), gap(6.0), readout(ctx, owner, verified, verified)]);
-    if signs_in_elsewhere
-        && let Phase::Verified(u) = &f.phase
-        && let Some(landline) = &u.info.number
-    {
-        body = body.push(column![label(ctx, s.landline_found), gap(6.0), readout(ctx, format::pretty_number(landline), true, true)]);
-    }
-    if verified {
-        body = body.push(column![
-            label(ctx, s.nick_optional),
-            gap(6.0),
-            field(ctx, s.nick_ph, &f.nickname, |t| Message::Modal(Msg::AddNickname(t)), false).on_submit(Message::Modal(Msg::AddSubmit)).id(ADD_NICKNAME)
-        ]);
-    }
-
-    let status = match &f.phase {
-        Phase::Verified(_) => format!("✓ {}", s.verified),
-        Phase::Verifying => {
-            if ar {
-                format!("جارٍ تسجيل الدخول إلى {carrier_name}…")
-            } else {
-                format!("Signing in to {carrier_name}…")
-            }
-        }
-        _ => String::new(),
-    };
-    let primary = match &f.phase {
-        Phase::Verified(_) => s.add_number,
-        Phase::Verifying => s.verifying,
-        Phase::Error(_) => s.try_again,
-        Phase::Form => s.verify,
-    };
-    let ready = !f.number.trim().is_empty() && !f.password.is_empty();
-    let foot = ctx.row(vec![
-        container(ctx.muted(status, 12.5)).width(Length::Fill).align_x(ctx.start()).into(),
-        ctx.outline(s.cancel, Some(Message::CloseModal)).into(),
-        ctx.primary(primary, (!verifying && (verified || ready)).then_some(Message::Modal(Msg::AddSubmit))).width(150).into(),
-    ])
-    .spacing(8);
-    dialog(ctx, 520.0, s.new_number.to_string(), s.add_title.to_string(), Some(Message::CloseModal), body.into(), foot.into())
-}
-
-// ---------------------------------------------------------------------------------------
 // Rename
 
 fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::Account) -> El<'a> {
@@ -590,7 +381,7 @@ fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::A
     let owner = account.owner_name.clone().unwrap_or_else(|| s.owner_unknown.into());
     let fallback = account.owner_name.clone().unwrap_or_else(|| account.pretty_number());
     let shown = if f.draft.trim().is_empty() { fallback } else { f.draft.clone() };
-    let icon = if account.line == LineType::Mobile { Icon::Mobile } else { Icon::Landline };
+    let icon = super::line_icon(account.line);
     let preview = container(
         ctx.row(vec![
             ctx.icon(icon, 16.0, p.tx),
@@ -614,6 +405,16 @@ fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::A
         34.0,
         12.5,
     );
+    let export = ctx
+        .row(vec![
+            container(ctx.muted(s.export_hint, 12.5)).width(Length::Fill).align_x(ctx.start()).into(),
+            button(ctx.text(s.export_number, 13.0, Weight::ExtraBold, p.tx))
+                .padding([4, 6])
+                .style(theme::ghost(p.tx, p.sf, 9.0))
+                .on_press(Message::OpenModal(ModalKind::Export(vec![f.id.clone()])))
+                .into(),
+        ])
+        .spacing(10);
     let archive = ctx
         .row(vec![
             container(ctx.muted(s.archive_hint, 12.5)).width(Length::Fill).align_x(ctx.start()).into(),
@@ -642,7 +443,7 @@ fn rename<'a>(ctx: &Ctx<'a>, f: &'a RenameForm, account: &'a klue_core::store::A
         .align_x(ctx.start()),
         column![label(ctx, s.shown_as), gap(6.0), container(preview).width(Length::Fill).align_x(ctx.start())],
         column![label(ctx, s.check_number_every), gap(6.0), container(every).width(Length::Shrink), gap(6.0), ctx.muted(s.check_number_hint, 12.0)].align_x(ctx.start()),
-        column![hline(p.dvs, 1.0), gap(12.0), archive, gap(12.0), danger],
+        column![hline(p.dvs, 1.0), gap(12.0), export, gap(12.0), archive, gap(12.0), danger],
     ]
     .spacing(16);
     let foot = ctx.row(vec![
@@ -833,13 +634,10 @@ fn settings<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
             hline(p.dvs, 1.0)
         ],
         all_alerts(ctx, f),
+        super::transfer::settings_section(ctx),
+        about(ctx),
     ]
     .spacing(16);
-    let body = match archived(ctx) {
-        Some(list) => body.push(list),
-        None => body,
-    };
-    let body = body.push(about(ctx));
     let foot = ctx.row(vec![container(ctx.muted(s.disclaimer, 11.5)).width(Length::Fill).align_x(ctx.start()).into(), ctx.primary(s.done, Some(Message::CloseModal)).into()]).spacing(12);
     dialog(ctx, 540.0, s.app.to_string(), s.settings_title.to_string(), Some(Message::CloseModal), body.into(), foot.into())
 }
@@ -885,32 +683,6 @@ fn all_alerts<'a>(ctx: &Ctx<'a>, f: &'a SettingsForm) -> El<'a> {
     .into()
 }
 
-/// Archived numbers, each with Restore. Nothing when there are none.
-fn archived<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
-    let p = ctx.p;
-    let s = ctx.s;
-    let rows: Vec<El<'a>> = ctx
-        .app
-        .snap
-        .data
-        .archived()
-        .map(|a| {
-            let t = crate::assets::tile(a.carrier);
-            let who = column![ctx.semi(a.display_name(), 13.5), ctx.num(a.pretty_number(), 11.5, Weight::Normal, p.mu)].spacing(0).align_x(ctx.start());
-            let row = ctx.row(vec![
-                super::tile(a.carrier, 28.0, t.small, 8.0, true),
-                container(who).width(Length::Fill).align_x(ctx.start()).into(),
-                ctx.outline(s.restore, Some(Message::Modal(Msg::Restore(a.id.clone())))).into(),
-            ]);
-            column![container(row.spacing(12)).padding([10, 0]), hline(p.dvs, 1.0)].into()
-        })
-        .collect();
-    if rows.is_empty() {
-        return None;
-    }
-    Some(column![ctx.caps(s.archived_title), gap(6.0), hline(p.dv, 2.0), ctx.muted(s.archived_hint, 12.0), column(rows)].spacing(6).align_x(ctx.start()).into())
-}
-
 /// Version, author, links and the update check.
 fn about<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let p = ctx.p;
@@ -950,6 +722,58 @@ fn about<'a>(ctx: &Ctx<'a>) -> El<'a> {
     ]
     .align_x(ctx.start())
     .into()
+}
+
+// ---------------------------------------------------------------------------------------
+// Archived numbers
+
+/// The numbers put away with Archive, each with Restore and Remove.
+fn archived<'a>(ctx: &Ctx<'a>, f: &'a ArchivedList) -> El<'a> {
+    let p = ctx.p;
+    let s = ctx.s;
+    let rows: Vec<El<'a>> = ctx
+        .app
+        .snap
+        .data
+        .archived()
+        .map(|a| {
+            let t = crate::assets::tile(a.carrier);
+            let what = format!("{} · {}", i18n::carrier_name(a.carrier, ctx.lang), i18n::line_name(a.line, ctx.lang));
+            let who = column![
+                ctx.semi(a.display_name(), 14.0),
+                ctx.num(a.pretty_number(), 12.0, Weight::Normal, p.mu),
+                ctx.muted(format!("{what} · {}", i18n::synced(a.updated_at(), ctx.now, ctx.lang)), 11.5),
+            ]
+            .spacing(1)
+            .align_x(ctx.start());
+            // A bin beside Restore; the first click turns it red and the second removes.
+            let confirming = f.confirm_remove.as_deref() == Some(a.id.as_str());
+            let bin = button(container(ctx.icon(Icon::Trash, 16.0, if confirming { Color::WHITE } else { p.danger })).center(Length::Fill))
+                .width(38)
+                .height(38)
+                .padding(0)
+                .style(move |_, status| {
+                    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                    let fill = if confirming { p.danger } else if hovered { theme::fade(p.danger, 0.12) } else { Color::TRANSPARENT };
+                    button::Style {
+                        background: Some(iced::Background::Color(fill)),
+                        border: theme::border(if confirming || hovered { p.danger } else { p.dv }, 2.0, 9.0),
+                        ..Default::default()
+                    }
+                })
+                .on_press(Message::Modal(Msg::RemoveArchived(a.id.clone())));
+            let actions = ctx
+                .row(vec![ctx.outline(s.restore, Some(Message::Modal(Msg::Restore(a.id.clone())))).into(), ctx.tip(bin, if confirming { s.remove_confirm } else { s.remove })])
+                .spacing(8);
+            let row = ctx
+                .row(vec![super::tile(a.carrier, 40.0, t.small * 1.35, 11.0, true), container(who).width(Length::Fill).align_x(ctx.start()).into(), actions.into()])
+                .spacing(14);
+            column![container(row).padding([12, 0]), hline(p.dvs, 1.0)].into()
+        })
+        .collect();
+    let body = column![ctx.muted(s.archived_hint, 13.0), column![hline(p.dvs, 1.0), column(rows)]].spacing(10).align_x(ctx.start());
+    let foot = ctx.row(vec![super::fill_x(), ctx.primary(s.done, Some(Message::CloseModal)).into()]);
+    dialog(ctx, 520.0, s.app.to_string(), s.archived_title.to_string(), Some(Message::CloseModal), body.into(), foot.into())
 }
 
 // ---------------------------------------------------------------------------------------

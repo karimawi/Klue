@@ -39,6 +39,8 @@ const CHANNEL_PASSWORD: &str = "ig3yh*mk5l42@oj7QAR8yF";
 /// How long Orange is left alone after its firewall rejects a request. Requests during a
 /// block extend it.
 pub const BLOCK_BACKOFF: Duration = Duration::from_secs(30 * 60);
+/// `ErrorCode` for "Sorry, your request couldn't be completed. Please try again later".
+const TRY_AGAIN: i64 = 8;
 /// Tokens are renewed this many seconds before they expire.
 const TOKEN_MARGIN: i64 = 60;
 const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
@@ -62,6 +64,7 @@ pub async fn fetch(line: LineType, number: &str, password: &str, ctx: &FetchCont
         let read = match line {
             LineType::Mobile => read_mobile(&client, &session, &dial, password, ctx).await,
             LineType::Landline => read_home_internet(&client, &session, &dial, password, ctx).await,
+            LineType::Voice => return Err(FetchError::Unsupported),
         };
         match read {
             // A kept token can stop working before it expires: sign in once more.
@@ -833,8 +836,16 @@ async fn read_home_internet(
         object(&fields)
     };
     let url = format!("{SERVICES}/APIs/DSL/Account/api/Profile/GetProfileInfo");
-    let v = post(client, &url, fields(None), headers(token, true), "home internet profile").await?;
+    let mut v = post(client, &url, fields(None), headers(token, true), "home internet profile").await?;
     ctx.dump("or-dsl-profile", &v);
+    // Orange sometimes answers this with code 8, "try again later", and a moment later with
+    // the landline. One more try is cheaper than a failed refresh.
+    if error_code(&v) == Some(TRY_AGAIN) {
+        tracing::info!("Orange said to try the home internet profile again");
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        v = post(client, &url, fields(None), headers(token, true), "home internet profile").await?;
+        ctx.dump("or-dsl-profile", &v);
+    }
     let landline = parse_landline(&v)?;
 
     let url = format!("{SERVICES}/APIs/DSL/Account/api/Consumption/GetConsumption");

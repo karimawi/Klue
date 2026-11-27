@@ -182,10 +182,21 @@ async fn main() {
             debug_dir: debug_root.as_ref().map(|d| d.join(&account.label)),
         };
         let started = Instant::now();
-        match carriers::fetch(account.carrier, account.line, &account.number, &account.password, &ctx).await {
+        match carriers::fetch(account.carrier, account.line, &account.number, None, &account.password, &ctx).await {
             Ok(usage) => {
                 println!("  ok in {:.1}s", started.elapsed().as_secs_f32());
                 report(&usage);
+                // The account's other lines, as the Add wizard offers them.
+                let own = carriers::line_number(account.carrier, account.line, &account.number, &usage).unwrap_or_else(|_| account.number.clone());
+                let others = carriers::other_lines(account.carrier, account.line, &account.number, &own, &account.password, &ctx).await;
+                if others.is_empty() {
+                    println!("  other lines: none");
+                }
+                for (line, other) in &others {
+                    let number = other.info.number.as_deref().map(short).unwrap_or_else(|| "—".into());
+                    println!("\n  -- other line: {line:?} {number}");
+                    report(other);
+                }
                 if let Some(expected) = &account.landline {
                     let found = carriers::line_number(account.carrier, account.line, &account.number, &usage);
                     let expected = format::normalize(expected, LineType::Landline);

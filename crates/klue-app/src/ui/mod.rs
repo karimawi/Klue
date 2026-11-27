@@ -1,12 +1,16 @@
 //! Views, drawn from [`App`] through a [`Ctx`] (palette, language, clock, RTL helpers).
 
+pub mod add;
 pub mod chart;
 pub mod console;
 pub mod dashboard;
 pub mod empty;
+pub mod home;
+pub mod min_height;
 pub mod modals;
 pub mod popup;
 pub mod smooth;
+pub mod transfer;
 pub mod window;
 
 use chrono::{DateTime, Utc};
@@ -17,7 +21,7 @@ use iced::{
     widget::{Row, Space, button, column, container, svg, text, tooltip},
 };
 use klue_core::{
-    Carrier,
+    Carrier, LineType,
     store::{Clock, Lang},
 };
 
@@ -279,6 +283,15 @@ pub fn tile<'a>(carrier: Carrier, size: f32, logo_size: f32, radius: f32, grey: 
             s
         })
         .into()
+}
+
+/// A line's icon: a phone, a router for home internet, or a handset for a landline.
+pub fn line_icon(line: LineType) -> Icon {
+    match line {
+        LineType::Mobile => Icon::Mobile,
+        LineType::Landline => Icon::Router,
+        LineType::Voice => Icon::Landline,
+    }
 }
 
 /// Klue's logo mark.

@@ -1,0 +1,43 @@
+{
+ "header": {
+  "retCode": "0",
+  "validateResults": []
+ },
+ "body": [
+  {
+   "tabId": "1",
+   "freeUnitType": "VOICE_CALLS_USAGE_PREPAID",
+   "freeUnitTypeName": "Minutes",
+   "tabName": "Minutes",
+   "measureUnit": "1004",
+   "offerName": "WE Ardy 40 Quarterly",
+   "total": 1800.0,
+   "used": 0.0,
+   "remain": 1800.0,
+   "actualRemain": 1800.0,
+   "effectiveTime": 1789220688000,
+   "expireTime": 1796940000000,
+   "groupOrder": "11",
+   "iconImage": "voice",
+   "freeUnitTypeId": "C_FV_Normal_VoiceI",
+   "originUnit": "1003",
+   "havePoint": false,
+   "freeUnitBeanDetailList": [
+    {
+     "initialAmount": 1800.0,
+     "currentAmount": 1800.0,
+     "measureUnit": "1004",
+     "effectiveTime": 1789220688000,
+     "expireTime": 1796940000000,
+     "expireTimeCz": 1790000000000,
+     "originType": "Your Main Bundle | On-net",
+     "offeringName": "WE Ardy 40 Quarterly",
+     "isGroup": false,
+     "serviceNumber": "223584417",
+     "itemCode": "C_FV_Normal_VoiceI",
+     "remainingDaysForRenewal": 15
+    }
+   ]
+  }
+ ]
+}

@@ -17,7 +17,7 @@ use iced::{
 };
 use klue_core::{
     Carrier,
-    store::{Account, Lang, Theme},
+    store::{Account, Card, Group, Lang, Theme},
 };
 use tokio::sync::oneshot;
 
@@ -53,12 +53,14 @@ impl CaptchaAsk {
     }
 }
 
-/// What can be dragged to a new place: a carrier in the rail, or a number among its
-/// carrier's tabs.
+/// What can be dragged to a new place: a carrier in the rail, a number among its carrier's
+/// tabs, a group among the home page's tabs, or a card in a group.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DragItem {
     Carrier(Carrier),
     Line(String),
+    Group(String),
+    Card(Card),
 }
 
 /// A drag in progress: `over` is where it would land.
@@ -96,6 +98,11 @@ pub enum Message {
 
     // Navigation and data.
     ShowMain(Option<String>),
+    /// The home page, and one of its groups.
+    ShowHome,
+    SelectGroup(String),
+    /// A home card's line, showing the card's bundle up top.
+    OpenCard(Card),
     /// The popup's settings button.
     PopupSettings,
     SelectCarrier(Carrier),
@@ -184,10 +191,19 @@ impl UpdateState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModalKind {
-    Add,
+    /// The Add wizard, from the kind of line when the carrier is given.
+    Add(Option<Carrier>),
     Rename(String),
     Alerts(String),
     Settings,
+    /// The numbers put away with Archive.
+    Archived,
+    /// Export these numbers to a file.
+    Export(Vec<String>),
+    /// Name a new home group (`None`), or rename or delete one.
+    Group(Option<String>),
+    /// Pick the lines a home group shows.
+    GroupLines(String),
 }
 
 pub struct App {
@@ -204,6 +220,9 @@ pub struct App {
     tray_lang: Lang,
     start_minimized: bool,
     start_quick_view: bool,
+    /// The home page is shown instead of a carrier, and the group picked there.
+    pub home: bool,
+    pub group: String,
     /// The carrier shown, and the number picked per carrier.
     pub carrier: Carrier,
     pub selected: HashMap<Carrier, String>,
@@ -266,6 +285,10 @@ impl App {
     fn new(shared: Arc<Shared>, minimized: bool, quick_view: bool, debug: bool) -> (Self, Task<Message>) {
         let snap = shared.snapshot();
         let carrier = snap.data.carriers().into_iter().find(|c| snap.data.accounts_for(*c).next().is_some()).unwrap_or(Carrier::We);
+        // Home comes first once it has lines on it.
+        let groups = snap.data.groups();
+        let home = groups.iter().any(|g| !snap.data.group_cards(&g.id).is_empty());
+        let group = groups.first().map_or_else(|| Group::FIRST.to_string(), |g| g.id.clone());
         let tray_lang = snap.data.settings.lang;
         let app = Self {
             shared,
@@ -280,6 +303,8 @@ impl App {
             tray_lang,
             start_minimized: minimized,
             start_quick_view: quick_view,
+            home,
+            group,
             carrier,
             selected: HashMap::new(),
             hero: HashMap::new(),
@@ -314,6 +339,12 @@ impl App {
         Some(self.carrier).filter(has_numbers).or_else(|| data.carriers().into_iter().find(has_numbers))
     }
 
+    /// The home group shown: the picked one while it exists, else the first.
+    pub fn shown_group(&self) -> Group {
+        let data = &self.snap.data;
+        data.group(&self.group).unwrap_or_else(|| data.groups().remove(0))
+    }
+
     /// The shown account.
     pub fn current(&self) -> Option<&Account> {
         let data = &self.snap.data;
@@ -331,7 +362,8 @@ impl App {
     fn theme(&self, window: window::Id) -> iced::Theme {
         let popup = Some(window) == self.popup;
         let carrier = if popup { Carrier::We } else { self.shown_carrier().unwrap_or(Carrier::We) };
-        let p = crate::theme::palette(self.snap.data.settings.theme, carrier, popup);
+        // Home mixes carriers, so it doesn't take one's colours.
+        let p = crate::theme::palette(self.snap.data.settings.theme, carrier, popup || self.home);
         let base = if p.bg.r + p.bg.g + p.bg.b < 1.5 { iced::Theme::Dark } else { iced::Theme::Light };
         iced::Theme::custom("Klue", iced::theme::Palette { background: p.bg, text: p.tx, ..base.palette() })
     }
@@ -483,15 +515,33 @@ impl App {
             }
             Message::PopupSettings => {
                 let show = self.update(Message::ShowMain(None));
-                self.modal = Modal::open(ModalKind::Settings, &self.snap, self.shown_carrier().unwrap_or(Carrier::We));
+                self.modal = Modal::open(ModalKind::Settings, &self.snap);
                 show
             }
+            Message::ShowHome => {
+                self.home = true;
+                Task::none()
+            }
+            Message::SelectGroup(id) => {
+                self.home = true;
+                self.group = id;
+                Task::none()
+            }
+            Message::OpenCard(card) => {
+                match card.bundle {
+                    Some(key) => self.hero.insert(card.line.clone(), key),
+                    None => self.hero.remove(&card.line),
+                };
+                self.update(Message::SelectAccount(card.line))
+            }
             Message::SelectCarrier(carrier) => {
+                self.home = false;
                 self.carrier = carrier;
                 Task::none()
             }
             Message::SelectAccount(id) => {
                 if let Some(account) = self.snap.data.account(&id) {
+                    self.home = false;
                     self.carrier = account.carrier;
                     self.selected.insert(account.carrier, id);
                 }
@@ -503,7 +553,13 @@ impl App {
             }
             Message::DragOver(over) => {
                 if let Some(drag) = &mut self.drag
-                    && matches!((&drag.item, &over), (DragItem::Carrier(_), DragItem::Carrier(_)) | (DragItem::Line(_), DragItem::Line(_)))
+                    && matches!(
+                        (&drag.item, &over),
+                        (DragItem::Carrier(_), DragItem::Carrier(_))
+                            | (DragItem::Line(_), DragItem::Line(_))
+                            | (DragItem::Group(_), DragItem::Group(_))
+                            | (DragItem::Card(_), DragItem::Card(_))
+                    )
                 {
                     drag.over = over;
                 }
@@ -524,6 +580,22 @@ impl App {
                             self.shared.move_account(&id, &onto);
                         }
                         self.update(Message::SelectAccount(id))
+                    }
+                    (DragItem::Group(id), DragItem::Group(onto)) => {
+                        if id != onto {
+                            self.shared.update(|d| d.move_group(&id, &onto));
+                        }
+                        self.update(Message::SelectGroup(id))
+                    }
+                    // A card dropped where it was opens its line; one dropped elsewhere only moves,
+                    // so Home stays up.
+                    (DragItem::Card(card), DragItem::Card(onto)) => {
+                        if card.same(&onto) {
+                            return self.update(Message::OpenCard(card));
+                        }
+                        let group = self.shown_group().id;
+                        self.shared.update(|d| d.move_card(&group, &card, &onto));
+                        Task::none()
                     }
                     _ => Task::none(),
                 }
@@ -569,12 +641,20 @@ impl App {
             }
             Message::OpenModal(kind) => {
                 let first = match kind {
-                    ModalKind::Add => Some(ui::modals::ADD_NUMBER),
                     ModalKind::Rename(_) => Some(ui::modals::RENAME_INPUT),
+                    ModalKind::Export(_) => Some(ui::transfer::PASSPHRASE),
+                    ModalKind::Group(_) => Some(ui::home::GROUP_NAME),
                     _ => None,
                 };
-                self.modal = Modal::open(kind, &self.snap, self.shown_carrier().unwrap_or(Carrier::We));
-                first.map(operation::focus).unwrap_or_else(Task::none)
+                // A group's name is picked whole, so typing replaces it.
+                let pick = matches!(kind, ModalKind::Group(_));
+                self.modal = Modal::open(kind, &self.snap);
+                let focus = match first {
+                    Some(id) if pick => operation::focus(id).chain(operation::select_all(id)),
+                    Some(id) => operation::focus(id),
+                    None => Task::none(),
+                };
+                Task::batch([ui::modals::top(), focus])
             }
             Message::CloseModal => {
                 self.modal = Modal::None;

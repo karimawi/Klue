@@ -7,7 +7,7 @@ use chrono::{DateTime, Local, TimeZone, Timelike, Utc};
 use klue_core::{
     Bundle, BundleKind, BundleState, Carrier, FetchError, LineType, Unit, Usage,
     model::{LineInfo, Payment, PaymentKind, Speed},
-    store::{Account, AppData, BundleAlert, LeadUnit, RenewalReminder, ThresholdMode},
+    store::{Account, AppData, BundleAlert, Card, Group, LeadUnit, RenewalReminder, ThresholdMode},
 };
 
 /// Demo dates relative to now, as if today were 21 Nov 2026 10:00.
@@ -247,7 +247,16 @@ pub fn data() -> AppData {
             kept: Kept::Nothing,
         },
     ];
-    AppData { accounts: lines.into_iter().map(build).collect(), ..AppData::default() }
+    let accounts: Vec<Account> = lines.into_iter().map(build).collect();
+    let mains = |at: &[usize]| at.iter().map(|&i| Card::main(&accounts[i].id)).collect::<Vec<_>>();
+    // Home with every line and the second landline's minutes beside its internet, and a tab
+    // of two of the lines.
+    let minutes = accounts[1].usage.as_ref().and_then(|u| u.bundles.iter().find(|b| b.kind == K::Minutes)).map(|b| Card::bundle(&accounts[1].id, b));
+    let groups = vec![
+        Group { id: Group::FIRST.to_string(), name: None, cards: mains(&[0, 2, 3, 1]).into_iter().chain(minutes).collect() },
+        Group { id: "family".to_string(), name: Some("Family".to_string()), cards: mains(&[2, 3]) },
+    ];
+    AppData { accounts, groups, ..AppData::default() }
 }
 
 /// Fake sign-in. A password containing "wrong" fails. An Orange home internet line names a
@@ -263,9 +272,18 @@ pub async fn verify(carrier: Carrier, line: LineType, number: &str, password: &s
         (Carrier::Orange, LineType::Landline) => ("Home Internet 660", "Home Internet 660", 500.0, 237.2, BundleKind::Data, "Home Internet 660", "Home Internet 660", None),
         _ => ("Flex 100", "فليكس 100", 30.0, 21.7, BundleKind::Data, "Mobile data", "Flex 100", Some("فليكس 100")),
     };
-    let number = if carrier.sign_in_line(line) == line { number.to_string() } else { "0227531146".to_string() };
-    if (carrier, line) == (Carrier::Orange, LineType::Mobile) {
-        return Ok(orange_units_line(number, renew));
+    // The line's own number: Orange names a made-up landline, WE a made-up mobile line, and a
+    // WE landline is the home internet's number.
+    let number = match (carrier, line) {
+        (Carrier::Orange, LineType::Landline) => "0227531146".to_string(),
+        (Carrier::We, LineType::Mobile) => "01501234567".to_string(),
+        _ => number.to_string(),
+    };
+    match (carrier, line) {
+        (Carrier::Orange, LineType::Mobile) => return Ok(orange_units_line(number, renew)),
+        (Carrier::We, LineType::Voice) => return Ok(we_landline(number, sub, renew)),
+        (Carrier::We, LineType::Mobile) => return Ok(we_mobile(number, sub, renew)),
+        _ => {}
     }
     Ok(Usage {
         owner_name: Some("Youssef Adel Mansour".into()),
@@ -301,6 +319,101 @@ pub async fn verify(carrier: Carrier, line: LineType, number: &str, password: &s
         },
         payments: Some(Vec::new()),
     })
+}
+
+/// Fake look for the account's other lines: every Orange account has both kinds, and every My
+/// WE account has home internet, a landline and a WE Mobile line.
+pub async fn other_lines(carrier: Carrier, line: LineType, number: &str) -> Vec<(LineType, Usage)> {
+    let kinds: &[LineType] = match carrier {
+        Carrier::Orange => &[LineType::Mobile, LineType::Landline],
+        Carrier::We => &[LineType::Landline, LineType::Voice, LineType::Mobile],
+        _ => &[],
+    };
+    let mut out = Vec::new();
+    for &other in kinds.iter().filter(|k| **k != line) {
+        if let Ok(usage) = verify(carrier, other, number, "demo").await {
+            out.push((other, usage));
+        }
+    }
+    out
+}
+
+/// A WE Ardy landline: quarterly minutes, some used.
+fn we_landline(number: String, sub: DateTime<Utc>, renew: DateTime<Utc>) -> Usage {
+    let minutes = Bundle {
+        key: "we-ardy-40-quarterly".into(),
+        kind: BundleKind::Minutes,
+        name: "WE Ardy 40 Quarterly".into(),
+        name_ar: None,
+        unit: Unit::Minutes,
+        total: 1800.0,
+        remaining: 1385.0,
+        starts_at: Some(sub),
+        expires_at: Some(renew),
+        state: BundleState::Active,
+        settle_by: None,
+    };
+    Usage {
+        owner_name: Some("Youssef Adel Mansour".into()),
+        package_name: Some("WE Ardy 40 - Quarterly".into()),
+        package_name_ar: Some("باقة WE أرضى 40 - الربع سنوية".into()),
+        balance_egp: Some(9.55),
+        owed_egp: None,
+        bundles: vec![minutes],
+        subscribed_at: Some(sub),
+        renews_at: Some(renew),
+        fetched_at: Utc::now(),
+        info: LineInfo {
+            plan: Some("WE Ardy prepaid FTTH - Quarterly".into()),
+            plan_ar: None,
+            speed: None,
+            payment: Some(PaymentKind::Prepaid),
+            status: Some("Active".into()),
+            number: Some(number),
+            since: Some(Utc::now() - chrono::Duration::days(3200)),
+            valid_until: None,
+        },
+        payments: Some(Vec::new()),
+    }
+}
+
+/// A WE Mobile line: a Nitro bundle on the 12 PT tariff.
+fn we_mobile(number: String, sub: DateTime<Utc>, renew: DateTime<Utc>) -> Usage {
+    let data = Bundle {
+        key: "nitro-prime-29".into(),
+        kind: BundleKind::Data,
+        name: "Nitro Prime 29".into(),
+        name_ar: None,
+        unit: Unit::Mb,
+        total: 1375.0,
+        remaining: 812.4,
+        starts_at: Some(sub),
+        expires_at: Some(renew),
+        state: BundleState::Active,
+        settle_by: None,
+    };
+    Usage {
+        owner_name: Some("Youssef Adel Mansour".into()),
+        package_name: Some("Nitro Prime 29".into()),
+        package_name_ar: None,
+        balance_egp: Some(3.25),
+        owed_egp: None,
+        bundles: vec![data],
+        subscribed_at: Some(sub),
+        renews_at: Some(renew),
+        fetched_at: Utc::now(),
+        info: LineInfo {
+            plan: Some("12 PT".into()),
+            plan_ar: Some("12 قرش".into()),
+            speed: None,
+            payment: Some(PaymentKind::Prepaid),
+            status: Some("Active".into()),
+            number: Some(number),
+            since: Some(Utc::now() - chrono::Duration::days(320)),
+            valid_until: None,
+        },
+        payments: Some(Vec::new()),
+    }
 }
 
 /// An Orange units line like FREEmax: Kart El Kebir units without a stated size, and a GO

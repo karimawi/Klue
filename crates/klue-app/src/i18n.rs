@@ -6,6 +6,8 @@ use klue_core::{
     store::{Clock, Lang},
 };
 
+use crate::product::Product;
+
 pub struct Strings {
     pub app: &'static str,
     pub light: &'static str,
@@ -16,6 +18,8 @@ pub struct Strings {
     pub add_number: &'static str,
     pub mobile: &'static str,
     pub landline: &'static str,
+    /// A home phone line (WE Ardy).
+    pub voice: &'static str,
     pub registered_to: &'static str,
     pub refresh: &'static str,
     pub rename: &'static str,
@@ -38,21 +42,13 @@ pub struct Strings {
     pub empty_body: &'static str,
     pub steps: [&'static str; 3],
     pub new_number: &'static str,
-    pub add_title: &'static str,
-    pub carrier: &'static str,
-    pub line_type: &'static str,
-    pub number: &'static str,
     pub password: &'static str,
     pub owner_name: &'static str,
     pub from_account: &'static str,
-    pub auto_fill: &'static str,
-    pub fetching: &'static str,
     pub nick_optional: &'static str,
     pub nick_ph: &'static str,
-    pub verify: &'static str,
     pub verifying: &'static str,
     pub cancel: &'static str,
-    pub verified: &'static str,
     pub try_again: &'static str,
     pub err_title: &'static str,
     pub rename_title: &'static str,
@@ -102,11 +98,14 @@ pub struct Strings {
     pub continue_: &'static str,
     pub already_added: &'static str,
     pub already_archived: &'static str,
-    /// Archiving: the Edit dialog, and the list in Settings.
+    /// Archiving: the Edit dialog, and the Archived button and dialog.
     pub archive: &'static str,
     pub archive_hint: &'static str,
     pub archived_title: &'static str,
     pub archived_hint: &'static str,
+    pub archived_rail: &'static str,
+    /// Beside one archived number in a list.
+    pub archived_note: &'static str,
     pub restore: &'static str,
     pub no_password: &'static str,
     pub quick_view: &'static str,
@@ -139,11 +138,72 @@ pub struct Strings {
     /// Line card: when a prepaid line expires unless recharged.
     pub valid_until: &'static str,
     pub owed_note: &'static str,
-    /// Add dialog tooltips for line types that aren't supported yet.
-    pub we_mobile_soon: &'static str,
-    pub vf_dsl_soon: &'static str,
-    /// Add dialog: the landline an Orange account is linked to.
-    pub landline_found: &'static str,
+    /// The Add wizard: its steps, their titles, and the sign-in fields.
+    pub wizard_steps: [&'static str; 4],
+    pub pick_carrier: &'static str,
+    pub pick_line: &'static str,
+    pub ready_to_add: &'static str,
+    pub soon: &'static str,
+    pub coming_soon: &'static str,
+    pub back: &'static str,
+    pub sign_in: &'static str,
+    pub signed_in: &'static str,
+    pub mobile_number: &'static str,
+    pub landline_number: &'static str,
+    pub area_code_hint: &'static str,
+    pub we_mobile_hint: &'static str,
+    /// Finish step: the account's other lines (Orange).
+    pub looking_for_lines: &'static str,
+    pub add_both: &'static str,
+    /// Export and import.
+    pub your_numbers: &'static str,
+    pub export_number: &'static str,
+    pub export_hint: &'static str,
+    pub export_numbers: &'static str,
+    pub export_numbers_hint: &'static str,
+    pub select_all: &'static str,
+    pub select_none: &'static str,
+    pub export_button: &'static str,
+    pub import_button: &'static str,
+    /// The home page and its groups.
+    pub home: &'static str,
+    pub my_lines: &'static str,
+    pub group: &'static str,
+    pub new_group: &'static str,
+    pub edit_group: &'static str,
+    pub group_name: &'static str,
+    pub group_ph: &'static str,
+    pub create: &'static str,
+    pub delete_group: &'static str,
+    pub delete_group_hint: &'static str,
+    pub add_lines: &'static str,
+    pub add_lines_hint: &'static str,
+    pub group_lines_title: &'static str,
+    pub group_lines_hint: &'static str,
+    pub group_empty: &'static str,
+    pub no_lines_yet: &'static str,
+    pub other_bundles: &'static str,
+    pub bundle_gone: &'static str,
+    pub import_numbers: &'static str,
+    pub import_hint: &'static str,
+    pub import_file: &'static str,
+    pub export_contents: &'static str,
+    pub with_passwords: &'static str,
+    pub with_passwords_hint: &'static str,
+    pub passphrase: &'static str,
+    pub passphrase_hint: &'static str,
+    pub import_passphrase_hint: &'static str,
+    pub save_file: &'static str,
+    pub saving: &'static str,
+    pub importing: &'static str,
+    pub devices_title: &'static str,
+    pub devices_body: &'static str,
+    pub line_new: &'static str,
+    pub line_here: &'static str,
+    pub line_no_password: &'static str,
+    pub line_unsupported: &'static str,
+    pub choose_file: &'static str,
+    pub import: &'static str,
     /// The package's line speed (WE).
     pub speed: &'static str,
     pub after_quota: &'static str,
@@ -229,16 +289,16 @@ pub struct Strings {
 
 pub static EN: Strings = Strings {
     app: "Klue", light: "Light", dark: "Dark", match_long: "Match carrier", add: "Add", settings: "Settings",
-    add_number: "Add number", mobile: "Mobile", landline: "DSL", registered_to: "Registered to", refresh: "Refresh",
+    add_number: "Add number", mobile: "Mobile", landline: "DSL", voice: "Landline", registered_to: "Registered to", refresh: "Refresh",
     rename: "Edit", alerts: "Alerts", package: "Package", below_alert: "Below alert", remaining: "remaining", change: "Change",
     next_renewal: "Next renewal", cycle: "Billing cycle", subscribed: "Subscribed", renews: "Renews", bundles: "Bundles & add-ons",
     col_bundle: "Bundle", col_rem: "Remaining", col_total: "Total", col_left: "Left", col_alert: "Alert", off: "Off",
-    empty_body: "Add a number and its account password. Klue signs in, reads the quota, and fills in the registered owner for you. Mobile lines and DSL both work.",
-    steps: ["Enter the number", "Enter the account password", "Owner name and quota load automatically"],
-    new_number: "New number", add_title: "Add a number", carrier: "Carrier", line_type: "Line type", number: "Number",
+    empty_body: "Add a number with the password of its carrier’s app. Klue signs in, reads the quota, and fills in the registered owner for you. Already using Klue on another computer? Import its numbers from a file.",
+    steps: ["Pick the carrier and the kind of line", "Sign in the way its app does", "The quota and the owner’s name load by themselves"],
+    new_number: "New number",
     password: "Account password", owner_name: "Owner name", from_account: "From the account",
-    auto_fill: "Filled in after the password is verified", fetching: "Reading account…", nick_optional: "Nickname (optional)",
-    nick_ph: "e.g. Home internet", verify: "Verify password", verifying: "Verifying…", cancel: "Cancel", verified: "Password verified",
+    nick_optional: "Nickname (optional)",
+    nick_ph: "e.g. Home internet", verifying: "Verifying…", cancel: "Cancel",
     try_again: "Try again", err_title: "Password not accepted", rename_title: "Edit number", nickname: "Nickname",
     nick_hint: "Only changes how the number appears in Klue.", shown_as: "Shown as", use_owner: "Use owner name", save: "Save",
     quota_alerts: "Quota alerts", renewal_reminder: "Renewal reminder", remind_me: "Remind me",
@@ -251,7 +311,7 @@ pub static EN: Strings = Strings {
     not_synced: "Not synced yet", syncing: "Syncing…", synced_now: "Synced just now", waiting_first_sync: "Waiting for the first sync…", owner_unknown: "Not provided by the carrier", remove: "Remove number",
     remove_hint: "Removes the number and its saved password from this computer.", remove_confirm: "Click again to remove",
     captcha_title: "Type the characters", captcha_body: "WE wants to check you’re human before signing in. Type the characters in the picture.",
-    captcha_ph: "Characters", continue_: "Continue", already_added: "This number is already in Klue.", already_archived: "This number is archived in Klue. Restore it from Settings.", archive: "Archive number", archive_hint: "Stops checking it and hides it. The password stays saved, and Settings can bring it back.", archived_title: "Archived numbers", archived_hint: "Klue doesn’t check these. Restore one to see it and check it again.", restore: "Restore",
+    captcha_ph: "Characters", continue_: "Continue", already_added: "This number is already in Klue.", already_archived: "This number is archived in Klue. Restore it from Archived.", archive: "Archive number", archive_hint: "Stops checking it and hides it. The password stays saved, and Archived in the sidebar brings it back.", archived_title: "Archived numbers", archived_hint: "Klue doesn’t check these. Restore one to see it and check it again.", archived_rail: "Archived", archived_note: "Archived", restore: "Restore",
     no_password: "The saved password is missing. Remove the number and add it again.",
     quick_view: "Quick view", refresh_all: "Refresh all", quit: "Quit Klue",
     tray_empty: "No numbers yet. Open Klue to add one.",
@@ -279,9 +339,68 @@ pub static EN: Strings = Strings {
     inactive: "Not active",
     valid_until: "Valid until",
     owed_note: "Your next recharge pays it first.",
-    we_mobile_soon: "WE mobile (015) lines are coming soon.",
-    vf_dsl_soon: "Vodafone DSL is coming soon.",
-    landline_found: "Linked landline",
+    wizard_steps: ["Carrier", "Line", "Sign in", "Finish"],
+    pick_carrier: "Which carrier is it?",
+    pick_line: "What kind of line?",
+    ready_to_add: "Ready to add",
+    soon: "Soon",
+    coming_soon: "Coming soon",
+    back: "Back",
+    sign_in: "Sign in",
+    signed_in: "Signed in",
+    mobile_number: "Mobile number",
+    landline_number: "Landline number",
+    area_code_hint: "With the area code, the way you sign in to My WE.",
+    we_mobile_hint: "WE Mobile lines are read through My WE: sign in with your home internet’s landline number, and Klue finds the mobile lines on the account.",
+    looking_for_lines: "Looking for other lines on this account…",
+    add_both: "Add both numbers",
+    your_numbers: "Your numbers",
+    export_number: "Export number",
+    export_hint: "Saves it to a file you can import on another computer.",
+    export_numbers: "Export numbers",
+    export_numbers_hint: "Several numbers, or all of them, in one file, to move them to another computer.",
+    select_all: "Select all",
+    select_none: "Select none",
+    export_button: "Export…",
+    import_button: "Import…",
+    home: "Home",
+    my_lines: "My lines",
+    group: "Group",
+    new_group: "New group",
+    edit_group: "Edit group",
+    group_name: "Group name",
+    group_ph: "e.g. Family",
+    create: "Create",
+    delete_group: "Delete group",
+    delete_group_hint: "Removes this tab from Home. Its lines stay in Klue.",
+    add_lines: "Add lines",
+    add_lines_hint: "Pick the lines to see here",
+    group_lines_title: "Lines on this tab",
+    group_lines_hint: "Switch on the lines to glance at here, from any carrier. A line shows its main bundle; switch on its other bundles to give each a card too.",
+    group_empty: "Nothing here yet. Add the lines you want to see at a glance, from any carrier.",
+    no_lines_yet: "Add a number first, then put it here.",
+    other_bundles: "Other bundles",
+    bundle_gone: "Not on this line right now",
+    import_numbers: "Import numbers",
+    import_hint: "From a file Klue exported on another computer.",
+    import_file: "Import from a file",
+    export_contents: "The file holds each number’s settings, its latest reading and its usage history.",
+    with_passwords: "Include the passwords",
+    with_passwords_hint: "Sealed with a passphrase you choose. Without them, a number has to be added on the other computer before its file is imported.",
+    passphrase: "Passphrase",
+    passphrase_hint: "At least 8 characters. You’ll type it when you import the file.",
+    import_passphrase_hint: "The one chosen when the file was exported.",
+    save_file: "Save file…",
+    saving: "Saving…",
+    importing: "Importing…",
+    devices_title: "Each computer signs in on its own",
+    devices_body: "Klue doesn’t put your data online, so every computer with a number signs in to the carrier and reads it by itself. The more computers check the same account, the more sign-ins the carrier sees, and the likelier it is to slow them down or block them for a while.",
+    line_new: "New on this computer",
+    line_here: "Already here: gets the file’s history",
+    line_no_password: "No password in the file: add it first, then import",
+    line_unsupported: "This version of Klue can’t read it",
+    choose_file: "Choose another file",
+    import: "Import",
     speed: "Speed",
     after_quota: "After the quota",
     main_quota: "The main quota",
@@ -353,17 +472,17 @@ pub static EN: Strings = Strings {
 
 pub static AR: Strings = Strings {
     app: "Klue", light: "فاتح", dark: "داكن", match_long: "ألوان الشركة", add: "إضافة", settings: "الإعدادات",
-    add_number: "إضافة رقم", mobile: "محمول", landline: "DSL", registered_to: "مسجّل باسم", refresh: "تحديث", rename: "تعديل",
+    add_number: "إضافة رقم", mobile: "محمول", landline: "DSL", voice: "أرضي", registered_to: "مسجّل باسم", refresh: "تحديث", rename: "تعديل",
     alerts: "التنبيهات", package: "الباقة", below_alert: "أقل من حد التنبيه", remaining: "متبقي", change: "تعديل",
     next_renewal: "التجديد القادم", cycle: "دورة الاشتراك", subscribed: "تاريخ الاشتراك", renews: "يتجدد", bundles: "الباقات والإضافات",
     col_bundle: "الباقة", col_rem: "المتبقي", col_total: "الإجمالي", col_left: "النسبة", col_alert: "التنبيه", off: "غير مفعّل",
-    empty_body: "أضف الرقم وكلمة مرور الحساب. يسجّل Klue الدخول ويقرأ الباقة ويملأ اسم صاحب الخط تلقائياً. يدعم خطوط المحمول وDSL.",
-    steps: ["أدخل الرقم", "أدخل كلمة مرور الحساب", "يظهر اسم صاحب الخط والرصيد تلقائياً"],
-    new_number: "رقم جديد", add_title: "إضافة رقم", carrier: "الشركة", line_type: "نوع الخط", number: "الرقم",
+    empty_body: "أضف الرقم بكلمة مرور تطبيق شركته. يسجّل Klue الدخول ويقرأ الباقة ويملأ اسم صاحب الخط تلقائياً. تستخدم Klue على جهاز آخر؟ استورد أرقامه من ملف.",
+    steps: ["اختر الشركة ونوع الخط", "سجّل الدخول كما في تطبيقها", "تظهر الباقة واسم صاحب الخط تلقائياً"],
+    new_number: "رقم جديد",
     password: "كلمة مرور الحساب", owner_name: "اسم صاحب الخط", from_account: "من بيانات الحساب",
-    auto_fill: "يُملأ تلقائياً بعد التحقق من كلمة المرور", fetching: "جارٍ قراءة الحساب…", nick_optional: "اسم مختصر (اختياري)",
-    nick_ph: "مثال: إنترنت البيت", verify: "تحقق من كلمة المرور", verifying: "جارٍ التحقق…", cancel: "إلغاء",
-    verified: "تم التحقق من كلمة المرور", try_again: "إعادة المحاولة", err_title: "كلمة المرور غير صحيحة",
+    nick_optional: "اسم مختصر (اختياري)",
+    nick_ph: "مثال: إنترنت البيت", verifying: "جارٍ التحقق…", cancel: "إلغاء",
+    try_again: "إعادة المحاولة", err_title: "كلمة المرور غير صحيحة",
     rename_title: "تعديل الرقم", nickname: "الاسم المختصر", nick_hint: "يغيّر طريقة ظهور الرقم في Klue فقط.",
     shown_as: "يظهر باسم", use_owner: "استخدام اسم صاحب الخط", save: "حفظ",
     quota_alerts: "تنبيهات الرصيد", renewal_reminder: "تذكير التجديد", remind_me: "ذكّرني قبل", before_renewal: "من التجديد",
@@ -376,7 +495,7 @@ pub static AR: Strings = Strings {
     not_synced: "لم يتم التحديث بعد", syncing: "جارٍ التحديث…", synced_now: "تم التحديث الآن", waiting_first_sync: "في انتظار أول تحديث…", owner_unknown: "لم توفره الشركة", remove: "حذف الرقم",
     remove_hint: "يحذف الرقم وكلمة المرور المحفوظة من هذا الجهاز.", remove_confirm: "اضغط مرة أخرى للحذف",
     captcha_title: "اكتب الحروف", captcha_body: "تريد وي التأكد من أنك لست برنامجاً قبل تسجيل الدخول. اكتب الحروف الظاهرة في الصورة.",
-    captcha_ph: "الحروف", continue_: "متابعة", already_added: "هذا الرقم مضاف بالفعل في Klue.", already_archived: "هذا الرقم مؤرشف في Klue. استعده من الإعدادات.", archive: "أرشفة الرقم", archive_hint: "يوقف تحديثه ويخفيه، وتبقى كلمة المرور محفوظة ويمكن استعادته من الإعدادات.", archived_title: "الأرقام المؤرشفة", archived_hint: "لا يحدّث Klue هذه الأرقام. استعد رقماً لتراه ويُحدَّث مرة أخرى.", restore: "استعادة",
+    captcha_ph: "الحروف", continue_: "متابعة", already_added: "هذا الرقم مضاف بالفعل في Klue.", already_archived: "هذا الرقم مؤرشف في Klue. استعده من «المؤرشفة».", archive: "أرشفة الرقم", archive_hint: "يوقف تحديثه ويخفيه، وتبقى كلمة المرور محفوظة ويمكن استعادته من «المؤرشفة» في الشريط الجانبي.", archived_title: "الأرقام المؤرشفة", archived_hint: "لا يحدّث Klue هذه الأرقام. استعد رقماً لتراه ويُحدَّث مرة أخرى.", archived_rail: "المؤرشفة", archived_note: "مؤرشف", restore: "استعادة",
     no_password: "كلمة المرور المحفوظة غير موجودة. احذف الرقم ثم أضفه مرة أخرى.",
     quick_view: "عرض سريع", refresh_all: "تحديث الكل", quit: "إغلاق Klue",
     tray_empty: "لا توجد أرقام بعد. افتح Klue لإضافة رقم.",
@@ -404,9 +523,68 @@ pub static AR: Strings = Strings {
     inactive: "غير مفعّلة",
     valid_until: "صالح حتى",
     owed_note: "يُخصم أولًا من الشحنة القادمة.",
-    we_mobile_soon: "خطوط وي المحمول (015) قريباً.",
-    vf_dsl_soon: "فودافون DSL قريباً.",
-    landline_found: "الخط الأرضي المربوط",
+    wizard_steps: ["الشركة", "نوع الخط", "تسجيل الدخول", "الإنهاء"],
+    pick_carrier: "ما شركة الخط؟",
+    pick_line: "ما نوع الخط؟",
+    ready_to_add: "جاهز للإضافة",
+    soon: "قريباً",
+    coming_soon: "قريباً",
+    back: "رجوع",
+    sign_in: "تسجيل الدخول",
+    signed_in: "تم تسجيل الدخول",
+    mobile_number: "رقم المحمول",
+    landline_number: "رقم الخط الأرضي",
+    area_code_hint: "مع كود المحافظة، كما تسجّل الدخول في My WE.",
+    we_mobile_hint: "يقرأ Klue خطوط وي موبايل من خلال My WE: سجّل الدخول برقم الخط الأرضي للإنترنت المنزلي، وسيجد Klue خطوط المحمول على الحساب.",
+    looking_for_lines: "جارٍ البحث عن خطوط أخرى على هذا الحساب…",
+    add_both: "إضافة الرقمين",
+    your_numbers: "أرقامك",
+    export_number: "تصدير الرقم",
+    export_hint: "يحفظه في ملف يمكنك استيراده على جهاز آخر.",
+    export_numbers: "تصدير الأرقام",
+    export_numbers_hint: "عدة أرقام أو كلها في ملف واحد، لنقلها إلى جهاز آخر.",
+    select_all: "تحديد الكل",
+    select_none: "إلغاء التحديد",
+    export_button: "تصدير…",
+    import_button: "استيراد…",
+    home: "الرئيسية",
+    my_lines: "خطوطي",
+    group: "مجموعة",
+    new_group: "مجموعة جديدة",
+    edit_group: "تعديل المجموعة",
+    group_name: "اسم المجموعة",
+    group_ph: "مثال: العائلة",
+    create: "إنشاء",
+    delete_group: "حذف المجموعة",
+    delete_group_hint: "يحذف هذا التبويب من الرئيسية، وتبقى خطوطه في Klue.",
+    add_lines: "إضافة خطوط",
+    add_lines_hint: "اختر الخطوط التي تراها هنا",
+    group_lines_title: "الخطوط في هذا التبويب",
+    group_lines_hint: "فعّل الخطوط التي تريد رؤيتها هنا من أي شركة. يظهر كل خط بباقته الرئيسية، وفعّل باقاته الأخرى لتظهر كل منها في بطاقة أيضاً.",
+    group_empty: "لا شيء هنا بعد. أضف الخطوط التي تريد رؤيتها في لمحة، من أي شركة.",
+    no_lines_yet: "أضف رقماً أولاً، ثم ضعه هنا.",
+    other_bundles: "باقات أخرى",
+    bundle_gone: "غير موجودة على الخط حالياً",
+    import_numbers: "استيراد أرقام",
+    import_hint: "من ملف صدّره Klue على جهاز آخر.",
+    import_file: "استيراد من ملف",
+    export_contents: "يحفظ الملف إعدادات كل رقم وآخر قراءة له وسجل استخدامه.",
+    with_passwords: "تضمين كلمات المرور",
+    with_passwords_hint: "تُحمى بعبارة مرور تختارها. بدونها، يجب إضافة الرقم على الجهاز الآخر قبل استيراد ملفه.",
+    passphrase: "عبارة المرور",
+    passphrase_hint: "8 أحرف على الأقل. ستكتبها عند استيراد الملف.",
+    import_passphrase_hint: "العبارة التي اختيرت عند تصدير الملف.",
+    save_file: "حفظ الملف…",
+    saving: "جارٍ الحفظ…",
+    importing: "جارٍ الاستيراد…",
+    devices_title: "كل جهاز يسجّل الدخول بنفسه",
+    devices_body: "لا يرفع Klue بياناتك إلى الإنترنت، لذا يسجّل كل جهاز عليه الرقم الدخول إلى الشركة ويقرأ بياناته بنفسه. كلما زادت الأجهزة التي تتابع الحساب نفسه زادت مرات تسجيل الدخول، وزادت فرصة أن تبطئها الشركة أو توقفها مؤقتاً.",
+    line_new: "جديد على هذا الجهاز",
+    line_here: "موجود بالفعل: يُضاف إليه سجل الملف",
+    line_no_password: "لا توجد كلمة مرور في الملف: أضفه أولاً ثم استورد الملف",
+    line_unsupported: "هذا الإصدار من Klue لا يقرؤه",
+    choose_file: "اختيار ملف آخر",
+    import: "استيراد",
     speed: "السرعة",
     after_quota: "بعد انتهاء الباقة",
     main_quota: "الباقة الرئيسية",
@@ -575,11 +753,149 @@ pub fn carrier_app(c: Carrier, lang: Lang) -> &'static str {
     }
 }
 
+/// A kind of line in the Add wizard: its name and what it is.
+pub fn product(p: Product, lang: Lang) -> (&'static str, &'static str) {
+    use Product::*;
+    let (en, ar) = match p {
+        WeHomeInternet => (("Home internet", "Your home internet quota (ADSL or VDSL)"), ("الإنترنت المنزلي", "باقة الإنترنت المنزلي (ADSL أو VDSL)")),
+        WeOneHome => (("OneHome", "Home internet and Ardy on one account"), ("وان هوم", "الإنترنت المنزلي والأرضي على حساب واحد")),
+        WeArdy => (("Ardy landline", "Your home phone line"), ("الأرضي", "خط التليفون المنزلي")),
+        WeMobile => (("WE Mobile", "Mobile minutes and internet"), ("وي موبايل", "دقائق وإنترنت المحمول")),
+        WeAir => (("WE Air", "4G home internet"), ("وي إير", "إنترنت منزلي 4G")),
+        WeGold => (("WE Gold", "Mobile minutes, home internet or WE Air"), ("وي جولد", "دقائق المحمول أو الإنترنت المنزلي أو وي إير")),
+        VfMobile => (("Mobile", "Your Vodafone mobile line"), ("المحمول", "خط فودافون المحمول")),
+        VfHomeInternet => (("Home internet", "Vodafone home internet (DSL)"), ("الإنترنت المنزلي", "إنترنت فودافون المنزلي (DSL)")),
+        VfUsb => (("USB and Mobile Wi‑Fi", "Mobile internet on a modem or router"), ("USB و Mobile Wi‑Fi", "إنترنت المحمول على مودم أو راوتر")),
+        OrMobile => (("Mobile", "Your Orange mobile line"), ("المحمول", "خط أورنج المحمول")),
+        OrHomeInternet => (("Home internet", "Orange home internet (DSL), through My Orange"), ("الإنترنت المنزلي", "إنترنت أورنج المنزلي (DSL) من خلال My Orange")),
+        EaMobile => (("Mobile", "Your e& mobile line"), ("المحمول", "خط إي آند المحمول")),
+        EaHomeInternet => (("Home internet", "e& home internet (DSL)"), ("الإنترنت المنزلي", "إنترنت إي آند المنزلي (DSL)")),
+    };
+    if is_ar(lang) { ar } else { en }
+}
+
+/// The sign-in step's title.
+pub fn sign_in_title(app: &str, lang: Lang) -> String {
+    if is_ar(lang) { format!("سجّل الدخول بحساب {app}") } else { format!("Sign in with {app}") }
+}
+
+/// The number a carrier's app signs in with, when it isn't the line's own.
+pub fn app_number(app: &str, lang: Lang) -> String {
+    if is_ar(lang) { format!("رقم {app}") } else { format!("{app} number") }
+}
+
+pub fn same_password(app: &str, lang: Lang) -> String {
+    if is_ar(lang) { format!("نفس كلمة المرور المستخدمة في {app}.") } else { format!("The same password you use in {app}.") }
+}
+
+/// Under the number of an Orange home internet line.
+pub fn linked_landline_hint(app: &str, lang: Lang) -> String {
+    if is_ar(lang) {
+        format!("رقم المحمول الذي يستخدمه حسابك في {app}. يقرأ Klue الخط الأرضي المربوط به.")
+    } else {
+        format!("The mobile number your {app} account uses. Klue reads the landline linked to it.")
+    }
+}
+
+pub fn signing_in(carrier: Carrier, lang: Lang) -> String {
+    let name = carrier_name(carrier, lang);
+    if is_ar(lang) { format!("جارٍ تسجيل الدخول إلى {name}…") } else { format!("Signing in to {name}…") }
+}
+
+/// The finish step's offer of the account's other line.
+pub fn also_has(line: LineType, lang: Lang) -> &'static str {
+    match (line, is_ar(lang)) {
+        (LineType::Landline, false) => "This account also has home internet",
+        (LineType::Mobile, false) => "This account also has a mobile line",
+        (LineType::Voice, false) => "This account also has a landline",
+        (LineType::Landline, true) => "هذا الحساب عليه إنترنت منزلي أيضاً",
+        (LineType::Mobile, true) => "هذا الحساب عليه خط محمول أيضاً",
+        (LineType::Voice, true) => "هذا الحساب عليه خط أرضي أيضاً",
+    }
+}
+
+/// Why an export file couldn't be used.
+pub fn transfer_error(e: &klue_core::transfer::TransferError, lang: Lang) -> &'static str {
+    use klue_core::transfer::TransferError as E;
+    match (e, is_ar(lang)) {
+        (E::NotAnExport, false) => "This isn’t a Klue export file.",
+        (E::TooNew, false) => "This file comes from a newer Klue. Update Klue, then import it.",
+        (E::WrongPassphrase, false) => "That passphrase doesn’t open the passwords.",
+        (E::Seal, false) => "The passwords couldn’t be sealed.",
+        (E::NotAnExport, true) => "هذا ليس ملف تصدير من Klue.",
+        (E::TooNew, true) => "هذا الملف من إصدار أحدث من Klue. حدّث Klue ثم استورده.",
+        (E::WrongPassphrase, true) => "عبارة المرور هذه لا تفتح كلمات المرور.",
+        (E::Seal, true) => "تعذّرت حماية كلمات المرور.",
+    }
+}
+
+/// Export: how many of the numbers go in the file.
+pub fn picked_of(picked: usize, of: usize, lang: Lang) -> String {
+    if is_ar(lang) { format!("تم تحديد {picked} من {of}") } else { format!("{picked} of {of} selected") }
+}
+
+pub fn saved_to(path: &str, lang: Lang) -> String {
+    if is_ar(lang) { format!("حُفظ في {path}") } else { format!("Saved to {path}") }
+}
+
+/// Under an export file's name.
+pub fn exported_on(at: DateTime<Utc>, version: &str, lang: Lang) -> String {
+    let day = date_short(at, lang);
+    if is_ar(lang) { format!("صُدّر في {day} من Klue {version}") } else { format!("Exported {day} from Klue {version}") }
+}
+
+/// "3 lines" under a group's name.
+pub fn lines_count(n: usize, lang: Lang) -> String {
+    match (lang, n) {
+        (Lang::En, 0) => "No lines".into(),
+        (Lang::En, 1) => "1 line".into(),
+        (Lang::En, n) => format!("{n} lines"),
+        (Lang::Ar, 0) => "لا خطوط".into(),
+        (Lang::Ar, 1) => "خط واحد".into(),
+        (Lang::Ar, 2) => "خطان".into(),
+        (Lang::Ar, 3..=10) => format!("{n} خطوط"),
+        (Lang::Ar, n) => format!("{n} خط"),
+    }
+}
+
+/// "Renews in 13 days" on a home card.
+pub fn renews_in(at: DateTime<Utc>, now: DateTime<Utc>, lang: Lang) -> String {
+    let days = (at - now).num_days().max(0);
+    match (lang, days) {
+        (Lang::En, 0) => "Renews today".into(),
+        (Lang::En, _) => format!("Renews in {}", count(days, Span::Day, lang)),
+        (Lang::Ar, 0) => "يتجدد اليوم".into(),
+        (Lang::Ar, _) => format!("يتجدد خلال {}", count(days, Span::Day, lang)),
+    }
+}
+
+/// "Ends in 5 days" on a home card for a bundle with its own end.
+pub fn ends_in(at: DateTime<Utc>, now: DateTime<Utc>, lang: Lang) -> String {
+    let days = (at - now).num_days().max(0);
+    match (lang, days) {
+        (Lang::En, 0) => "Ends today".into(),
+        (Lang::En, _) => format!("Ends in {}", count(days, Span::Day, lang)),
+        (Lang::Ar, 0) => "تنتهي اليوم".into(),
+        (Lang::Ar, _) => format!("تنتهي خلال {}", count(days, Span::Day, lang)),
+    }
+}
+
+/// The finish step's button for three numbers or more.
+pub fn add_numbers(n: usize, lang: Lang) -> String {
+    if is_ar(lang) { format!("إضافة {n} أرقام") } else { format!("Add {n} numbers") }
+}
+
+/// "388 units left".
+pub fn left(amount: &str, lang: Lang) -> String {
+    if is_ar(lang) { format!("متبقي {amount}") } else { format!("{amount} left") }
+}
+
 pub fn line_name(line: LineType, lang: Lang) -> &'static str {
     let s = strings(lang);
     match line {
         LineType::Mobile => s.mobile,
         LineType::Landline => s.landline,
+        LineType::Voice => s.voice,
     }
 }
 
@@ -858,6 +1174,13 @@ pub fn error_text(e: &FetchError, carrier: Carrier, c: Clock, lang: Lang) -> Str
                 format!("لا يوجد خط محمول من {name} على حساب {app} هذا. إن كان للإنترنت المنزلي فاختر DSL.")
             } else {
                 format!("This {app} account has no {name} mobile line. If it’s for home internet, choose DSL.")
+            }
+        }
+        FetchError::NoLine(LineType::Voice) => {
+            if ar {
+                format!("لا يوجد خط أرضي من {name} على حساب {app} هذا.")
+            } else {
+                format!("This {app} account has no {name} landline.")
             }
         }
         FetchError::NoLine(LineType::Landline) => {

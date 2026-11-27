@@ -35,13 +35,13 @@ pub fn view<'a>(ctx: &Ctx<'a>) -> El<'a> {
     let cta = button(ctx.row(vec![ctx.icon(Icon::Plus, 16.0, p.on), ctx.text(cta, 14.0, Weight::ExtraBold, p.on).into()]).spacing(10))
         .padding([11, 16])
         .style(theme::primary(p))
-        .on_press(Message::OpenModal(ModalKind::Add));
+        .on_press(Message::OpenModal(ModalKind::Add(None)));
     let inner = column![
         ctx.kicker(s.empty_kicker),
         ctx.bold(title, 44.0).line_height(1.1),
         ctx.muted(s.empty_body, 15.0).line_height(1.6),
         column![hline(p.dv, 2.0), ctx.row(steps).align_y(Alignment::Start), hline(p.dv, 2.0)],
-        cta,
+        ctx.row(vec![cta.into(), ctx.link(s.import_file, Message::Modal(super::modals::Msg::Transfer(super::transfer::Msg::Pick))).into()]).spacing(14),
     ]
     .spacing(18)
     .max_width(560)

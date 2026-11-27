@@ -30,20 +30,23 @@ impl Carrier {
         matches!(self, Carrier::We | Carrier::Vodafone | Carrier::Orange)
     }
 
-    /// Line types with a working client: WE home internet, Vodafone mobile, and Orange mobile
-    /// and home internet.
+    /// Line types with a working client: WE home internet, landlines and mobile lines,
+    /// Vodafone mobile, and Orange mobile and home internet.
     pub fn supports_line(self, line: LineType) -> bool {
         matches!(
             (self, line),
-            (Carrier::We, LineType::Landline) | (Carrier::Vodafone, LineType::Mobile) | (Carrier::Orange, _)
+            (Carrier::We, _) | (Carrier::Vodafone, LineType::Mobile) | (Carrier::Orange, LineType::Mobile | LineType::Landline)
         )
     }
 
     /// The kind of number a line signs in with. Orange home internet signs in with the
-    /// account's My Orange (mobile) number, and Orange then names the linked landline.
+    /// account's My Orange (mobile) number, and Orange then names the linked landline. WE's
+    /// landlines and mobile lines are read through the My WE account of the home internet,
+    /// which signs in with its landline number.
     pub fn sign_in_line(self, line: LineType) -> LineType {
         match self {
             Carrier::Orange => LineType::Mobile,
+            Carrier::We => LineType::Landline,
             _ => line,
         }
     }
@@ -60,7 +63,10 @@ impl Carrier {
 #[serde(rename_all = "lowercase")]
 pub enum LineType {
     Mobile,
+    /// Home internet on a landline (DSL or fibre).
     Landline,
+    /// A home phone line's calls (WE Ardy). Its number can be the same as the home internet's.
+    Voice,
 }
 
 /// The unit the carrier uses for a bucket. Amounts stay in it, so "992 MB" doesn't turn
