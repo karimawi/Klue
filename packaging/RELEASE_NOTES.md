@@ -1,10 +1,11 @@
-Klue keeps the quota, balance and renewal date of your Egyptian telecom lines in one window, and tells you before anything runs out. It works with WE home internet (DSL), Vodafone mobile, and Orange mobile and home internet (DSL) lines.
+Klue keeps the quota, balance and renewal date of your Egyptian telecom lines in one window, and tells you before anything runs out. It works with WE home internet (DSL), landlines and WE Mobile, Vodafone mobile, and Orange mobile and home internet (DSL) lines.
 
 This is a beta. If something looks off, please open an issue.
 
 ## New in 0.5.0
-- Adding a number is a step-by-step wizard: pick the carrier and the kind of line, then sign in the way its app does. Lines Klue can't read yet (WE OneHome, Ardy, WE Mobile, WE Air and WE Gold; Vodafone home internet and USB; e&) show as coming soon
-- Signing in to an Orange account finds its other line too, and offers to add the home internet linked to a mobile number, or the mobile line behind a home internet account
+- WE landlines (Ardy) and WE Mobile lines: their minutes, their bundles, balance and recharges, read through the My WE account of your home internet
+- Adding a number is a step-by-step wizard: pick the carrier and the kind of line, then sign in the way its app does. Lines Klue can't read yet (WE Air and WE Gold; Vodafone home internet and USB; e&) show as coming soon
+- Signing in to a WE or Orange account finds its other lines too, and offers to add them: a WE account's landline and mobile lines, the home internet linked to an Orange mobile number, or the mobile line behind an Orange home internet account
 - Export numbers to a file, one from its Edit dialog or several at once from Settings, with their settings, usage history and, if you like, their passwords sealed with a passphrase. Import the file on another computer to pick up where you left off
 - Archived numbers have their own button under Add, and a bin beside Restore removes one
 - Dialogs open at the top instead of where the last one was scrolled to
