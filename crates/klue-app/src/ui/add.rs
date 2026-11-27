@@ -6,7 +6,7 @@
 use iced::{
     Alignment, Background, Color, Length, Task,
     font::Weight,
-    widget::{Space, button, column, container, operation, stack, text_input},
+    widget::{Space, button, column, container, operation, text_input},
 };
 use klue_core::{Carrier, FetchError, LineType, Usage, carriers, format};
 
@@ -286,8 +286,7 @@ pub fn view<'a>(ctx: &Ctx<'a>, w: &'a Wizard) -> El<'a> {
         Step::Carrier => s.new_number.to_string(),
         _ => format!("{} · {}", s.new_number, i18n::carrier_name(w.carrier, ctx.lang)),
     };
-    // The stack is as tall as its tallest layer.
-    let body = column![stepper(ctx, w.step), stack![Space::new().width(Length::Fill).height(STEP_HEIGHT), body]].spacing(22);
+    let body = column![stepper(ctx, w.step), super::min_height::min_height(STEP_HEIGHT, body)].spacing(22);
     dialog(ctx, 580.0, kicker, title, Some(Message::CloseModal), body.into(), foot)
 }
 
