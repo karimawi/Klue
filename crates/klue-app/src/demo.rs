@@ -7,7 +7,7 @@ use chrono::{DateTime, Local, TimeZone, Timelike, Utc};
 use klue_core::{
     Bundle, BundleKind, BundleState, Carrier, FetchError, LineType, Unit, Usage,
     model::{LineInfo, Payment, PaymentKind, Speed},
-    store::{Account, AppData, BundleAlert, LeadUnit, RenewalReminder, ThresholdMode},
+    store::{Account, AppData, BundleAlert, Card, Group, LeadUnit, RenewalReminder, ThresholdMode},
 };
 
 /// Demo dates relative to now, as if today were 21 Nov 2026 10:00.
@@ -247,7 +247,16 @@ pub fn data() -> AppData {
             kept: Kept::Nothing,
         },
     ];
-    AppData { accounts: lines.into_iter().map(build).collect(), ..AppData::default() }
+    let accounts: Vec<Account> = lines.into_iter().map(build).collect();
+    let mains = |at: &[usize]| at.iter().map(|&i| Card::main(&accounts[i].id)).collect::<Vec<_>>();
+    // Home with every line and the second landline's minutes beside its internet, and a tab
+    // of two of the lines.
+    let minutes = accounts[1].usage.as_ref().and_then(|u| u.bundles.iter().find(|b| b.kind == K::Minutes)).map(|b| Card::bundle(&accounts[1].id, b));
+    let groups = vec![
+        Group { id: Group::FIRST.to_string(), name: None, cards: mains(&[0, 2, 3, 1]).into_iter().chain(minutes).collect() },
+        Group { id: "family".to_string(), name: Some("Family".to_string()), cards: mains(&[2, 3]) },
+    ];
+    AppData { accounts, groups, ..AppData::default() }
 }
 
 /// Fake sign-in. A password containing "wrong" fails. An Orange home internet line names a

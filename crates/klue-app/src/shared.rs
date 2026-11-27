@@ -361,7 +361,7 @@ impl Shared {
         {
             self.secrets.delete(account);
         }
-        self.update(|d| d.accounts.retain(|a| a.id != id));
+        self.update(|d| d.remove_account(id));
         self.save_vault_index();
     }
 

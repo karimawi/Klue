@@ -37,6 +37,8 @@ pub enum Modal {
     Archived(ArchivedList),
     Export(super::transfer::ExportForm),
     Import(super::transfer::ImportForm),
+    Group(super::home::GroupForm),
+    GroupLines(super::home::LinesPicker),
 }
 
 pub struct ArchivedList {
@@ -72,6 +74,7 @@ pub struct AlertsForm {
 pub enum Msg {
     Add(super::add::Msg),
     Transfer(super::transfer::Msg),
+    Home(super::home::Msg),
 
     RenameInput(String),
     RenameRefresh(Option<RefreshEvery>),
@@ -134,6 +137,8 @@ impl Modal {
             },
             ModalKind::Archived => Modal::Archived(ArchivedList { confirm_remove: None }),
             ModalKind::Export(ids) => Modal::Export(super::transfer::ExportForm::new(ids)),
+            ModalKind::Group(id) => Modal::Group(super::home::GroupForm::new(id, &snap.data)),
+            ModalKind::GroupLines(id) => Modal::GroupLines(super::home::LinesPicker::new(id, &snap.data)),
             ModalKind::Settings => {
                 let alerts = snap.data.settings.alerts;
                 Modal::Settings(SettingsForm {
@@ -150,6 +155,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
     let msg = match msg {
         Msg::Add(m) => return super::add::update(app, m),
         Msg::Transfer(m) => return super::transfer::update(app, m),
+        Msg::Home(m) => return super::home::update(app, m),
         other => other,
     };
     let shared = app.shared.clone();
@@ -300,6 +306,8 @@ pub fn view<'a>(ctx: &Ctx<'a>) -> Option<El<'a>> {
         Modal::Archived(f) => Some(archived(ctx, f)),
         Modal::Export(f) => Some(super::transfer::export_view(ctx, f)),
         Modal::Import(f) => Some(super::transfer::import_view(ctx, f)),
+        Modal::Group(f) => Some(super::home::group_view(ctx, f)),
+        Modal::GroupLines(f) => Some(super::home::lines_view(ctx, f)),
     }
 }
 

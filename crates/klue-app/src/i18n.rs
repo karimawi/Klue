@@ -165,6 +165,25 @@ pub struct Strings {
     pub select_none: &'static str,
     pub export_button: &'static str,
     pub import_button: &'static str,
+    /// The home page and its groups.
+    pub home: &'static str,
+    pub my_lines: &'static str,
+    pub group: &'static str,
+    pub new_group: &'static str,
+    pub edit_group: &'static str,
+    pub group_name: &'static str,
+    pub group_ph: &'static str,
+    pub create: &'static str,
+    pub delete_group: &'static str,
+    pub delete_group_hint: &'static str,
+    pub add_lines: &'static str,
+    pub add_lines_hint: &'static str,
+    pub group_lines_title: &'static str,
+    pub group_lines_hint: &'static str,
+    pub group_empty: &'static str,
+    pub no_lines_yet: &'static str,
+    pub other_bundles: &'static str,
+    pub bundle_gone: &'static str,
     pub import_numbers: &'static str,
     pub import_hint: &'static str,
     pub import_file: &'static str,
@@ -344,6 +363,24 @@ pub static EN: Strings = Strings {
     select_none: "Select none",
     export_button: "Export…",
     import_button: "Import…",
+    home: "Home",
+    my_lines: "My lines",
+    group: "Group",
+    new_group: "New group",
+    edit_group: "Edit group",
+    group_name: "Group name",
+    group_ph: "e.g. Family",
+    create: "Create",
+    delete_group: "Delete group",
+    delete_group_hint: "Removes this tab from Home. Its lines stay in Klue.",
+    add_lines: "Add lines",
+    add_lines_hint: "Pick the lines to see here",
+    group_lines_title: "Lines on this tab",
+    group_lines_hint: "Switch on the lines to glance at here, from any carrier. A line shows its main bundle; switch on its other bundles to give each a card too.",
+    group_empty: "Nothing here yet. Add the lines you want to see at a glance, from any carrier.",
+    no_lines_yet: "Add a number first, then put it here.",
+    other_bundles: "Other bundles",
+    bundle_gone: "Not on this line right now",
     import_numbers: "Import numbers",
     import_hint: "From a file Klue exported on another computer.",
     import_file: "Import from a file",
@@ -510,6 +547,24 @@ pub static AR: Strings = Strings {
     select_none: "إلغاء التحديد",
     export_button: "تصدير…",
     import_button: "استيراد…",
+    home: "الرئيسية",
+    my_lines: "خطوطي",
+    group: "مجموعة",
+    new_group: "مجموعة جديدة",
+    edit_group: "تعديل المجموعة",
+    group_name: "اسم المجموعة",
+    group_ph: "مثال: العائلة",
+    create: "إنشاء",
+    delete_group: "حذف المجموعة",
+    delete_group_hint: "يحذف هذا التبويب من الرئيسية، وتبقى خطوطه في Klue.",
+    add_lines: "إضافة خطوط",
+    add_lines_hint: "اختر الخطوط التي تراها هنا",
+    group_lines_title: "الخطوط في هذا التبويب",
+    group_lines_hint: "فعّل الخطوط التي تريد رؤيتها هنا من أي شركة. يظهر كل خط بباقته الرئيسية، وفعّل باقاته الأخرى لتظهر كل منها في بطاقة أيضاً.",
+    group_empty: "لا شيء هنا بعد. أضف الخطوط التي تريد رؤيتها في لمحة، من أي شركة.",
+    no_lines_yet: "أضف رقماً أولاً، ثم ضعه هنا.",
+    other_bundles: "باقات أخرى",
+    bundle_gone: "غير موجودة على الخط حالياً",
     import_numbers: "استيراد أرقام",
     import_hint: "من ملف صدّره Klue على جهاز آخر.",
     import_file: "استيراد من ملف",
@@ -787,6 +842,42 @@ pub fn saved_to(path: &str, lang: Lang) -> String {
 pub fn exported_on(at: DateTime<Utc>, version: &str, lang: Lang) -> String {
     let day = date_short(at, lang);
     if is_ar(lang) { format!("صُدّر في {day} من Klue {version}") } else { format!("Exported {day} from Klue {version}") }
+}
+
+/// "3 lines" under a group's name.
+pub fn lines_count(n: usize, lang: Lang) -> String {
+    match (lang, n) {
+        (Lang::En, 0) => "No lines".into(),
+        (Lang::En, 1) => "1 line".into(),
+        (Lang::En, n) => format!("{n} lines"),
+        (Lang::Ar, 0) => "لا خطوط".into(),
+        (Lang::Ar, 1) => "خط واحد".into(),
+        (Lang::Ar, 2) => "خطان".into(),
+        (Lang::Ar, 3..=10) => format!("{n} خطوط"),
+        (Lang::Ar, n) => format!("{n} خط"),
+    }
+}
+
+/// "Renews in 13 days" on a home card.
+pub fn renews_in(at: DateTime<Utc>, now: DateTime<Utc>, lang: Lang) -> String {
+    let days = (at - now).num_days().max(0);
+    match (lang, days) {
+        (Lang::En, 0) => "Renews today".into(),
+        (Lang::En, _) => format!("Renews in {}", count(days, Span::Day, lang)),
+        (Lang::Ar, 0) => "يتجدد اليوم".into(),
+        (Lang::Ar, _) => format!("يتجدد خلال {}", count(days, Span::Day, lang)),
+    }
+}
+
+/// "Ends in 5 days" on a home card for a bundle with its own end.
+pub fn ends_in(at: DateTime<Utc>, now: DateTime<Utc>, lang: Lang) -> String {
+    let days = (at - now).num_days().max(0);
+    match (lang, days) {
+        (Lang::En, 0) => "Ends today".into(),
+        (Lang::En, _) => format!("Ends in {}", count(days, Span::Day, lang)),
+        (Lang::Ar, 0) => "تنتهي اليوم".into(),
+        (Lang::Ar, _) => format!("تنتهي خلال {}", count(days, Span::Day, lang)),
+    }
 }
 
 /// The finish step's button for three numbers or more.

@@ -107,6 +107,8 @@ pub enum Icon {
     Clock,
     ChevronLeft,
     ChevronRight,
+    ChevronDown,
+    ChevronUp,
     Info,
     Download,
     Terminal,
@@ -144,6 +146,8 @@ const fn source(icon: Icon) -> &'static str {
         Icon::Receipt => r##"<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/></svg>"##,
         Icon::ChevronLeft => r##"<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>"##,
         Icon::ChevronRight => r##"<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>"##,
+        Icon::ChevronDown => r##"<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>"##,
+        Icon::ChevronUp => r##"<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>"##,
         Icon::Info => r##"<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>"##,
         Icon::Download => r##"<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>"##,
         Icon::Terminal => r##"<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg>"##,
@@ -160,7 +164,7 @@ const fn source(icon: Icon) -> &'static str {
     }
 }
 
-const ALL: [Icon; 34] = [
+const ALL: [Icon; 36] = [
     Icon::Refresh,
     Icon::Pencil,
     Icon::Bell,
@@ -183,6 +187,8 @@ const ALL: [Icon; 34] = [
     Icon::Clock,
     Icon::ChevronLeft,
     Icon::ChevronRight,
+    Icon::ChevronDown,
+    Icon::ChevronUp,
     Icon::Info,
     Icon::Download,
     Icon::Terminal,

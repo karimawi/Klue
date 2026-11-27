@@ -435,11 +435,69 @@ pub struct AppData {
     pub version: u32,
     pub settings: Settings,
     pub accounts: Vec<Account>,
+    /// The home page's tabs; see [`AppData::groups`].
+    pub groups: Vec<Group>,
 }
 
 impl Default for AppData {
     fn default() -> Self {
-        Self { version: 1, settings: Settings::default(), accounts: Vec::new() }
+        Self { version: 1, settings: Settings::default(), accounts: Vec::new(), groups: Vec::new() }
+    }
+}
+
+/// A tab on the home page: cards to glance at together.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Group {
+    pub id: String,
+    /// `None` until it's renamed; the app names it ("My lines").
+    #[serde(default)]
+    pub name: Option<String>,
+    /// In the order they show.
+    #[serde(default)]
+    pub cards: Vec<Card>,
+}
+
+impl Group {
+    /// The id of the group there is before any is made.
+    pub const FIRST: &'static str = "home";
+
+    fn first() -> Self {
+        Self { id: Self::FIRST.into(), name: None, cards: Vec::new() }
+    }
+
+    pub fn has(&self, card: &Card) -> bool {
+        self.cards.iter().any(|c| c.same(card))
+    }
+}
+
+/// A card on a home tab: a number and one of its bundles. A number can have a card for each.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Card {
+    /// The account's id.
+    pub line: String,
+    /// A bundle's key, or `None` for the main bundle, whichever that is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle: Option<String>,
+    /// The bundle's names when it was picked, for when the carrier stops listing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_ar: Option<String>,
+}
+
+impl Card {
+    /// A number's main bundle, whichever it is.
+    pub fn main(line: &str) -> Self {
+        Self { line: line.into(), bundle: None, name: None, name_ar: None }
+    }
+
+    pub fn bundle(line: &str, bundle: &Bundle) -> Self {
+        Self { line: line.into(), bundle: Some(bundle.key.clone()), name: Some(bundle.name.clone()), name_ar: bundle.name_ar.clone() }
+    }
+
+    /// Whether both show the same number's same bundle.
+    pub fn same(&self, other: &Card) -> bool {
+        self.line == other.line && self.bundle == other.bundle
     }
 }
 
@@ -500,6 +558,99 @@ impl AppData {
 
     pub fn account_mut(&mut self, id: &str) -> Option<&mut Account> {
         self.accounts.iter_mut().find(|a| a.id == id)
+    }
+
+    /// The home page's groups, in the user's order. There's always one.
+    pub fn groups(&self) -> Vec<Group> {
+        if self.groups.is_empty() { vec![Group::first()] } else { self.groups.clone() }
+    }
+
+    pub fn group(&self, id: &str) -> Option<Group> {
+        self.groups().into_iter().find(|g| g.id == id)
+    }
+
+    /// The group, made real if it's the first one and only implied so far.
+    fn group_mut(&mut self, id: &str) -> Option<&mut Group> {
+        if self.groups.is_empty() && id == Group::FIRST {
+            self.groups.push(Group::first());
+        }
+        self.groups.iter_mut().find(|g| g.id == id)
+    }
+
+    /// A group's cards whose numbers are still listed, in its order.
+    pub fn group_cards(&self, id: &str) -> Vec<(&Card, &Account)> {
+        let Some(group) = self.groups.iter().find(|g| g.id == id) else { return Vec::new() };
+        group.cards.iter().filter_map(|card| Some((card, self.account(&card.line).filter(|a| !a.archived)?))).collect()
+    }
+
+    /// How many numbers a group shows, counting one with several cards once.
+    pub fn group_line_count(&self, id: &str) -> usize {
+        let mut lines: Vec<&str> = self.group_cards(id).iter().map(|(card, _)| card.line.as_str()).collect();
+        lines.sort_unstable();
+        lines.dedup();
+        lines.len()
+    }
+
+    /// Adds a group after the others. Returns its id.
+    pub fn add_group(&mut self, name: Option<String>) -> String {
+        if self.groups.is_empty() {
+            self.groups.push(Group::first());
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        self.groups.push(Group { id: id.clone(), name: name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()), cards: Vec::new() });
+        id
+    }
+
+    /// An empty name goes back to the app's name for it.
+    pub fn rename_group(&mut self, id: &str, name: &str) {
+        let name = Some(name.trim().to_string()).filter(|n| !n.is_empty());
+        if let Some(group) = self.group_mut(id) {
+            group.name = name;
+        }
+    }
+
+    /// Removes a group. The last one is emptied instead, since there's always one.
+    pub fn remove_group(&mut self, id: &str) {
+        if self.groups.len() > 1 {
+            self.groups.retain(|g| g.id != id);
+        } else if let Some(group) = self.group_mut(id) {
+            *group = Group { id: group.id.clone(), name: None, cards: Vec::new() };
+        }
+    }
+
+    /// Puts a card in a group (at the end) or takes it out.
+    pub fn set_card(&mut self, id: &str, card: Card, on: bool) {
+        let Some(group) = self.group_mut(id) else { return };
+        if on && !group.has(&card) {
+            group.cards.push(card);
+        } else if !on {
+            group.cards.retain(|c| !c.same(&card));
+        }
+    }
+
+    /// Puts group `id` where group `onto` is.
+    pub fn move_group(&mut self, id: &str, onto: &str) {
+        let position = |id: &str| self.groups.iter().position(|g| g.id == id);
+        let (Some(from), Some(to)) = (position(id), position(onto)) else { return };
+        let moved = self.groups.remove(from);
+        self.groups.insert(to, moved);
+    }
+
+    /// Puts `card` where `onto` is in a group.
+    pub fn move_card(&mut self, group: &str, card: &Card, onto: &Card) {
+        let Some(group) = self.groups.iter_mut().find(|g| g.id == group) else { return };
+        let position = |card: &Card| group.cards.iter().position(|c| c.same(card));
+        let (Some(from), Some(to)) = (position(card), position(onto)) else { return };
+        let moved = group.cards.remove(from);
+        group.cards.insert(to, moved);
+    }
+
+    /// Forgets a number, in the groups too.
+    pub fn remove_account(&mut self, id: &str) {
+        self.accounts.retain(|a| a.id != id);
+        for group in &mut self.groups {
+            group.cards.retain(|c| c.line != id);
+        }
     }
 
     /// Most recent successful refresh across the numbers still checked.
@@ -820,6 +971,88 @@ mod tests {
         let phone = Account::new(Carrier::We, LineType::Voice, "0223584417".into());
         assert_eq!(internet.credential_user(), "we:0223584417");
         assert_eq!(phone.credential_user(), "we:0223584417:voice");
+    }
+
+    #[test]
+    fn the_home_page_has_a_group_from_the_start() {
+        let mut data = AppData::default();
+        let ids: Vec<String> = ["0223584417", "0348712290", "0233456789"]
+            .into_iter()
+            .map(|n| {
+                let a = Account::new(Carrier::We, LineType::Landline, n.into());
+                let id = a.id.clone();
+                data.accounts.push(a);
+                id
+            })
+            .collect();
+        // One group, implied until something is put in it.
+        assert_eq!(data.groups().len(), 1);
+        assert!(data.groups.is_empty());
+        data.set_card(Group::FIRST, Card::main(&ids[1]), true);
+        data.set_card(Group::FIRST, Card::main(&ids[0]), true);
+        data.set_card(Group::FIRST, Card::main(&ids[0]), true);
+        assert_eq!(data.groups.len(), 1);
+        let shown = |data: &AppData, g: &str| data.group_cards(g).iter().map(|(_, a)| a.number.clone()).collect::<Vec<_>>();
+        assert_eq!(shown(&data, Group::FIRST), ["0348712290", "0223584417"]);
+        data.move_card(Group::FIRST, &Card::main(&ids[0]), &Card::main(&ids[1]));
+        assert_eq!(shown(&data, Group::FIRST), ["0223584417", "0348712290"]);
+
+        // Archived numbers stay in the group but don't show; removed ones leave it.
+        data.accounts[1].archived = true;
+        assert_eq!(shown(&data, Group::FIRST), ["0223584417"]);
+        data.remove_account(&ids[0]);
+        assert_eq!(data.groups[0].cards, [Card::main(&ids[1])]);
+    }
+
+    #[test]
+    fn a_number_can_have_a_card_for_each_bundle() {
+        let mut data = AppData::default();
+        let mut a = Account::new(Carrier::We, LineType::Landline, "0223584417".into());
+        let minutes = Bundle { key: "minutes".into(), kind: BundleKind::Minutes, name: "Minutes".into(), name_ar: Some("دقائق".into()), unit: Unit::Minutes, ..bundle(1000.0, 610.0) };
+        a.apply_usage(usage(vec![bundle(140.0, 60.0), minutes.clone()]), &AlertDefaults::default());
+        let id = a.id.clone();
+        data.accounts.push(a);
+
+        data.set_card(Group::FIRST, Card::main(&id), true);
+        data.set_card(Group::FIRST, Card::bundle(&id, &minutes), true);
+        data.set_card(Group::FIRST, Card::bundle(&id, &minutes), true);
+        let cards: Vec<Option<String>> = data.group_cards(Group::FIRST).iter().map(|(c, _)| c.bundle.clone()).collect();
+        assert_eq!(cards, [None, Some("minutes".into())]);
+        assert_eq!(data.group_line_count(Group::FIRST), 1);
+        // It keeps the bundle's names for when the carrier stops listing it.
+        let card = &data.groups[0].cards[1];
+        assert_eq!((card.name.as_deref(), card.name_ar.as_deref()), (Some("Minutes"), Some("دقائق")));
+
+        // Cards move and go by number and bundle, whatever names they kept.
+        let renamed = Card { name: Some("Old name".into()), ..Card::bundle(&id, &minutes) };
+        data.move_card(Group::FIRST, &renamed, &Card::main(&id));
+        assert_eq!(data.groups[0].cards[0].bundle.as_deref(), Some("minutes"));
+        data.set_card(Group::FIRST, renamed, false);
+        assert_eq!(data.groups[0].cards, [Card::main(&id)]);
+        data.remove_account(&id);
+        assert!(data.groups[0].cards.is_empty());
+    }
+
+    #[test]
+    fn groups_are_made_renamed_moved_and_removed() {
+        let mut data = AppData::default();
+        let family = data.add_group(Some(" Family ".into()));
+        let work = data.add_group(None);
+        let names = |data: &AppData| data.groups().iter().map(|g| g.name.clone()).collect::<Vec<_>>();
+        assert_eq!(names(&data), [None, Some("Family".into()), None]);
+        data.rename_group(&work, "Work");
+        data.rename_group(Group::FIRST, "Mine");
+        data.move_group(&work, Group::FIRST);
+        assert_eq!(names(&data), [Some("Work".into()), Some("Mine".into()), Some("Family".into())]);
+        data.rename_group(&family, "  ");
+        assert_eq!(data.group(&family).unwrap().name, None);
+        data.remove_group(&family);
+        data.remove_group(Group::FIRST);
+        assert_eq!(data.groups().len(), 1);
+        // The last one left is emptied, not removed.
+        data.set_card(&work, Card::main("x"), true);
+        data.remove_group(&work);
+        assert_eq!(data.groups(), [Group { id: work, name: None, cards: Vec::new() }]);
     }
 
     #[test]

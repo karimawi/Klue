@@ -5,6 +5,7 @@ pub mod chart;
 pub mod console;
 pub mod dashboard;
 pub mod empty;
+pub mod home;
 pub mod min_height;
 pub mod modals;
 pub mod popup;
