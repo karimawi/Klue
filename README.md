@@ -36,6 +36,7 @@
 ## Features
 
 - **Every line at a glance.** What's left, the package and its speed, the balance, the renewal date and the payment history, for each of your numbers.
+- **Home.** The lines you pick, from any carrier, as cards on one page, in tabs of your own. A line can have a card for each bundle you want to watch.
 - **Usage graphs.** What was left after every refresh and what you used per day or per hour, with averages and the day you'll run out.
 - **Alerts that land.** Low-quota and renewal notifications with sound, per number or for all of them, even ones that came due while Klue was closed.
 - **Arabic and English.** A fully mirrored right-to-left layout, using the carriers' own Arabic names.
@@ -58,11 +59,12 @@ Also on the way: Klue Server, a Docker container that keeps watch around the clo
 
 | | |
 | --- | --- |
+| ![Home](docs/screenshots/home.png) | ![Add a number](docs/screenshots/add-number.png) |
 | ![Usage per day](docs/screenshots/usage-days.png) | ![Usage per hour, dark theme](docs/screenshots/usage-hours-dark.png) |
 | ![Match theme, low quota](docs/screenshots/match-we-low-quota.png) | ![Dark theme, Vodafone](docs/screenshots/dark-vodafone.png) |
 | ![Bundles and payments](docs/screenshots/vodafone-bundles-payments.png) | ![Arabic](docs/screenshots/arabic-rtl.png) |
-| ![Add a number](docs/screenshots/add-number.png) | ![Alerts](docs/screenshots/alerts.png) |
-| ![Borrowed Flex bundle](docs/screenshots/vodafone-flex-borrowed.png) | <img src="docs/screenshots/tray-quick-view.png" alt="Tray quick view" width="240"> |
+| ![Alerts](docs/screenshots/alerts.png) | ![Borrowed Flex bundle](docs/screenshots/vodafone-flex-borrowed.png) |
+| <img src="docs/screenshots/tray-quick-view.png" alt="Tray quick view" width="240"> | |
 
 ## Download
 

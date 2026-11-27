@@ -3,6 +3,7 @@ Klue keeps the quota, balance and renewal date of your Egyptian telecom lines in
 This is a beta. If something looks off, please open an issue.
 
 ## New in 0.5.0
+- Home: the lines you pick, from any carrier, on one page as cards showing what's left and when they renew. A line's card shows its main bundle, and any of its other bundles can have a card too. Make tabs for groups of lines, and drag tabs and cards to put them in order
 - WE landlines (Ardy) and WE Mobile lines: their minutes, their bundles, balance and recharges, read through the My WE account of your home internet
 - Adding a number is a step-by-step wizard: pick the carrier and the kind of line, then sign in the way its app does. Lines Klue can't read yet (WE Air and WE Gold; Vodafone home internet and USB; e&) show as coming soon
 - Signing in to a WE or Orange account finds its other lines too, and offers to add them: a WE account's landline and mobile lines, the home internet linked to an Orange mobile number, or the mobile line behind an Orange home internet account
