@@ -172,6 +172,21 @@ fn open_file(file: &Path) -> Result<(), String> {
     std::process::Command::new(opener).arg(file).spawn().map(|_| ()).map_err(|e| format!("couldn't open {}: {e}", file.display()))
 }
 
+/// A fake update for "Check for updates" in demo mode.
+pub fn demo_release() -> klue_core::update::Release {
+    klue_core::update::Release {
+        version: klue_core::update::Version { major: 9, minor: 9, patch: 0, pre: None },
+        tag: "v9.9.0".into(),
+        title: "Klue v9.9.0".into(),
+        notes: "## New\n- Usage graphs for every bundle\n- The package speed on WE lines\n## Fixed\n- Smoother scrolling".into(),
+        page: crate::about::REPO.to_string(),
+        published: Some(chrono::Utc::now()),
+        prerelease: false,
+        assets: Vec::new(),
+        target: "main".into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1191,6 +1191,9 @@ pub fn error_text(e: &FetchError, carrier: Carrier, c: Clock, lang: Lang) -> Str
             }
         }
         FetchError::Unsupported => strings(lang).coming_soon_body.into(),
+        FetchError::AlreadyAdded { archived: false } => strings(lang).already_added.into(),
+        FetchError::AlreadyAdded { archived: true } => strings(lang).already_archived.into(),
+        FetchError::NoPassword => strings(lang).no_password.into(),
     }
 }
 
@@ -1205,6 +1208,7 @@ pub fn error_title(e: &FetchError, lang: Lang) -> &'static str {
         FetchError::InvalidNumber(_) => if ar { "رقم غير صحيح" } else { "Check the number" },
         FetchError::NoLine(_) => if ar { "الخط غير موجود" } else { "Line not found" },
         FetchError::Network(_) => if ar { "لا يوجد اتصال" } else { "No connection" },
+        FetchError::AlreadyAdded { .. } => if ar { "مضاف بالفعل" } else { "Already in Klue" },
         _ => if ar { "تعذّر التحقق" } else { "Couldn’t verify" },
     }
 }

@@ -2492,6 +2492,7 @@ dependencies = [
  "image",
  "interprocess",
  "klue-core",
+ "klue-engine",
  "mslnk",
  "notify-rust",
  "rfd",
@@ -2536,6 +2537,18 @@ dependencies = [
  "wreq",
  "wreq-util",
  "zip",
+]
+
+[[package]]
+name = "klue-engine"
+version = "0.5.0"
+dependencies = [
+ "chrono",
+ "klue-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

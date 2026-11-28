@@ -8,6 +8,7 @@ use iced::{
     font::Weight,
     widget::{Space, button, column, container, image, row, scrollable, text_input},
 };
+use klue_engine::Op;
 use klue_core::{
     Carrier, FetchError, Unit, format,
     store::{AlertPrefs, BundleAlert, Clock, Lang, LeadUnit, RefreshEvery, Theme, ThresholdMode},
@@ -232,28 +233,20 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
         (Modal::Alerts(f), Msg::ReminderUnit(u)) => f.draft.renewal.unit = u,
         (Modal::Alerts(f), Msg::RenewalDay) => f.draft.renewal_day = !f.draft.renewal_day,
         (Modal::Alerts(f), Msg::AlertsSave) => {
-            let (id, prefs) = (f.id.clone(), f.draft.clone());
-            shared.update(|d| {
-                if let Some(a) = d.account_mut(&id) {
-                    a.alerts = prefs;
-                    // New thresholds re-arm alerts that already fired.
-                    a.fired.clear();
-                }
-            });
+            shared.apply(Op::SetAlerts { id: f.id.clone(), alerts: f.draft.clone() });
             app.modal = Modal::None;
         }
-        (_, Msg::ToggleReminder(id)) => shared.update(|d| {
-            if let Some(a) = d.account_mut(&id) {
-                a.alerts.renewal.enabled = !a.alerts.renewal.enabled;
-            }
-        }),
+        (_, Msg::ToggleReminder(id)) => {
+            let on = app.snap.data.account(&id).is_some_and(|a| !a.alerts.renewal.enabled);
+            shared.apply(Op::SetReminder { id, on });
+        }
 
         (_, Msg::Startup) => {
             let on = !shared.settings().launch_at_startup;
             app::set_launch_at_startup(&shared, on);
         }
         (_, Msg::KeepInTray) => shared.update(|d| d.settings.keep_in_tray = !d.settings.keep_in_tray),
-        (_, Msg::RefreshEvery(r)) => shared.update(|d| d.settings.refresh = r),
+        (_, Msg::RefreshEvery(r)) => shared.apply(Op::SetRefreshAll { every: r }),
         (_, Msg::Clock(c)) => shared.update(|d| d.settings.clock = c),
 
         (Modal::Settings(f), msg @ (Msg::AllMain | Msg::AllOthers | Msg::AllPercent(_) | Msg::AllReminder | Msg::AllLead(_) | Msg::AllLeadUnit(_) | Msg::AllRenewalDay)) => {
@@ -281,14 +274,11 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
                 Msg::AllRenewalDay => alerts.renewal_day = !alerts.renewal_day,
                 _ => {}
             }
-            shared.update(|d| d.settings.alerts = alerts);
+            shared.apply(Op::SetAlertDefaults { alerts });
         }
         (Modal::Settings(f), Msg::AllApply) => {
-            shared.update(|d| {
-                // Every number gets what the field shows.
-                d.settings.alerts.percent = Some(d.settings.alerts.percent_or_default());
-                d.apply_alert_defaults();
-            });
+            // Every number gets what the field shows.
+            shared.apply(Op::ApplyAlertDefaults);
             f.applied = true;
         }
         _ => {}

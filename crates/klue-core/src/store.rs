@@ -593,12 +593,20 @@ impl AppData {
 
     /// Adds a group after the others. Returns its id.
     pub fn add_group(&mut self, name: Option<String>) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        self.insert_group(id.clone(), name);
+        id
+    }
+
+    /// Adds a group with the id given, after the others. An id already used is ignored.
+    pub fn insert_group(&mut self, id: String, name: Option<String>) {
         if self.groups.is_empty() {
             self.groups.push(Group::first());
         }
-        let id = uuid::Uuid::new_v4().to_string();
-        self.groups.push(Group { id: id.clone(), name: name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()), cards: Vec::new() });
-        id
+        if self.groups.iter().any(|g| g.id == id) {
+            return;
+        }
+        self.groups.push(Group { id, name: name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()), cards: Vec::new() });
     }
 
     /// An empty name goes back to the app's name for it.

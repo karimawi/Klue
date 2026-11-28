@@ -19,6 +19,7 @@ use klue_core::{
     Carrier,
     store::{Account, Card, Group, Lang, Theme},
 };
+use klue_engine::Op;
 use tokio::sync::oneshot;
 
 use klue_core::update::{Release, Version};
@@ -583,7 +584,7 @@ impl App {
                     }
                     (DragItem::Group(id), DragItem::Group(onto)) => {
                         if id != onto {
-                            self.shared.update(|d| d.move_group(&id, &onto));
+                            self.shared.apply(Op::MoveGroup { id: id.clone(), onto });
                         }
                         self.update(Message::SelectGroup(id))
                     }
@@ -594,7 +595,7 @@ impl App {
                             return self.update(Message::OpenCard(card));
                         }
                         let group = self.shown_group().id;
-                        self.shared.update(|d| d.move_card(&group, &card, &onto));
+                        self.shared.apply(Op::MoveCard { group, card, onto });
                         Task::none()
                     }
                     _ => Task::none(),
@@ -821,7 +822,7 @@ impl App {
         }
         self.update = UpdateState::Checking;
         if self.shared.demo {
-            let result = Ok(manual.then(|| Box::new(crate::demo::update())));
+            let result = Ok(manual.then(|| Box::new(crate::updater::demo_release())));
             return Task::perform(tokio::time::sleep(Duration::from_millis(900)), move |_| Message::UpdateChecked { manual, result: result.clone() });
         }
         let current = Version::parse(about::VERSION).unwrap_or(Version { major: 0, minor: 0, patch: 0, pre: None });

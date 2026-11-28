@@ -9,6 +9,7 @@ use iced::{
     font::Weight,
     widget::{Space, button, column, container, mouse_area, scrollable, stack},
 };
+use klue_engine::Op;
 use klue_core::{
     Bundle, BundleState, format,
     store::{Account, AppData, Card, Group},
@@ -94,7 +95,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
     match (&mut app.modal, msg) {
         (_, Msg::Toggle(group, card)) => {
             let on = app.snap.data.group(&group).is_some_and(|g| g.has(&card));
-            shared.update(|d| d.set_card(&group, card, !on));
+            shared.apply(Op::SetCard { group, card, on: !on });
         }
         (Modal::GroupLines(f), Msg::Expand(line)) => {
             if !f.open.remove(&line) {
@@ -108,13 +109,14 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
         (Modal::Group(f), Msg::Save) => match f.id.clone() {
             Some(id) => {
                 let name = f.name.clone();
-                shared.update(|d| d.rename_group(&id, &name));
+                shared.apply(Op::RenameGroup { id, name });
                 app.modal = Modal::None;
             }
             // A new group goes straight on to picking its lines.
             None => {
                 let name = Some(f.name.clone());
-                let id = shared.update(|d| d.add_group(name));
+                let id = uuid::Uuid::new_v4().to_string();
+                shared.apply(Op::AddGroup { id: id.clone(), name });
                 app.modal = Modal::None;
                 app.home = true;
                 app.group = id.clone();
@@ -124,7 +126,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Message> {
         (Modal::Group(f), Msg::Delete) => {
             let Some(id) = f.id.clone() else { return Task::none() };
             if f.confirm_delete {
-                shared.update(|d| d.remove_group(&id));
+                shared.apply(Op::RemoveGroup { id });
                 app.modal = Modal::None;
                 app.snap = shared.snapshot();
                 app.group = app.snap.data.groups().first().map_or_else(|| Group::FIRST.to_string(), |g| g.id.clone());

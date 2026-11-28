@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/klue-core", "crates/klue-app"]
+members = ["crates/klue-core", "crates/klue-engine", "crates/klue-app"]
 default-members = ["crates/klue-app"]
 
 [workspace.package]
@@ -13,6 +13,7 @@ repository = "https://github.com/karimawi/Klue"
 
 [workspace.dependencies]
 klue-core = { path = "crates/klue-core", default-features = false }
+klue-engine = { path = "crates/klue-engine" }
 
 chrono = { version = "0.4.45", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }

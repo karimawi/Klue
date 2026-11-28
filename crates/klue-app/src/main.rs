@@ -11,7 +11,6 @@ mod app;
 mod assets;
 mod autostart;
 mod console;
-mod demo;
 mod i18n;
 mod install;
 mod instance;
@@ -70,6 +69,6 @@ fn main() -> iced::Result {
     if !demo {
         install::register();
     }
-    let shared = shared::Shared::new(store, demo);
+    let shared = shared::new(store, demo);
     app::run(shared, minimized || quick_view, quick_view, debug)
 }

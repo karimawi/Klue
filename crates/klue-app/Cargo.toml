@@ -22,6 +22,7 @@ ocr-dynamic = ["klue-core/ocr-dynamic"]
 
 [dependencies]
 klue-core.workspace = true
+klue-engine.workspace = true
 
 auto-launch = "0.6"
 chrono.workspace = true

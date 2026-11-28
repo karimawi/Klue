@@ -35,6 +35,12 @@ pub enum FetchError {
     InvalidNumber(String),
     #[error("this carrier or line type isn't supported yet")]
     Unsupported,
+    /// The line is in Klue already, archived or not.
+    #[error("this line is already in Klue")]
+    AlreadyAdded { archived: bool },
+    /// The line's saved password is gone.
+    #[error("the saved password is missing")]
+    NoPassword,
 }
 
 impl FetchError {
