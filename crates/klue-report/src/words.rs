@@ -16,7 +16,7 @@ pub fn ltr(s: &str) -> String {
 }
 
 /// `(english, arabic)` in the language asked for.
-pub(crate) fn pick(lang: Lang, en: &'static str, ar_: &'static str) -> &'static str {
+pub fn pick(lang: Lang, en: &'static str, ar_: &'static str) -> &'static str {
     if ar(lang) { ar_ } else { en }
 }
 

@@ -109,6 +109,12 @@ pub(crate) fn okhttp_client(carrier: Carrier) -> Result<wreq::Client, FetchError
     builder.build().map_err(|e| FetchError::Network(e.to_string()))
 }
 
+/// Plain HTTPS for anything but carriers (GitHub, Telegram, webhooks): follows redirects,
+/// `timeout` for the whole response, and never through the carrier proxy.
+pub fn web_client(timeout: Duration) -> Result<wreq::Client, FetchError> {
+    plain_client(timeout)
+}
+
 /// Plain HTTPS for GitHub: follows redirects, `timeout` for the whole response.
 pub(crate) fn plain_client(timeout: Duration) -> Result<wreq::Client, FetchError> {
     let mut builder = wreq::Client::builder()

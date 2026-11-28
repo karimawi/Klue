@@ -36,7 +36,7 @@ tracing.workspace = true
 url = "2"
 uuid.workspace = true
 futures-util = { version = "0.3", default-features = false }
-wreq = { version = "6.0.0-rc.31", features = ["cookies", "json", "form", "gzip", "brotli", "deflate", "zstd", "stream", "socks"] }
+wreq = { version = "6.0.0-rc.31", features = ["cookies", "json", "form", "gzip", "brotli", "deflate", "zstd", "stream", "socks", "multipart"] }
 wreq-util = { version = "3.0.0-rc.14", features = ["emulation"] }
 
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"], optional = true }

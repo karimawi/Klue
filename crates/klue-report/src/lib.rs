@@ -81,6 +81,13 @@ pub fn usage_png(account: &Account, bundle: Option<&str>, look: &Look) -> Option
     png(&svg.finish(), SCALE)
 }
 
+/// Klue's logo, `size` pixels square, for email headers.
+pub fn logo_png(size: u32) -> Option<Vec<u8>> {
+    let mut svg = svg::Svg::new(size as f32, size as f32, false);
+    svg.klue_logo(0.0, 0.0, size as f32);
+    png(&svg.finish(), 1.0)
+}
+
 /// The report on `accounts` over `period`, as a PDF.
 pub fn report_pdf(accounts: &[&Account], period: Period, look: &Look) -> Option<Vec<u8>> {
     report::report(accounts, period, look)

@@ -32,6 +32,7 @@ pub struct State {
     pub captchas: Mutex<HashMap<String, oneshot::Sender<Option<String>>>>,
     /// The last error of each channel that failed, by channel name.
     pub channel_errors: Mutex<HashMap<String, String>>,
+    pub telegram: crate::channels::telegram::Telegram,
     pub secret: RwLock<String>,
     pub started_at: DateTime<Utc>,
     pub data_dir: PathBuf,
@@ -51,6 +52,7 @@ impl State {
             devices: Devices::open(data_dir.join("devices.json")),
             captchas: Mutex::new(HashMap::new()),
             channel_errors: Mutex::new(HashMap::new()),
+            telegram: Default::default(),
             secret: RwLock::new(secret),
             started_at: Utc::now(),
             data_dir,
@@ -79,6 +81,14 @@ impl State {
         self.save_settings();
         self.apply_proxy();
     }
+
+    pub fn update_settings(&self, f: impl FnOnce(&mut ServerSettings)) {
+        if let Ok(mut s) = self.settings.write() {
+            f(&mut s);
+        }
+        self.save_settings();
+    }
+
 
     fn save_settings(&self) {
         let Ok(s) = self.settings.read() else { return };
@@ -110,6 +120,18 @@ impl State {
     pub async fn alert(self: &Arc<Self>, account: &Account, event: AlertEvent) {
         self.send(Event::Alert { event: event.clone() });
         crate::channels::alert(self, account, &event).await;
+    }
+
+    pub fn channel_result(&self, channel: &str, result: Result<(), String>) {
+        if let Ok(mut errors) = self.channel_errors.lock() {
+            match result {
+                Ok(()) => errors.remove(channel),
+                Err(e) => {
+                    tracing::warn!("{channel}: {e}");
+                    errors.insert(channel.to_string(), e)
+                }
+            };
+        }
     }
 }
 

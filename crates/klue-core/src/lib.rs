@@ -7,7 +7,7 @@ pub mod error;
 pub mod format;
 pub mod history;
 mod http;
-pub use http::{ProxyConfig, set_proxy, try_proxy};
+pub use http::{ProxyConfig, set_proxy, try_proxy, web_client};
 mod json;
 pub mod model;
 pub mod store;
