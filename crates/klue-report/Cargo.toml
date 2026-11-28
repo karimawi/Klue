@@ -1,0 +1,25 @@
+[package]
+name = "klue-report"
+description = "Klue's line cards, usage graphs and PDF reports, drawn as SVG"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+klue-core.workspace = true
+
+base64 = "0.22"
+chrono.workspace = true
+# PDF pages, drawn from the same SVG as the images.
+krilla = "0.8"
+krilla-svg = "0.8"
+# The version krilla-svg is built on, so one SVG parse serves both.
+resvg = { version = "0.47", default-features = false, features = ["text"] }
+serde.workspace = true
+rustybuzz = "0.20"
+
+[dev-dependencies]
+klue-engine.workspace = true

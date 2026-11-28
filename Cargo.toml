@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/klue-core", "crates/klue-engine", "crates/klue-app"]
+members = ["crates/klue-core", "crates/klue-engine", "crates/klue-report", "crates/klue-app"]
 default-members = ["crates/klue-app"]
 
 [workspace.package]
@@ -31,7 +31,4 @@ strip = true
 
 # Deriving an export file's key would take seconds in a debug build.
 [profile.dev.package.argon2]
-opt-level = 3
-
-[profile.dev.package.blake2]
 opt-level = 3
