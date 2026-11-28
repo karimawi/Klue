@@ -58,7 +58,7 @@ pub async fn fetch(line: LineType, number: &str, password: &str, ctx: &FetchCont
         tracing::info!("Orange is paused until {until} after a firewall rejection");
         return Err(FetchError::CaptchaBlocked(until));
     }
-    let client = http::okhttp_client()?;
+    let client = http::okhttp_client(crate::Carrier::Orange)?;
     let (mut session, mut kept) = open(&client, &dial, password, ctx).await?;
     loop {
         let read = match line {

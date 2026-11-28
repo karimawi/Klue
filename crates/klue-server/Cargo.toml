@@ -1,0 +1,37 @@
+[package]
+name = "klue-server"
+description = "Klue on your own VPS: checks lines around the clock and keeps every computer in step"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+klue-core.workspace = true
+klue-engine.workspace = true
+klue-report = { path = "../klue-report" }
+
+axum = "0.8"
+# HTTPS with rustls on ring, for the certificate the server makes itself.
+axum-server = { version = "0.9", features = ["tls-rustls-ring"] }
+base64 = "0.22"
+# Seals passwords and channel secrets in the vault, as export files do.
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc"] }
+chrono.workspace = true
+fs4 = { version = "0.13", features = ["sync"] }
+futures-util = { version = "0.3", default-features = false }
+rand = "0.9"
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+tokio = { workspace = true, features = ["net", "signal", "fs", "io-util"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+# Sync answers are mostly history, which compresses well; lines are often metered.
+tower-http = { version = "0.6", features = ["compression-gzip"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true

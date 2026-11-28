@@ -1,13 +1,69 @@
-use std::{sync::OnceLock, time::Duration};
+use std::{
+    sync::{OnceLock, RwLock},
+    time::{Duration, Instant},
+};
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wreq::tls::trust::CertStore;
 
-use crate::FetchError;
+use crate::{Carrier, FetchError};
+
+/// A proxy for carrier requests, for when a carrier turns away requests from abroad (Klue
+/// Server on a VPS in another country).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProxyConfig {
+    /// `http://`, `https://` or `socks5://`, with `user:password@` if it needs them.
+    pub url: String,
+    /// The carriers whose requests go through it.
+    pub carriers: Vec<Carrier>,
+}
+
+static PROXY: RwLock<Option<ProxyConfig>> = RwLock::new(None);
+
+/// Sends the chosen carriers' requests through `proxy` from now on, or none.
+pub fn set_proxy(proxy: Option<ProxyConfig>) {
+    if let Ok(mut current) = PROXY.write() {
+        *current = proxy;
+    }
+}
+
+fn proxy_for(carrier: Carrier) -> Result<Option<wreq::Proxy>, FetchError> {
+    let current = PROXY.read().ok().and_then(|p| p.clone());
+    match current.filter(|p| p.carriers.contains(&carrier)) {
+        Some(p) => wreq::Proxy::all(&p.url).map(Some).map_err(|e| FetchError::Network(format!("proxy: {e}"))),
+        None => Ok(None),
+    }
+}
+
+/// The carrier's own site, for checking a proxy reaches it.
+fn home_page(carrier: Carrier) -> &'static str {
+    match carrier {
+        Carrier::We => "https://my.te.eg/",
+        Carrier::Vodafone => "https://web.vodafone.com.eg/",
+        Carrier::Orange => "https://services.orange.eg/",
+        Carrier::Etisalat => "https://www.etisalat.eg/",
+    }
+}
+
+/// Reaches `carrier`'s site through `url` and says how long it took.
+pub async fn try_proxy(url: &str, carrier: Carrier) -> Result<Duration, FetchError> {
+    let proxy = wreq::Proxy::all(url).map_err(|e| FetchError::Network(format!("proxy: {e}")))?;
+    let client = wreq::Client::builder()
+        .emulation(wreq_util::Emulation::Chrome131)
+        .proxy(proxy)
+        .redirect(wreq::redirect::Policy::none())
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+    let started = Instant::now();
+    client.get(home_page(carrier)).send().await?;
+    Ok(started.elapsed())
+}
 
 /// A client with its own cookie jar that looks like Chrome 131 (TLS, HTTP/2 and headers).
 /// Callers handle redirects.
-pub(crate) fn browser_client() -> Result<wreq::Client, FetchError> {
+pub(crate) fn browser_client(carrier: Carrier) -> Result<wreq::Client, FetchError> {
     let mut builder = wreq::Client::builder()
         .emulation(wreq_util::Emulation::Chrome131)
         .cookie_store(true)
@@ -17,13 +73,16 @@ pub(crate) fn browser_client() -> Result<wreq::Client, FetchError> {
     if let Some(store) = env_cert_store() {
         builder = builder.tls_cert_store(store.clone());
     }
+    if let Some(proxy) = proxy_for(carrier)? {
+        builder = builder.proxy(proxy);
+    }
     builder.build().map_err(|e| FetchError::Network(e.to_string()))
 }
 
 /// A client with its own cookie jar that looks like an Android app built on okhttp 4.12:
 /// okhttp's TLS and HTTP/2 fingerprint, its user agent, and gzip as the only encoding.
 /// Callers handle redirects.
-pub(crate) fn okhttp_client() -> Result<wreq::Client, FetchError> {
+pub(crate) fn okhttp_client(carrier: Carrier) -> Result<wreq::Client, FetchError> {
     use wreq::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
     let emulation = wreq_util::Emulation::builder().profile(wreq_util::Profile::OkHttp4_12).headers(false).build();
     let mut headers = HeaderMap::new();
@@ -43,6 +102,9 @@ pub(crate) fn okhttp_client() -> Result<wreq::Client, FetchError> {
         .connect_timeout(Duration::from_secs(15));
     if let Some(store) = env_cert_store() {
         builder = builder.tls_cert_store(store.clone());
+    }
+    if let Some(proxy) = proxy_for(carrier)? {
+        builder = builder.proxy(proxy);
     }
     builder.build().map_err(|e| FetchError::Network(e.to_string()))
 }

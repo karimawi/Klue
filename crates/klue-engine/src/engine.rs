@@ -27,6 +27,7 @@ use crate::{
     demo,
     ops::{self, Op},
     passwords::PasswordStore,
+    remote::{Copied, Copy, Reading, SharedSettings},
 };
 
 /// What a window renders from.
@@ -320,6 +321,134 @@ impl Engine {
         ids
     }
 
+    /// Everything, with every password: for a server's devices, or to copy up to one.
+    pub fn copy_out(&self) -> Copy {
+        let data = self.data.lock().expect("data lock").clone();
+        let passwords = data.accounts.iter().filter_map(|a| self.password(a).map(|p| (a.id.clone(), p))).collect();
+        Copy::of(&data, passwords)
+    }
+
+    /// Takes in a whole copy from another computer. A line already here keeps its id and
+    /// gets the copy's history and, if newer, its reading; a new one comes with its
+    /// password. Home tabs and shared settings come from the copy when there were none
+    /// here.
+    pub fn take_copy(&self, copy: Copy) -> Copied {
+        let mut saved = Vec::new();
+        let copied = self.update(|d| {
+            let fresh = d.accounts.is_empty();
+            let mut copied = Copied::default();
+            // The copy's ids for lines that are here under their own.
+            let mut ids: BTreeMap<String, String> = BTreeMap::new();
+            for mut theirs in copy.accounts {
+                let password = copy.passwords.get(&theirs.id).cloned();
+                if let Some(mine) = d.accounts.iter_mut().find(|a| a.carrier == theirs.carrier && a.line == theirs.line && a.number == theirs.number) {
+                    ids.insert(theirs.id.clone(), mine.id.clone());
+                    merge_line(mine, theirs);
+                    if let Some(password) = password.filter(|_| self.password(mine).is_none()) {
+                        saved.push((mine.clone(), password));
+                    }
+                    copied.merged += 1;
+                } else {
+                    if d.accounts.iter().any(|a| a.id == theirs.id) {
+                        let id = Account::new(theirs.carrier, theirs.line, theirs.number.clone()).id;
+                        ids.insert(theirs.id.clone(), id.clone());
+                        theirs.id = id;
+                    }
+                    if let Some(password) = password {
+                        saved.push((theirs.clone(), password));
+                    }
+                    d.accounts.push(theirs);
+                    copied.added += 1;
+                }
+            }
+            let map = |id: &str| ids.get(id).cloned().unwrap_or_else(|| id.to_string());
+            let had_tabs = d.groups.iter().any(|g| !g.cards.is_empty());
+            for mut group in copy.groups {
+                for card in &mut group.cards {
+                    card.line = map(&card.line);
+                }
+                if !had_tabs {
+                    d.groups.retain(|g| g.id != group.id);
+                    d.groups.push(group);
+                } else if !d.groups.iter().any(|g| g.id == group.id) {
+                    d.groups.push(group);
+                }
+            }
+            if fresh {
+                copy.settings.apply_to(&mut d.settings);
+            }
+            copied
+        });
+        for (account, password) in &saved {
+            self.save_password(account, password);
+        }
+        self.save_vault_index();
+        copied
+    }
+
+    /// Makes this the server's copy: its lines, passwords, Home tabs and shared settings,
+    /// for a computer switching back from a server. This computer's own settings stay.
+    pub fn replace_with(&self, copy: Copy) {
+        let old: Vec<Account> = self.data.lock().expect("data lock").accounts.clone();
+        if !self.demo {
+            for account in old.iter().filter(|a| !copy.accounts.iter().any(|c| c.credential_user() == a.credential_user())) {
+                self.passwords.delete(account);
+            }
+        }
+        for account in &copy.accounts {
+            if let Some(password) = copy.passwords.get(&account.id) {
+                self.save_password(account, password);
+            }
+        }
+        self.update(|d| {
+            d.accounts = copy.accounts;
+            d.groups = copy.groups;
+            copy.settings.apply_to(&mut d.settings);
+        });
+        self.save_vault_index();
+    }
+
+    /// The shared settings, as a server keeps them.
+    pub fn shared_settings(&self) -> SharedSettings {
+        SharedSettings::of(&self.data.lock().expect("data lock").settings)
+    }
+
+    /// Readings a computer took while the server was away: the newer reading wins, the
+    /// histories merge, and alerts it showed count as sent.
+    pub fn take_readings(&self, readings: Vec<Reading>) {
+        self.update(|d| {
+            for r in readings {
+                let Some(a) = d.account_mut(&r.id) else { continue };
+                a.history.merge(&r.history);
+                if a.usage.as_ref().is_none_or(|u| u.fetched_at < r.usage.fetched_at) {
+                    a.last_attempt = Some(r.usage.fetched_at);
+                    a.last_error = None;
+                    a.usage = Some(r.usage);
+                }
+                for key in r.fired {
+                    if !a.fired.contains(&key) {
+                        a.fired.push(key);
+                    }
+                }
+            }
+        });
+    }
+
+    /// Removes every line, password and Home tab.
+    pub fn erase(&self) {
+        let accounts: Vec<Account> = self.data.lock().expect("data lock").accounts.clone();
+        if !self.demo {
+            for account in &accounts {
+                self.passwords.delete(account);
+            }
+        }
+        self.update(|d| {
+            d.accounts.clear();
+            d.groups.clear();
+        });
+        self.save_vault_index();
+    }
+
     /// An empty nickname clears it.
     pub fn rename(&self, id: &str, nickname: &str) {
         self.apply(Op::Rename { id: id.into(), nickname: nickname.into() });
@@ -473,5 +602,113 @@ impl Engine {
             });
         }
         due
+    }
+}
+
+/// A line from another copy, merged into this one: both histories, the newer reading, and
+/// the alerts either has sent. Names and settings set here stay.
+fn merge_line(mine: &mut Account, theirs: Account) {
+    mine.history.merge(&theirs.history);
+    let newer = match (&mine.usage, &theirs.usage) {
+        (Some(m), Some(t)) => t.fetched_at > m.fetched_at,
+        (None, Some(_)) => true,
+        _ => false,
+    };
+    if newer {
+        mine.usage = theirs.usage;
+        mine.last_attempt = theirs.last_attempt;
+        mine.last_error = theirs.last_error;
+        mine.owner_name = theirs.owner_name.or(mine.owner_name.take());
+    }
+    if mine.nickname.is_none() {
+        mine.nickname = theirs.nickname;
+    }
+    for key in theirs.fired {
+        if !mine.fired.contains(&key) {
+            mine.fired.push(key);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use klue_core::store::{Card, Group, VaultAccount};
+
+    use super::*;
+
+    /// Passwords kept in memory, for tests.
+    #[derive(Default)]
+    struct Memory(Mutex<HashMap<String, String>>);
+
+    impl PasswordStore for Memory {
+        fn get(&self, account: &Account) -> Option<String> {
+            self.0.lock().unwrap().get(&account.credential_user()).cloned()
+        }
+        fn set(&self, account: &Account, password: &str) -> bool {
+            self.0.lock().unwrap().insert(account.credential_user(), password.into());
+            true
+        }
+        fn delete(&self, account: &Account) {
+            self.0.lock().unwrap().remove(&account.credential_user());
+        }
+        fn save_index(&self, _: &[Account]) {}
+        fn load_index(&self) -> Vec<VaultAccount> {
+            Vec::new()
+        }
+    }
+
+    fn engine(name: &str) -> Arc<Engine> {
+        let dir = std::env::temp_dir().join(format!("klue-engine-test-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        Engine::new(Store::open(dir).unwrap(), Box::<Memory>::default(), false, "test")
+    }
+
+    #[test]
+    fn copies_merge_lines_both_sides_have_and_bring_the_rest_with_passwords() {
+        let demo = demo::data();
+        let (home, phone) = (demo.accounts[0].clone(), demo.accounts[2].clone());
+
+        // The server has the home internet, with its own id and an older reading.
+        let server = engine("server");
+        let mut older = home.clone();
+        older.id = "server-id".into();
+        if let Some(u) = older.usage.as_mut() {
+            u.fetched_at -= chrono::Duration::days(1);
+        }
+        server.update(|d| d.accounts.push(older));
+
+        // A computer copies up both lines and a Home tab with both.
+        let tab = Group { id: "tab".into(), name: Some("Mine".into()), cards: vec![Card::main(&home.id), Card::main(&phone.id)] };
+        let copy = Copy {
+            accounts: vec![home.clone(), phone.clone()],
+            passwords: [(home.id.clone(), "home-pass".to_string()), (phone.id.clone(), "phone-pass".to_string())].into(),
+            groups: vec![tab],
+            settings: SharedSettings::of(&demo.settings),
+        };
+        let copied = server.take_copy(copy);
+        assert_eq!((copied.added, copied.merged), (1, 1));
+
+        let data = server.snapshot().data;
+        assert_eq!(data.accounts.len(), 2);
+        let merged = data.account("server-id").expect("kept its id");
+        assert_eq!(merged.usage.as_ref().map(|u| u.fetched_at), home.usage.as_ref().map(|u| u.fetched_at), "the newer reading wins");
+        // The tab points at the server's id for the line it already had.
+        let lines: Vec<&str> = data.groups.iter().find(|g| g.id == "tab").unwrap().cards.iter().map(|c| c.line.as_str()).collect();
+        assert_eq!(lines, ["server-id", phone.id.as_str()]);
+        assert_eq!(server.password(data.account(&phone.id).unwrap()).as_deref(), Some("phone-pass"));
+        assert_eq!(server.password(merged).as_deref(), Some("home-pass"));
+
+        // And back down: a computer switching back gets the server's copy.
+        let computer = engine("computer");
+        computer.replace_with(server.copy_out());
+        let back = computer.snapshot().data;
+        assert_eq!(back.accounts.len(), 2);
+        assert_eq!(computer.password(back.account(&phone.id).unwrap()).as_deref(), Some("phone-pass"));
+
+        server.erase();
+        assert!(server.snapshot().data.accounts.is_empty());
+        assert_eq!(server.password(&phone), None);
     }
 }

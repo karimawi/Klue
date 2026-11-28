@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/klue-core", "crates/klue-engine", "crates/klue-report", "crates/klue-app"]
+members = ["crates/klue-core", "crates/klue-engine", "crates/klue-report", "crates/klue-server", "crates/klue-app"]
 default-members = ["crates/klue-app"]
 
 [workspace.package]

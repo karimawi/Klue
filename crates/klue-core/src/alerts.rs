@@ -5,7 +5,8 @@ use chrono::{DateTime, Local, Utc};
 
 use crate::{Bundle, BundleState, store::Account};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AlertEvent {
     /// A bundle dropped to its alert threshold.
     QuotaLow { account_id: String, bundle: Bundle, threshold: f64 },

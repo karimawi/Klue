@@ -94,7 +94,7 @@ impl WeSession {
     pub fn new(number: &str) -> Result<Self, FetchError> {
         let number = crate::format::normalize(number, LineType::Landline)?;
         let fbb_id = format!("FBB{}", &number[1..]);
-        Ok(Self { client: http::browser_client()?, number, fbb_id })
+        Ok(Self { client: http::browser_client(crate::Carrier::We)?, number, fbb_id })
     }
 
     /// Seeds cookies like the website does. Errors don't matter here.

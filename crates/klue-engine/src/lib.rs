@@ -5,6 +5,7 @@ pub mod demo;
 mod engine;
 pub mod ops;
 pub mod passwords;
+pub mod remote;
 
 pub use engine::{CaptchaRequest, Engine, Snapshot, TICK};
 pub use ops::Op;

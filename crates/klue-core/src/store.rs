@@ -739,6 +739,12 @@ pub struct VaultAccount {
     pub nickname: Option<String>,
 }
 
+impl VaultAccount {
+    pub fn of(a: &Account) -> Self {
+        Self { carrier: a.carrier, line: a.line, number: a.number.clone(), login: a.login.clone(), archived: a.archived, nickname: a.nickname.clone() }
+    }
+}
+
 const INDEX_USER: &str = "accounts";
 
 impl Secrets {
@@ -796,17 +802,7 @@ impl Secrets {
 
     /// Saves the account list in the vault (passwords are separate entries).
     pub fn save_index(&self, accounts: &[Account]) {
-        let list: Vec<VaultAccount> = accounts
-            .iter()
-            .map(|a| VaultAccount {
-                carrier: a.carrier,
-                line: a.line,
-                number: a.number.clone(),
-                login: a.login.clone(),
-                archived: a.archived,
-                nickname: a.nickname.clone(),
-            })
-            .collect();
+        let list: Vec<VaultAccount> = accounts.iter().map(VaultAccount::of).collect();
         if let Ok(json) = serde_json::to_string(&list)
             && let Err(e) = write_entry(INDEX_USER, &json)
         {

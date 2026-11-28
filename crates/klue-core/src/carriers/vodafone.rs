@@ -31,7 +31,7 @@ const HTML_ACCEPT: &str = "text/html,application/xhtml+xml,application/xml;q=0.9
 
 pub async fn fetch(number: &str, password: &str, ctx: &FetchContext<'_>) -> Result<Usage, FetchError> {
     let msisdn = crate::format::normalize(number, LineType::Mobile)?;
-    let client = http::browser_client()?;
+    let client = http::browser_client(crate::Carrier::Vodafone)?;
 
     // Login page.
     let nonce: String = (0..10).map(|_| rand::rng().random_range(b'a'..=b'z') as char).collect();
